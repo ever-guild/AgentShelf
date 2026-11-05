@@ -6,12 +6,27 @@ Early development. PayPal runs in sandbox only.
 
 ## Run locally
 
+You need Node.js 24 and PostgreSQL 17.
+
 ```bash
 npm install
+createdb agentshelf_dev
+cp .env.example .env.local   # then fill in the values
+npm run db:migrate
+npm run db:seed
 npm run dev
 ```
 
 Open http://localhost:3000.
+
+[docs/architecture.md](docs/architecture.md) explains the environment variables, the data model and the service contracts.
+
+## Test
+
+```bash
+npm test            # needs TEST_DATABASE_URL, a Postgres server for temporary test databases
+npm run test:unit   # needs no database
+```
 
 ## Deploy
 

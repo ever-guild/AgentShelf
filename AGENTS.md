@@ -28,7 +28,7 @@ Open source service that makes any small shop buyable by AI agents in 5 minutes,
 ## Stack
 
 - Next.js and TypeScript (App Router, `src/`), Tailwind CSS
-- Postgres (Supabase or Neon, not chosen yet)
+- Postgres on Render, through Drizzle ORM (see [docs/architecture.md](docs/architecture.md))
 - MCP TypeScript SDK over Streamable HTTP
 - `@paypal/agent-toolkit`, PayPal JS SDK v6
 - Claude or OpenAI API (not chosen yet)
@@ -86,11 +86,14 @@ Use these for real, because partner judges will notice superficial use.
 npm run dev    # local server on http://localhost:3000
 npm run lint
 npm run build
+npm test       # needs TEST_DATABASE_URL; npm run test:unit needs no database
+npm run db:migrate
+npm run db:seed
 ```
 
-There is no test suite yet. Run `npm run lint` and `npm run build` before pushing.
+Run `npm run lint`, `npm run build` and `npm test` before pushing. [docs/architecture.md](docs/architecture.md) covers database setup, the rules the data model enforces and the shared service contracts.
 
-- Code goes to `main` through short PRs. Render deploys `main` automatically from `render.yaml`.
+- Commit and push directly to `main`, keeping each commit to one issue. Render deploys `main` automatically from `render.yaml`, so a broken push reaches the deployed app.
 - Each area has one owner: PayPal and backend; MCP and AI search; onboarding and booking; dashboard and submission. Stay inside the area you were asked to work on, and flag changes that reach into another.
 - Scope decisions belong to the team captain, so ask rather than adding features.
 - Write UI text, code, comments and the README in English.
