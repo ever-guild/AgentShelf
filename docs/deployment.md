@@ -6,11 +6,13 @@ How AgentShelf runs on Render, for [#4](https://github.com/ever-guild/AgentShelf
 
 ## Status
 
-Hosting configuration was updated on 5 November 2026, manual recovery deploy [dep-dbmddsh5efls73c8ebkg](https://dashboard.render.com/web/srv-dbm8a6e1egvs73bl8d90/deploys/dep-dbmddsh5efls73c8ebkg) is live at commit [`77ed0664bc708d9642b02419b0e3e01698f40571`](https://github.com/ever-guild/AgentShelf/commit/77ed0664bc708d9642b02419b0e3e01698f40571), automated delivery is still pending verification
+Automated delivery is verified for [commit 3480a27](https://github.com/ever-guild/AgentShelf/commit/3480a271ae2e7159d030da8a37b8ea256481960b): [GitHub Actions run 42095505096](https://github.com/ever-guild/AgentShelf/actions/runs/42095505096) passed validation and deployment, Render deploy [dep-dbmdlv49v7es73cnr5dg](https://dashboard.render.com/web/srv-dbm8a6e1egvs73bl8d90/deploys/dep-dbmdlv49v7es73cnr5dg) became live at 2026-11-05 19:38:44 UTC and the health SHA matched the commit
 
-| Deployed commit | Public URL | Smoke check |
+This is a verified snapshot, later commits have their own checks and deployment records in [issue #31](https://github.com/ever-guild/AgentShelf/issues/31)
+
+| Verified commit | Public URL | Smoke check |
 | --- | --- | --- |
-| [`77ed0664bc708d9642b02419b0e3e01698f40571`](https://github.com/ever-guild/AgentShelf/commit/77ed0664bc708d9642b02419b0e3e01698f40571) | [Demo](https://agentshelf-e5bk.onrender.com) | `/`, `/api/health`, `/api/health/ready`: HTTP 200 |
+| [`3480a271ae2e7159d030da8a37b8ea256481960b`](https://github.com/ever-guild/AgentShelf/commit/3480a271ae2e7159d030da8a37b8ea256481960b) | [Demo](https://agentshelf-e5bk.onrender.com) | `/`, `/api/health`, `/api/health/ready`: HTTP 200; SHA matched |
 
 ## Automatic demo updates
 

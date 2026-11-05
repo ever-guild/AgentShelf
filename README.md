@@ -34,7 +34,11 @@ The connector is an MCP server at `/mcp`. [docs/mcp.md](docs/mcp.md) explains ho
 
 ## Deploy
 
-[`render.yaml`](render.yaml) defines the Render web service and database, and Render deploys `main` automatically. See [docs/deployment.md](docs/deployment.md).
+Live demo: [AgentShelf](https://agentshelf-e5bk.onrender.com)
+
+[`render.yaml`](render.yaml) defines the Render web service and database, pushes to `main` run CI with lint, tests against an isolated PostgreSQL 17 service and a production build on Node.js 24
+
+After CI passes, GitHub Actions calls the Render Deploy Hook for that exact commit and verifies its public health endpoints, see [deployment and verification details](docs/deployment.md) and [deployment issue #31](https://github.com/ever-guild/AgentShelf/issues/31)
 
 ## License
 
