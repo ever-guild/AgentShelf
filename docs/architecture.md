@@ -68,10 +68,13 @@ The Zod schemas in [`src/server/contracts/commerce.ts`](../src/server/contracts/
 
 Services throw a `ServiceError` with a stable code from [`errors.ts`](../src/server/errors.ts). Its message and details are safe to return to a client.
 
+[mcp.md](mcp.md) covers the connector and how to add it to Claude and ChatGPT.
+
 These server pieces already exist for the issues above to build on:
 
+- `createCheckout` is the one checkout entry point for MCP and the storefront. It reports payment as unavailable until [#6](https://github.com/ever-guild/AgentShelf/issues/6) completes it.
 - `quoteCheckout` resolves a cart to authoritative lines, total and recipient, and rejects mixed shops and products that are not on sale.
-- `getPublishedProduct` and `listPublishedProducts` read the public catalog.
+- `searchProducts` matches text across all shops, and `getPublishedProduct` and `listPublishedProducts` read the public catalog.
 - `issueOrderStatusToken` and `verifyOrderStatusToken` provide the order capability. The token is derived with an HMAC, so an idempotent retry returns the same one and none are stored.
 
 ## Seller demo session

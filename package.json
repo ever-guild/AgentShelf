@@ -11,9 +11,11 @@
     "test:unit": "vitest run --exclude '**/*.db.test.ts'",
     "db:generate": "drizzle-kit generate",
     "db:migrate": "tsx --env-file-if-exists=.env.local scripts/db-migrate.ts",
-    "db:seed": "tsx --env-file-if-exists=.env.local scripts/db-seed.ts"
+    "db:seed": "tsx --env-file-if-exists=.env.local scripts/db-seed.ts",
+    "smoke:mcp": "tsx scripts/mcp-smoke.ts"
   },
   "dependencies": {
+    "@modelcontextprotocol/sdk": "1.32.2",
     "drizzle-orm": "^0.45.4",
     "next": "16.4.5",
     "pg": "^8.23.1",

@@ -63,6 +63,7 @@ Put your local `DATABASE_URL` back afterwards. Seeding again resets only the see
 | `APP_SIGNING_SECRET` | Blueprint, generated once | Signs seller sessions and order status tokens |
 | `RENDER_EXTERNAL_URL` | Set by Render | Public origin for PayPal return URLs and the MCP endpoint |
 | `APP_ORIGIN` | Optional, by hand | Overrides the public origin, for a custom domain or local use |
+| `MCP_ALLOWED_ORIGINS` | Optional, by hand | Extra browser origins for the MCP endpoint, comma separated. See [mcp.md](mcp.md#origin-handling) |
 | `NODE_VERSION`, `NEXT_TELEMETRY_DISABLED` | Blueprint | Runtime settings |
 
 PayPal, AI and partner variables are listed in [`.env.example`](../.env.example). Add them to the service in the Dashboard when the code that reads them lands. Render ignores `sync: false` entries added to a blueprint after it was created, so the Dashboard is the one place to set them.
@@ -88,7 +89,13 @@ curl -fsS https://YOUR-SERVICE.onrender.com/api/health
 curl -fsS https://YOUR-SERVICE.onrender.com/api/health/ready
 ```
 
-Rerun this once the MCP and payment routes land.
+Then check the MCP endpoint, which needs the demo data seeded:
+
+```bash
+npm run smoke:mcp -- https://YOUR-SERVICE.onrender.com/mcp
+```
+
+Rerun these once the payment routes land.
 
 ## Logs and restarts
 

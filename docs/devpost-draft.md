@@ -2,7 +2,7 @@
 
 Text for the [PayPal AI Hackathon](https://paypalaihackathon.devpost.com/) entry, for [#7](https://github.com/ever-guild/AgentShelf/issues/7). Before every submission, compare "Status" with the deployed build, so the entry claims only what actually works.
 
-Status last compared with the code on 2026-11-05, at commit `ec64d43`.
+Status last compared with the code on 2026-11-05. The early eligibility entry was submitted that day with the earlier status, so update the entry on Devpost when this section changes.
 
 ## Name
 
@@ -41,21 +41,22 @@ This is an early entry, submitted for the eligibility check. The sections above 
 - A Postgres data model for shops, products, orders, bookings and demand events. The database itself enforces shop ownership, unique PayPal identifiers, immutable order snapshots and non-overlapping bookings.
 - Server-side checkout pricing that takes amounts and the recipient only from stored data, and refuses carts that mix shops.
 - A minimal demo seller session and shared, validated service contracts for the MCP tools.
+- An MCP server over Streamable HTTP with product search across shops, tested with an MCP client against a local build. Its checkout tool validates the cart and reports that payment is not available yet.
 - Automated tests against a real Postgres database. All demo data is synthetic.
 
 **In progress, not working yet:**
 
 - PayPal: sandbox credentials and merchant routing are being verified. No order has been created yet.
-- The MCP server and its connection to Claude and ChatGPT.
+- Deploying the MCP server and connecting it to Claude and ChatGPT, neither of which has been tested.
 - AI catalog extraction, semantic search and insights.
 - The Bryntum booking schedule and the AG Studio seller dashboard.
 - The storefront, the hosted demo and the demo video.
 
 ## Built with
 
-**In the code today:** Next.js, TypeScript, PostgreSQL, Drizzle ORM, Zod.
+**In the code today:** Next.js, TypeScript, PostgreSQL, Drizzle ORM, Zod, MCP TypeScript SDK.
 
-**Planned:** PayPal Orders v2, PayPal Catalog Products, PayPal Agent Toolkit, PayPal JavaScript SDK v6, MCP TypeScript SDK, AG Studio, Bryntum Scheduler, Render, APIMatic Context Plugin. Add each one to the form only when it is really integrated, including the sponsor tool selection.
+**Planned:** PayPal Orders v2, PayPal Catalog Products, PayPal Agent Toolkit, PayPal JavaScript SDK v6, AG Studio, Bryntum Scheduler, Render, APIMatic Context Plugin. Add each one to the form only when it is really integrated, including the sponsor tool selection.
 
 ## Links
 

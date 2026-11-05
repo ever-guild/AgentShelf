@@ -89,6 +89,7 @@ npm run build
 npm test       # needs TEST_DATABASE_URL; npm run test:unit needs no database
 npm run db:migrate
 npm run db:seed
+npm run smoke:mcp -- URL   # checks a running /mcp endpoint
 ```
 
 Run `npm run lint`, `npm run build` and `npm test` before pushing. [docs/architecture.md](docs/architecture.md) covers database setup, the rules the data model enforces and the shared service contracts.

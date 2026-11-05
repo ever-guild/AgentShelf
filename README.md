@@ -28,6 +28,10 @@ npm test            # needs TEST_DATABASE_URL, a Postgres server for temporary t
 npm run test:unit   # needs no database
 ```
 
+## Connect an assistant
+
+The connector is an MCP server at `/mcp`. [docs/mcp.md](docs/mcp.md) explains how to add it to Claude and ChatGPT, and what it can do so far.
+
 ## Deploy
 
 [`render.yaml`](render.yaml) defines the Render web service and database, and Render deploys `main` automatically. See [docs/deployment.md](docs/deployment.md).
