@@ -2,26 +2,28 @@
 
 How AgentShelf runs on Render, for [#4](https://github.com/ever-guild/AgentShelf/issues/4)
 
-[`render.yaml`](../render.yaml) describes the existing AgentShelf web service and its Postgres database in Frankfurt, [CI](../.github/workflows/ci.yml) validates updates to [main](https://github.com/ever-guild/AgentShelf/tree/main) before Render deploys them
+[`render.yaml`](../render.yaml) describes the existing AgentShelf web service and its Postgres database in Frankfurt, [CI](../.github/workflows/ci.yml) validates updates to [main](https://github.com/ever-guild/AgentShelf/tree/main) before a GitHub Actions deploy job triggers Render with the exact commit SHA
 
 ## Status
 
-Hosting configuration was updated on 5 November 2026, publication and automatic deployment still require the live checks below
+Hosting configuration was updated on 5 November 2026, manual recovery deploy [dep-dbmddsh5efls73c8ebkg](https://dashboard.render.com/web/srv-dbm8a6e1egvs73bl8d90/deploys/dep-dbmddsh5efls73c8ebkg) is live at commit [`77ed0664bc708d9642b02419b0e3e01698f40571`](https://github.com/ever-guild/AgentShelf/commit/77ed0664bc708d9642b02419b0e3e01698f40571), automated delivery is still pending verification
 
 | Deployed commit | Public URL | Smoke check |
 | --- | --- | --- |
-| Pending verification | [Demo target](https://agentshelf-e5bk.onrender.com) | Pending |
+| [`77ed0664bc708d9642b02419b0e3e01698f40571`](https://github.com/ever-guild/AgentShelf/commit/77ed0664bc708d9642b02419b0e3e01698f40571) | [Demo](https://agentshelf-e5bk.onrender.com) | `/`, `/api/health`, `/api/health/ready`: HTTP 200 |
 
 ## Automatic demo updates
 
 - Pushes to `main` run lint, the full test suite with a disposable PostgreSQL 17 service, and the production build on Node.js 24
-- Render uses `autoDeployTrigger: checksPass`, a failed or absent CI check prevents automatic publication according to [Render's deployment documentation](https://render.com/docs/deploys#integrating-with-ci)
-- Keep the GitHub integration connected with access to this repository, a service linked only by public Git URL cannot deploy automatically
-- A Git tag records a demo version, it does not deploy or freeze this service, an intentional switch to tag-based releases would require a separate workflow and disabling branch auto-deploys to avoid competing triggers
+- After validation passes, the GitHub Actions deploy job sends a POST request to Render's Deploy Hook using repository secret `RENDER_DEPLOY_HOOK_URL`, following [Render's Deploy Hook documentation](https://render.com/docs/deploy-hooks)
+- The deploy script waits for the Render deploy matching `GITHUB_SHA`, then checks public `/api/health` for that SHA and `/api/health/ready` for database readiness
+- Repository Actions secret `RENDER_DEPLOY_HOOK_URL` is present, keep its value out of chat, documentation and Git, the deploy job verifies that it belongs to the expected service before use
+- Render's native auto-deploy is configured as `autoDeployTrigger: off`, automated delivery is controlled by the GitHub Actions deploy job
+- A Git tag records a demo version, it neither deploys nor freezes this service
 - Record the live commit from `/api/health` and compare it with the successful GitHub Actions commit and Render deploy, do not treat a successful build as proof that a version is live
-- Before freezing the judging version, deliberately disable auto-deploys and record the chosen commit, simply adding a tag does not stop subsequent `main` updates
+- Before freezing the judging version, disable or gate the GitHub Actions deploy job and record the chosen commit, Render's native auto-deploy is already off and a tag alone does not stop Deploy Hook requests
 
-The CI workflow needs no Render credentials and uses only an isolated test database, never the demo database
+The validation job needs no Render credentials and uses only an isolated test database, never the demo database, only the post-validation deploy job receives the hook URL
 
 ## Plan decision needed before judging
 
@@ -42,7 +44,7 @@ The current [web service](https://dashboard.render.com/web/srv-dbm8a6e1egvs73bl8
 
 1. Reuse the existing service and database, do not create another Blueprint stack for the same demo
 2. Keep the Render settings aligned with [render.yaml](../render.yaml), committing this file alone does not update a service that is not managed by a Blueprint
-3. After CI passes, monitor the new Render deploy until its status is `live`, then run the [smoke check](#smoke-check)
+3. After CI passes, the Actions deploy job requests the exact `GITHUB_SHA`; monitor that Render deploy until its status is `live`, then run the [smoke check](#smoke-check)
 4. Seed synthetic demo data once, then verify that a restart preserves it and record the tested commit, public URL and result
 
 If the resources are later imported into a Blueprint, review resource matching, plans and environment variables before applying it, the web service name is case-sensitive in this configuration and must remain `AgentShelf`
@@ -65,12 +67,17 @@ Migrations run in the start command because `preDeployCommand` is only available
 
 ## Seed the demo data
 
-The seed runs from a developer machine, because a free service has no shell. Copy the External Database URL from the Render Dashboard and set these in `.env.local`, then run `npm run db:seed`:
+The production database has external access disabled, so local seeding through its external URL is unavailable. The web service is paid and supports Render SSH, but the attempted SSH connection failed with `Permission denied (publickey)`. Configure the Render SSH public key for the operator before using this command; the demo database is not seeded yet:
 
-- `DATABASE_URL`: the external URL, with `?sslmode=require` added. This path has not been run against Render yet.
+```bash
+render ssh srv-dbm8a6e1egvs73bl8d90 --output text -- -o BatchMode=yes 'npm run db:seed'
+```
+
+Do not enable external database access just to seed. Once SSH access is configured, the seed command uses the internal `DATABASE_URL` and demo credentials from the service environment.
+
 - `DEMO_PHONE_WORKSHOP_PAYPAL_MERCHANT_ID` and `DEMO_PHONE_WORKSHOP_SELLER_CODE`.
 
-Put your local `DATABASE_URL` back afterwards. Seeding again resets only the seed's own rows.
+Seeding again resets only the seed's own rows. Confirm the command succeeds and verify seeded records before treating MCP smoke checks as ready.
 
 ## Environment variables
 
@@ -96,7 +103,7 @@ Neither reveals any configuration. The reason for a failure goes to the server l
 
 ## Smoke check
 
-Replace the host with the service URL. Both should return `200`. Expect up to a minute on a sleeping free service.
+Replace the host with the service URL. Both should return `200`. The current paid web service does not sleep on the free-service schedule.
 
 ```bash
 curl -fsS https://YOUR-SERVICE.onrender.com/api/health

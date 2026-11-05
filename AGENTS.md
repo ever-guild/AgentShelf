@@ -94,7 +94,7 @@ npm run smoke:mcp -- URL   # checks a running /mcp endpoint
 
 Run `npm run lint`, `npm run build` and `npm test` before pushing. [docs/architecture.md](docs/architecture.md) covers database setup, the rules the data model enforces and the shared service contracts.
 
-- Commit and push directly to `main`, keeping each commit to one issue. [CI](.github/workflows/ci.yml) runs lint, the full test suite with an isolated Postgres and the production build, Render deploys `main` after the checks pass according to [render.yaml](render.yaml)
+- Commit and push directly to `main`, keeping each commit to one issue. [CI](.github/workflows/ci.yml) runs lint, the full test suite with an isolated Postgres and the production build; after validation, its deploy job requests Render through a Deploy Hook for the exact commit SHA and checks public health and readiness endpoints. The repository secret `RENDER_DEPLOY_HOOK_URL` must be configured before automated delivery works. Render's native auto-deploy is disabled in [render.yaml](render.yaml); to freeze publishing, disable the GitHub Actions deploy job or its publishing gate as well.
 - Each area has one owner: PayPal and backend; MCP and AI search; onboarding and booking; dashboard and submission. Stay inside the area you were asked to work on, and flag changes that reach into another.
 - Scope decisions belong to the team captain, so ask rather than adding features.
 - Write UI text, code, comments and the README in English.

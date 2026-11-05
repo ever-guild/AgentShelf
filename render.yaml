@@ -6,7 +6,7 @@ services:
     plan: 0.5c-512mb
     region: frankfurt
     branch: main
-    autoDeployTrigger: checksPass
+    autoDeployTrigger: off
     buildCommand: npm ci --include=dev && npm run build
     # Migrations run here because preDeployCommand needs a paid plan. If one fails, the
     # deploy fails and Render keeps serving the previous version. See docs/deployment.md.
