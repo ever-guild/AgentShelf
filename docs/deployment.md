@@ -71,7 +71,7 @@ PayPal, AI and partner variables are listed in [`.env.example`](../.env.example)
 
 | Path | Meaning | Failure |
 | --- | --- | --- |
-| `/api/health` | The process is running. Render uses this one, and it does not touch the database, so a database outage does not restart a working service | No response |
+| `/api/health` | The process is running, and `commit` shows the deployed version. Render uses this one, and it does not touch the database, so a database outage does not restart a working service | No response |
 | `/api/health/ready` | The database is reachable and migrated | `503` after at most about 5 seconds |
 
 Neither reveals any configuration. The reason for a failure goes to the server log.
