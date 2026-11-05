@@ -5,7 +5,7 @@ The decisions and shared contracts that catalog, MCP, checkout and booking all b
 ## Database
 
 - **Engine:** PostgreSQL 17, tested on 17.11. The migrations create the `btree_gist` extension.
-- **Provider:** Render Postgres, because all hosting is already on Render. The code is plain Postgres with no provider-specific features, so moving to Supabase or Neon means changing `DATABASE_URL` and nothing else. The blueprint entry belongs to [#4](https://github.com/ever-guild/AgentShelf/issues/4).
+- **Provider:** Render Postgres, because all hosting is already on Render. The code is plain Postgres with no provider-specific features, so moving to Supabase or Neon means changing `DATABASE_URL` and nothing else. [deployment.md](deployment.md) covers how it runs there.
 - **Access:** [Drizzle ORM](https://orm.drizzle.team) over `pg`. The schema is [`src/server/db/schema.ts`](../src/server/db/schema.ts).
 - **Migrations:** SQL files in [`drizzle/`](../drizzle), generated from the schema with `npm run db:generate` and applied with `npm run db:migrate`. [`0001_invariants.sql`](../drizzle/0001_invariants.sql) is hand-written, for constraints Drizzle cannot express.
 
@@ -30,6 +30,8 @@ Migrating and seeding are safe to repeat. The seed updates its own fixed rows an
 | `DATABASE_URL` | app, `db:migrate`, `db:seed` | Postgres connection string |
 | `TEST_DATABASE_URL` | `npm test` | Connection string for a server where tests may create and drop databases |
 | `APP_SIGNING_SECRET` | app | At least 32 random characters. Signs seller sessions and order status tokens, and changing it invalidates them |
+| `APP_ORIGIN` | app | The public origin, such as `http://localhost:3000` locally. On Render it falls back to `RENDER_EXTERNAL_URL` |
+| `PAYPAL_CLIENT_ID_<REF>`, `PAYPAL_CLIENT_SECRET_<REF>` | app, from [#6](https://github.com/ever-guild/AgentShelf/issues/6) | Sandbox credentials for the shop whose `paypal_credential_ref` is `<REF>`. [#2](https://github.com/ever-guild/AgentShelf/issues/2) may change this once the merchant model is proven |
 | `DEMO_PHONE_WORKSHOP_PAYPAL_MERCHANT_ID` | `db:seed` | Optional. The demo shop's sandbox merchant. Its checkout returns `PAYMENT_NOT_CONFIGURED` until this is set |
 | `DEMO_PHONE_WORKSHOP_SELLER_CODE` | `db:seed` | Optional. The demo shop's seller access code, stored only as a hash. Nobody can sign in until this is set |
 
@@ -50,7 +52,7 @@ Most of these are database constraints, so they hold however a row gets written.
 
 Payment state lives on `orders` and booking state on `bookings`. Instants are stored in UTC, and a shop's IANA timezone (`Europe/Riga` for the demo shop) is used for display.
 
-`shops.paypal_credential_ref` names a credential set held in environment variables and is never the credential itself. It and `shops.paypal_merchant_id` stay on the server, and the variable names follow from the merchant model chosen in [#2](https://github.com/ever-guild/AgentShelf/issues/2).
+`shops.paypal_credential_ref` names a credential set held in environment variables and is never the credential itself. It and `shops.paypal_merchant_id` stay on the server.
 
 ## Service contracts
 

@@ -9,6 +9,11 @@ export function createDb(connectionString: string): {
   db: Db;
   close: () => Promise<void>;
 } {
-  const pool = new Pool({ connectionString, max: 5 });
+  // Without a timeout, a request waits indefinitely when the database cannot be reached.
+  const pool = new Pool({
+    connectionString,
+    max: 5,
+    connectionTimeoutMillis: 5000,
+  });
   return { db: drizzle(pool, { schema }), close: () => pool.end() };
 }

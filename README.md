@@ -30,7 +30,7 @@ npm run test:unit   # needs no database
 
 ## Deploy
 
-[`render.yaml`](render.yaml) defines the Render web service. Render deploys `main` automatically.
+[`render.yaml`](render.yaml) defines the Render web service and database, and Render deploys `main` automatically. See [docs/deployment.md](docs/deployment.md).
 
 ## License
 
