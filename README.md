@@ -32,6 +32,8 @@ npm run test:unit   # needs no database
 
 The connector is an MCP server at `/mcp`. [docs/mcp.md](docs/mcp.md) explains how to add it to Claude and ChatGPT, and what it can do so far.
 
+For PayPal development, follow the [project-scoped agent setup](docs/paypal-agent-setup.md) to install the official PayPal and APIMatic guidance, these skills provide development context and do not enable payments
+
 ## Deploy
 
 Live demo: [AgentShelf](https://agentshelf-e5bk.onrender.com)
