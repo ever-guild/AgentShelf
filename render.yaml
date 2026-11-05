@@ -1,11 +1,12 @@
 services:
   - type: web
-    name: agentshelf
+    name: AgentShelf
     runtime: node
-    plan: free
+    # Matches the existing service, do not create a second web service
+    plan: 0.5c-512mb
     region: frankfurt
     branch: main
-    autoDeployTrigger: commit
+    autoDeployTrigger: checksPass
     buildCommand: npm ci --include=dev && npm run build
     # Migrations run here because preDeployCommand needs a paid plan. If one fails, the
     # deploy fails and Render keeps serving the previous version. See docs/deployment.md.

@@ -1,34 +1,51 @@
 # Deployment
 
-How AgentShelf runs on Render, for [#4](https://github.com/ever-guild/AgentShelf/issues/4). [`render.yaml`](../render.yaml) defines a web service and a Postgres database in Frankfurt, and Render deploys `main` automatically.
+How AgentShelf runs on Render, for [#4](https://github.com/ever-guild/AgentShelf/issues/4)
+
+[`render.yaml`](../render.yaml) describes the existing AgentShelf web service and its Postgres database in Frankfurt, [CI](../.github/workflows/ci.yml) validates updates to [main](https://github.com/ever-guild/AgentShelf/tree/main) before Render deploys them
 
 ## Status
 
-**Not deployed yet.** The behaviour below was checked locally, with the blueprint's start command and a real Postgres, unless it says otherwise.
+Hosting configuration was updated on 5 November 2026, publication and automatic deployment still require the live checks below
 
 | Deployed commit | Public URL | Smoke check |
 | --- | --- | --- |
-| None yet | | |
+| Pending verification | [Demo target](https://agentshelf-e5bk.onrender.com) | Pending |
+
+## Automatic demo updates
+
+- Pushes to `main` run lint, the full test suite with a disposable PostgreSQL 17 service, and the production build on Node.js 24
+- Render uses `autoDeployTrigger: checksPass`, a failed or absent CI check prevents automatic publication according to [Render's deployment documentation](https://render.com/docs/deploys#integrating-with-ci)
+- Keep the GitHub integration connected with access to this repository, a service linked only by public Git URL cannot deploy automatically
+- A Git tag records a demo version, it does not deploy or freeze this service, an intentional switch to tag-based releases would require a separate workflow and disabling branch auto-deploys to avoid competing triggers
+- Record the live commit from `/api/health` and compare it with the successful GitHub Actions commit and Render deploy, do not treat a successful build as proof that a version is live
+- Before freezing the judging version, deliberately disable auto-deploys and record the chosen commit, simply adding a tag does not stop subsequent `main` updates
+
+The CI workflow needs no Render credentials and uses only an isolated test database, never the demo database
 
 ## Plan decision needed before judging
 
-`render.yaml` uses the free plan for both resources. No paid plan is set without the account owner's decision, but the free plan will not last through judging:
+The web service already uses `0.5c-512mb`, this setup preserves its existing plan, the new database uses `free`
 
-| Resource | Free plan limit | Paid plan to move to |
+| Resource | Current state | Follow-up |
 | --- | --- | --- |
-| Postgres | Expires 30 days after creation, and is deleted 14 days later unless upgraded. No backups, 1 GB | `0.1c-256mb`, $6 per month |
-| Web service | Sleeps after 15 idle minutes and takes about a minute to wake, so a first MCP request or PayPal webhook may time out | `0.5c-512mb`, $7 per month |
+| Postgres | Free instance expires on 5 December 2026 | Obtain the owner's decision on a paid plan before expiry and confirm coverage through judging |
+| Web service | Existing `0.5c-512mb` instance | Keep this plan unless the owner requests a change |
 
-Organisers ask teams to keep the demo, test credentials, trials and credits active until winners are announced on Dec 21. They also ask teams not to edit the repository after the Nov 12 deadline, so change the `plan` values and push **before Nov 12**. The $50 hackathon credit covers both plans until Dec 21. [integrations.md](integrations.md) explains how to claim it.
+Confirm the current [free database limits](https://render.com/docs/free#free-render-postgres) and [pricing](https://render.com/pricing) before upgrading, claimed hackathon credits and their remaining balance must be verified in the workspace, [integrations.md](integrations.md) explains how to claim them
 
 A Hobby workspace allows one team member, so one person holds the Render account unless the workspace moves to Pro.
 
-## First deploy
+## Existing deployment
 
-1. In the Render Dashboard, create a Blueprint from this repository. Render creates the service and the database and generates `APP_SIGNING_SECRET`.
-2. Run the [smoke check](#smoke-check).
-3. Seed the demo data once, as described [below](#seed-the-demo-data).
-4. Fill in the status table above with the commit, URL and result.
+The current [web service](https://dashboard.render.com/web/srv-dbm8a6e1egvs73bl8d90) was created before this Blueprint, its settings are managed through Render directly, automatic Blueprint synchronization has not been configured
+
+1. Reuse the existing service and database, do not create another Blueprint stack for the same demo
+2. Keep the Render settings aligned with [render.yaml](../render.yaml), committing this file alone does not update a service that is not managed by a Blueprint
+3. After CI passes, monitor the new Render deploy until its status is `live`, then run the [smoke check](#smoke-check)
+4. Seed synthetic demo data once, then verify that a restart preserves it and record the tested commit, public URL and result
+
+If the resources are later imported into a Blueprint, review resource matching, plans and environment variables before applying it, the web service name is case-sensitive in this configuration and must remain `AgentShelf`
 
 To check a change to the blueprint first, run the following. It needs `render login` and `render workspace set`.
 
@@ -59,12 +76,12 @@ Put your local `DATABASE_URL` back afterwards. Seeding again resets only the see
 
 | Variable | Source | Purpose |
 | --- | --- | --- |
-| `DATABASE_URL` | Blueprint, from the database | Private network connection string |
-| `APP_SIGNING_SECRET` | Blueprint, generated once | Signs seller sessions and order status tokens |
+| `DATABASE_URL` | Service secret, internal Render Postgres URL | Private network connection string, never commit its value |
+| `APP_SIGNING_SECRET` | Service secret, generated once | Signs seller sessions and order status tokens, preserve it across redeploys |
 | `RENDER_EXTERNAL_URL` | Set by Render | Public origin for PayPal return URLs and the MCP endpoint |
 | `APP_ORIGIN` | Optional, by hand | Overrides the public origin, for a custom domain or local use |
 | `MCP_ALLOWED_ORIGINS` | Optional, by hand | Extra browser origins for the MCP endpoint, comma separated. See [mcp.md](mcp.md#origin-handling) |
-| `NODE_VERSION`, `NEXT_TELEMETRY_DISABLED` | Blueprint | Runtime settings |
+| `NODE_VERSION`, `NEXT_TELEMETRY_DISABLED` | Service settings mirrored in the Blueprint | Runtime settings |
 
 PayPal, AI and partner variables are listed in [`.env.example`](../.env.example). Add them to the service in the Dashboard when the code that reads them lands. Render ignores `sync: false` entries added to a blueprint after it was created, so the Dashboard is the one place to set them.
 
