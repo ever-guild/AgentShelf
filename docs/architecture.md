@@ -211,6 +211,7 @@ A buyer's assistant holds a technician's time and the buyer pays a deposit in Pa
 | Code | When | What the caller does |
 | --- | --- | --- |
 | `SLOT_UNAVAILABLE` | The time is taken, or the slot is no longer one the service and windows offer | Calls `get_slots` again |
+| `HOLD_LIMIT_REACHED` | Too many new holds came from this caller in 15 minutes | Tries again in a few minutes |
 | `BOOKING_HOLD_ENDED` | A repeat of a key whose hold has expired or been cancelled | Calls `get_slots` again and uses a new key |
 | `PRODUCT_NOT_FOUND` | No published service with this ID, or it belongs to another shop | Searches again |
 
@@ -232,7 +233,9 @@ A buyer's assistant holds a technician's time and the buyer pays a deposit in Pa
 
 A view of what occupies the calendar filters on `blocksTime`. `depositCaptureId` is for the seller, and `get_order_status` leaves it out. A booking confirmed and later refunded at PayPal stays `confirmed` with `paymentStatus: "review_required"`, so a view should show both.
 
-**Known limit:** the connector has no sign-in, so an assistant can hold free slots with new keys, each for 15 minutes, and each creates a PayPal order. Nothing limits that yet.
+**Limits on an anonymous caller:** the connector has no sign-in, so [`caller-limits.ts`](../src/server/mcp/caller-limits.ts) allows one address 20 new holds and 60 searches recorded as demand per 15 minutes. A retry of a stored key does not count, and a search past its limit is still answered. There is deliberately no limit per shop, because that would let one caller stop a shop taking bookings with a handful of holds.
+
+**Known limits:** the counts are in the web process and are per address. All of one assistant provider's buyers can share an address, and a caller that forges its address on a route the edge does not overwrite escapes them, so they slow abuse and do not end it.
 
 ## Schedule
 

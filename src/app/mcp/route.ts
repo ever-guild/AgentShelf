@@ -1,6 +1,7 @@
 import { WebStandardStreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js";
 
 import { getDb } from "@/server/db";
+import { callerOf, limitsFor } from "@/server/mcp/caller-limits";
 import { isAllowedMcpOrigin } from "@/server/mcp/origin";
 import { createMcpServer } from "@/server/mcp/server";
 
@@ -17,7 +18,7 @@ export async function POST(request: Request) {
     return new Response("Forbidden", { status: 403 });
   }
 
-  const server = createMcpServer(getDb());
+  const server = createMcpServer(getDb(), undefined, limitsFor(callerOf(request)));
   const transport = new WebStandardStreamableHTTPServerTransport({
     sessionIdGenerator: undefined,
     enableJsonResponse: true,

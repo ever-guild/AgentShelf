@@ -21,6 +21,7 @@ import { bookSlot, defaultBookingDeps, getSlots } from "../services/bookings";
 import { searchProducts } from "../services/catalog";
 import { createCheckout, type CheckoutDeps } from "../services/checkout";
 import { getOrderStatus } from "../services/order-status";
+import type { CallerLimits } from "./caller-limits";
 
 const INSTRUCTIONS = `AgentShelf is one connector to many small shops. Find products with search_products, then use create_checkout to get a PayPal approval link.
 A service such as a repair is booked instead: find a free time with get_slots, then use book_slot, which holds it for a short time and returns a PayPal approval link for the deposit. The rest of the price is paid at the shop.
@@ -60,7 +61,11 @@ async function toolResult(
 
 // Tools take every price, total and recipient from stored data, and their strict input schemas
 // reject those values if a model sends them. No tool can reach seller credentials.
-export function createMcpServer(db: Db, checkoutDeps?: CheckoutDeps): McpServer {
+export function createMcpServer(
+  db: Db,
+  checkoutDeps?: CheckoutDeps,
+  limits?: CallerLimits,
+): McpServer {
   const server = new McpServer(
     { name: "agentshelf", version: "0.1.0" },
     { instructions: INSTRUCTIONS },
@@ -82,7 +87,10 @@ export function createMcpServer(db: Db, checkoutDeps?: CheckoutDeps): McpServer 
         openWorldHint: false,
       },
     },
-    (input) => toolResult(() => searchProducts(db, input)),
+    (input) =>
+      toolResult(() =>
+        searchProducts(db, input, { recordDemand: limits?.recordSearch() ?? true }),
+      ),
   );
 
   server.registerTool(
@@ -128,7 +136,7 @@ export function createMcpServer(db: Db, checkoutDeps?: CheckoutDeps): McpServer 
     {
       title: "Book slot",
       description:
-        "Hold a slot from get_slots and create a PayPal sandbox order for the service's deposit. The buyer must open the approval link and confirm in PayPal before expiresAt, because after that the time is released and the deposit is not taken. This tool never charges anything, and the booking is pending until the deposit is verified. remainingMinor is what is left to pay at the shop. Send a random idempotencyKey, such as a UUID, and reuse it only to retry the same request. SLOT_UNAVAILABLE means someone else has this time, so call get_slots again. After PAYMENT_TIMEOUT or PAYMENT_UNAVAILABLE, retry with the same key, which cannot create a second booking.",
+        "Hold a slot from get_slots and create a PayPal sandbox order for the service's deposit. The buyer must open the approval link and confirm in PayPal before expiresAt, because after that the time is released and the deposit is not taken. This tool never charges anything, and the booking is pending until the deposit is verified. remainingMinor is what is left to pay at the shop. Send a random idempotencyKey, such as a UUID, and reuse it only to retry the same request. SLOT_UNAVAILABLE means someone else has this time, so call get_slots again. HOLD_LIMIT_REACHED means too many new holds came from this connection, so try again in a few minutes. After PAYMENT_TIMEOUT or PAYMENT_UNAVAILABLE, retry with the same key, which cannot create a second booking.",
       inputSchema: bookSlotInput,
       outputSchema: bookSlotResult,
       annotations: {
@@ -141,7 +149,11 @@ export function createMcpServer(db: Db, checkoutDeps?: CheckoutDeps): McpServer 
     },
     (input) =>
       toolResult(() =>
-        bookSlot(db, input, { ...defaultBookingDeps, ...checkoutDeps }),
+        bookSlot(db, input, {
+          ...defaultBookingDeps,
+          ...checkoutDeps,
+          allowNewHold: limits?.newHold,
+        }),
       ),
   );
 

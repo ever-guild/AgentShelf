@@ -17,6 +17,7 @@ import {
   seedDemoData,
 } from "../db/seed";
 import { createPayPalProvider } from "../paypal/orders";
+import { createCallerCounter } from "./caller-limits";
 import { createMcpServer } from "./server";
 
 const getDb = setupMigratedDatabase();
@@ -139,6 +140,48 @@ describe("booking a repair", () => {
         }),
       ),
     ).toBe("SLOT_UNAVAILABLE");
+  });
+
+  it("limits new holds per caller, and still answers a retry of one it made", async () => {
+    await seedWithMerchant();
+    const paypalFor = createPayPalProvider(
+      {
+        PAYPAL_CLIENT_ID_DEMO_PHONE_WORKSHOP: "test-client-id",
+        PAYPAL_CLIENT_SECRET_DEMO_PHONE_WORKSHOP: "test-client-secret",
+      },
+      paypal.adapter,
+    );
+    const newHold = createCallerCounter(1);
+    const [clientSide, serverSide] = InMemoryTransport.createLinkedPair();
+    await createMcpServer(
+      getDb(),
+      { paypalFor },
+      { newHold: () => newHold("one caller"), recordSearch: () => true },
+    ).connect(serverSide);
+    const limited = new Client({ name: "test", version: "0.0.0" });
+    await limited.connect(clientSide);
+    const hold = async (key: string) =>
+      limited.callTool({
+        name: "book_slot",
+        arguments: {
+          slotId: (await firstSlot()).slotId,
+          serviceId: DEMO_SERVICE_ID,
+          idempotencyKey: key,
+        },
+      });
+
+    const slot = await firstSlot();
+    const args = { slotId: slot.slotId, serviceId: DEMO_SERVICE_ID, idempotencyKey };
+    const first = await limited.callTool({ name: "book_slot", arguments: args });
+    expect(first.isError).toBeFalsy();
+    const repeat = await limited.callTool({ name: "book_slot", arguments: args });
+    expect(repeat.structuredContent).toEqual(first.structuredContent);
+
+    const refused = await hold("7c1a2f7e-4f7b-4a9c-9a41-0f4f7f0f1a12");
+    expect(errorCode(refused)).toBe("HOLD_LIMIT_REACHED");
+    expect(paypal.createRequests()).toHaveLength(1);
+    await expect(getDb().select({ value: count() }).from(orders)).resolves.toEqual([{ value: 1 }]);
+    await limited.close();
   });
 
   it("answers a shop with no PayPal set up with a stable code", async () => {
