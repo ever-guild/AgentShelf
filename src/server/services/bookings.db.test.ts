@@ -31,9 +31,13 @@ import {
   bookings,
   orderLines,
   orders,
+  paypalMerchantConnections,
   products,
+  sellerOwners,
+  shopMemberships,
   technicianWindows,
 } from "../db/schema";
+import { createPayPalProvider } from "../paypal/orders";
 import { BOOKING_POLICY } from "../domain/booking-policy";
 import { encodeSlotId } from "../domain/slots";
 import { ServiceError, type ServiceErrorCode } from "../errors";
@@ -287,6 +291,66 @@ describe("get_slots", () => {
 });
 
 describe("book_slot", () => {
+  it("uses the current consented seller mapping and snapshots platform routing for a deposit", async () => {
+    const { shop, service, technician } = await createWorkshop(getDb(), {
+      paypalCredentialRef: "PAYPAL_PLATFORM",
+      paypalMerchantId: "STALE_LEGACY_SELLER",
+    });
+    const ownerId = randomUUID();
+    const trackingId = "verified-tracking-id-1234567890-abcdefghijklmno";
+    const sellerMerchantId = "CONNECTEDSELLER123";
+    const now = MONDAY_MORNING;
+    await getDb().insert(sellerOwners).values({
+      id: ownerId,
+      username: `owner-${randomUUID().slice(0, 8)}`,
+      passwordHash: `scrypt$16384$8$1$${"A".repeat(22)}$${"B".repeat(43)}`,
+    });
+    await getDb().insert(shopMemberships).values({ ownerId, shopId: shop.id });
+    await getDb().insert(paypalMerchantConnections).values({
+      shopId: shop.id,
+      consentedByOwnerId: ownerId,
+      shareDataConsentAt: now,
+      status: "ready",
+      trackingId,
+      requestKeyHash: "2".repeat(64),
+      sellerMerchantId,
+      statusEvidence: {
+        merchantId: sellerMerchantId,
+        trackingId,
+        paymentsReceivable: true,
+        primaryEmailConfirmed: true,
+        consentGranted: true,
+        activeProducts: ["EXPRESS_CHECKOUT"],
+        grantedScopes: ["https://uri.paypal.com/services/payments/payment/authcapture"],
+      },
+      createdAt: now,
+      updatedAt: now,
+    });
+
+    harness.bookingDeps.paypalFor = createPayPalProvider({
+      PAYPAL_PLATFORM_CLIENT_ID: "sandbox-platform-client-id",
+      PAYPAL_PLATFORM_CLIENT_SECRET: "sandbox-platform-client-secret",
+      PAYPAL_PARTNER_ATTRIBUTION_ID: "AGENT_SHELF_BN_CODE",
+    }, harness.paypal.adapter);
+    const slotId = await slotAt(getDb(), harness, { shop, service, technician }, NOON_SLOT);
+    const held = await book(getDb(), harness, slotId, service.id);
+    const order = await readOrder(getDb(), held.orderId);
+
+    expect(order).toMatchObject({
+      payeeMerchantId: sellerMerchantId,
+      paypalCredentialRef: "PAYPAL_PLATFORM",
+    });
+    const [request] = harness.paypal.createRequests();
+    const [unit] = harness.paypal.bodyOf(request).purchase_units;
+    expect(unit.payee.merchant_id).toBe(sellerMerchantId);
+    const expectedAssertion = `${Buffer.from(JSON.stringify({ alg: "none" })).toString("base64")}.${Buffer.from(JSON.stringify({ iss: "sandbox-platform-client-id", payer_id: sellerMerchantId })).toString("base64")}.`;
+    expect(request.headers).toMatchObject({
+      "PayPal-Partner-Attribution-Id": "AGENT_SHELF_BN_CODE",
+      "PayPal-Auth-Assertion": expectedAssertion,
+    });
+    expect(harness.paypal.captureRequests()).toHaveLength(0);
+  });
+
   it("holds the slot, states the money and takes none of it", async () => {
     const { held, service, technician, paypalOrderId } = await holdNoon();
 
