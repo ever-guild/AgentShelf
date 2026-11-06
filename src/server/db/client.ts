@@ -15,5 +15,10 @@ export function createDb(connectionString: string): {
     max: 5,
     connectionTimeoutMillis: 5000,
   });
+  // The server can end an idle connection at any time, as a restart does. The pool drops it and
+  // connects again on the next query, and without a listener this event is an uncaught exception.
+  pool.on("error", (error: Error & { code?: string }) => {
+    console.error("Database connection lost", { code: error.code ?? error.name });
+  });
   return { db: drizzle(pool, { schema }), close: () => pool.end() };
 }
