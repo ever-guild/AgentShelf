@@ -19,6 +19,7 @@
     "smoke:booking": "tsx scripts/booking-smoke.ts",
     "smoke:import": "node --env-file-if-exists=.env.local --import tsx scripts/import-smoke.ts",
     "paypal:preflight": "node --env-file-if-exists=.env.local scripts/paypal-preflight.mjs",
+    "paypal:platform-preflight": "node --env-file-if-exists=.env.local scripts/paypal-platform-preflight.mjs",
     "paypal:proof": "node --env-file-if-exists=.env.local --import tsx scripts/paypal-proof.ts"
   },
   "dependencies": {
