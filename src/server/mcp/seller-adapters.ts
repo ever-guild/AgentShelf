@@ -62,7 +62,7 @@ export function createSellerAgentServices(input: {
       }
       return scope === "connect_paypal" ? { ...principal, shareDataConsent: true as const } : principal;
     },
-    shopIdFromRequest: () => input.shopId,
+    ...(input.shopId ? { shopIdFromRequest: () => input.shopId } : {}),
     grantTokenFromRequest: input.grantTokenFromRequest,
     imports: {
       start: async (principal, file) => {
