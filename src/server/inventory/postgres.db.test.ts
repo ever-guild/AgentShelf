@@ -1,6 +1,3 @@
-import { readFile } from "node:fs/promises";
-import { resolve } from "node:path";
-
 import { Pool } from "pg";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 
@@ -37,8 +34,6 @@ describe("inventory Postgres module", () => {
     db = connection.db;
     pool = new Pool({ connectionString: temporary.url });
     stockAdapter = createSellerInventoryAdapter(pool);
-    const draft = await readFile(resolve(process.cwd(), "drizzle/inventory-module-draft.sql"), "utf8");
-    await pool.query(draft);
   });
 
   beforeEach(async () => {

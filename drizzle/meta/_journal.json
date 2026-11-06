@@ -92,6 +92,13 @@
       "when": 1793979882538,
       "tag": "0012_paypal_merchant_connections",
       "breakpoints": true
+    },
+    {
+      "idx": 13,
+      "version": "7",
+      "when": 1793979900638,
+      "tag": "0013_inventory_stock_reservations",
+      "breakpoints": true
     }
   ]
 }

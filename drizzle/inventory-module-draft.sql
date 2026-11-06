@@ -1,4 +1,4 @@
--- Standalone draft for #36. Do not apply until merged into the repository migration chain.
+-- Review draft for #36. Do not apply until merged into the repository migration chain.
 -- A missing row means inventory policy is undecided and checkout must fail closed.
 CREATE TABLE inventory_stock (
   shop_id uuid NOT NULL REFERENCES shops(id) ON DELETE CASCADE,
@@ -42,6 +42,15 @@ CREATE TABLE inventory_reservation_lines (
   FOREIGN KEY (reservation_id, shop_id) REFERENCES inventory_reservations(id, shop_id) ON DELETE CASCADE,
   FOREIGN KEY (shop_id, product_id) REFERENCES inventory_stock(shop_id, product_id)
 );
+
+-- Checkout creates a reservation before persisting the local order. The order insert links the
+-- already-known reservation in the same transaction. Booking deposits and legacy orders stay NULL.
+ALTER TABLE orders ADD COLUMN inventory_reservation_id uuid;
+ALTER TABLE orders ADD CONSTRAINT orders_inventory_reservation_shop_fk
+  FOREIGN KEY (inventory_reservation_id, shop_id)
+  REFERENCES inventory_reservations(id, shop_id) ON DELETE RESTRICT;
+CREATE UNIQUE INDEX orders_inventory_reservation_id_unique
+  ON orders (inventory_reservation_id) WHERE inventory_reservation_id IS NOT NULL;
 
 CREATE TABLE inventory_adjustments (
   shop_id uuid NOT NULL REFERENCES shops(id) ON DELETE CASCADE,

@@ -1,5 +1,6 @@
 import { sql } from "drizzle-orm";
 import {
+  bigint,
   boolean,
   check,
   customType,
@@ -281,6 +282,149 @@ export const technicianWindows = pgTable(
   ],
 );
 
+// Physical stock and reservation rows are separate from booking capacity. A missing stock row
+// means the seller has not made an inventory decision yet.
+export const inventoryStock = pgTable(
+  "inventory_stock",
+  {
+    shopId: uuid("shop_id")
+      .notNull()
+      .references(() => shops.id, { onDelete: "cascade" }),
+    productId: uuid("product_id").notNull(),
+    mode: text("mode").notNull(),
+    onHand: integer("on_hand"),
+    reserved: integer("reserved").notNull().default(0),
+    version: integer("version").notNull().default(0),
+    updatedAt: updatedAt(),
+  },
+  (t) => [
+    primaryKey({ columns: [t.shopId, t.productId] }),
+    foreignKey({
+      columns: [t.productId, t.shopId],
+      foreignColumns: [products.id, products.shopId],
+    }).onDelete("cascade"),
+    check("inventory_stock_mode", sql`${t.mode} IN ('tracked', 'untracked')`),
+    check("inventory_stock_reserved", sql`${t.reserved} BETWEEN 0 AND 1000000`),
+    check("inventory_stock_version", sql`${t.version} >= 0`),
+    check(
+      "inventory_stock_quantities",
+      sql`(${t.mode} = 'tracked' AND ${t.onHand} IS NOT NULL AND ${t.onHand} >= ${t.reserved} AND ${t.onHand} <= 1000000) OR
+        (${t.mode} = 'untracked' AND ${t.onHand} IS NULL AND ${t.reserved} = 0)`,
+    ),
+  ],
+);
+
+export const inventoryReservations = pgTable(
+  "inventory_reservations",
+  {
+    id: uuid("id").primaryKey(),
+    shopId: uuid("shop_id")
+      .notNull()
+      .references(() => shops.id, { onDelete: "cascade" }),
+    idempotencyKey: text("idempotency_key").notNull(),
+    requestHash: text("request_hash").notNull(),
+    state: text("state").notNull(),
+    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+    captureId: text("capture_id").unique(),
+    releaseReason: text("release_reason"),
+    createdAt: createdAt(),
+    updatedAt: updatedAt(),
+  },
+  (t) => [
+    unique("inventory_reservations_shop_idempotency_key_unique").on(
+      t.shopId,
+      t.idempotencyKey,
+    ),
+    unique("inventory_reservations_id_shop_id_unique").on(t.id, t.shopId),
+    index("inventory_reservations_expiry_idx")
+      .on(t.expiresAt)
+      .where(sql`${t.state} = 'reserved'`),
+    check(
+      "inventory_reservations_idempotency_key_length",
+      sql`length(${t.idempotencyKey}) BETWEEN 16 AND 128`,
+    ),
+    check("inventory_reservations_request_hash_length", sql`length(${t.requestHash}) = 64`),
+    check(
+      "inventory_reservations_state",
+      sql`${t.state} IN ('reserved', 'capture_pending', 'committed', 'released', 'review_required')`,
+    ),
+    check(
+      "inventory_reservations_committed_capture",
+      sql`(${t.state} = 'committed' AND ${t.captureId} IS NOT NULL) OR ${t.state} <> 'committed'`,
+    ),
+    check(
+      "inventory_reservations_released_reason",
+      sql`${t.state} <> 'released' OR ${t.releaseReason} IS NOT NULL`,
+    ),
+  ],
+);
+
+export const inventoryReservationLines = pgTable(
+  "inventory_reservation_lines",
+  {
+    reservationId: uuid("reservation_id").notNull(),
+    shopId: uuid("shop_id").notNull(),
+    productId: uuid("product_id").notNull(),
+    quantity: integer("quantity").notNull(),
+  },
+  (t) => [
+    primaryKey({ columns: [t.reservationId, t.productId] }),
+    foreignKey({
+      columns: [t.reservationId, t.shopId],
+      foreignColumns: [inventoryReservations.id, inventoryReservations.shopId],
+    }).onDelete("cascade"),
+    foreignKey({
+      columns: [t.shopId, t.productId],
+      foreignColumns: [inventoryStock.shopId, inventoryStock.productId],
+    }),
+    check("inventory_reservation_lines_quantity_positive", sql`${t.quantity} > 0`),
+  ],
+);
+
+export const inventoryAdjustments = pgTable(
+  "inventory_adjustments",
+  {
+    shopId: uuid("shop_id")
+      .notNull()
+      .references(() => shops.id, { onDelete: "cascade" }),
+    idempotencyKey: text("idempotency_key").notNull(),
+    requestHash: text("request_hash").notNull(),
+    resultVersion: integer("result_version").notNull(),
+    createdAt: createdAt(),
+  },
+  (t) => [
+    primaryKey({ columns: [t.shopId, t.idempotencyKey] }),
+    check(
+      "inventory_adjustments_idempotency_key_length",
+      sql`length(${t.idempotencyKey}) BETWEEN 16 AND 128`,
+    ),
+    check("inventory_adjustments_request_hash_length", sql`length(${t.requestHash}) = 64`),
+    check("inventory_adjustments_result_version", sql`${t.resultVersion} >= 0`),
+  ],
+);
+
+export const inventoryAudit = pgTable(
+  "inventory_audit",
+  {
+    id: bigint("id", { mode: "number" }).primaryKey().generatedAlwaysAsIdentity(),
+    shopId: uuid("shop_id").notNull(),
+    productId: uuid("product_id").notNull(),
+    actorId: uuid("actor_id").notNull(),
+    eventType: text("event_type").notNull(),
+    quantityDelta: integer("quantity_delta"),
+    reason: text("reason").notNull(),
+    idempotencyKey: text("idempotency_key").notNull(),
+    versionAfter: integer("version_after").notNull(),
+    createdAt: createdAt(),
+  },
+  (t) => [
+    unique("inventory_audit_shop_idempotency_key_unique").on(t.shopId, t.idempotencyKey),
+    check("inventory_audit_event_type", sql`${t.eventType} IN ('mode_set', 'adjusted')`),
+    check("inventory_audit_reason_length", sql`length(${t.reason}) BETWEEN 3 AND 500`),
+    check("inventory_audit_version_after", sql`${t.versionAfter} >= 0`),
+  ],
+);
+
 export const orders = pgTable(
   "orders",
   {
@@ -300,6 +444,7 @@ export const orders = pgTable(
     payeeMerchantId: text("payee_merchant_id").notNull(),
     paypalOrderId: text("paypal_order_id").unique(),
     paypalCaptureId: text("paypal_capture_id").unique(),
+    inventoryReservationId: uuid("inventory_reservation_id"),
     approvalUrl: text("approval_url"),
     // When the sweep last asked PayPal about this order, so it can back off. Not order state.
     lastCheckedAt: timestamp("last_checked_at", { withTimezone: true }),
@@ -309,6 +454,14 @@ export const orders = pgTable(
   (t) => [
     unique("orders_id_shop_id_unique").on(t.id, t.shopId),
     unique("orders_id_paypal_capture_id_unique").on(t.id, t.paypalCaptureId),
+    foreignKey({
+      name: "orders_inventory_reservation_shop_fk",
+      columns: [t.inventoryReservationId, t.shopId],
+      foreignColumns: [inventoryReservations.id, inventoryReservations.shopId],
+    }).onDelete("restrict"),
+    uniqueIndex("orders_inventory_reservation_id_unique")
+      .on(t.inventoryReservationId)
+      .where(sql`${t.inventoryReservationId} IS NOT NULL`),
     index("orders_shop_id_created_at_idx").on(t.shopId, t.createdAt),
     check("orders_currency_format", sql`${t.currency} ~ '^[A-Z]{3}$'`),
     check("orders_total_positive", sql`${t.totalMinor} > 0`),
