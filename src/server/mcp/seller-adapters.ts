@@ -12,6 +12,7 @@ import { defaultImportDeps } from "../services/import-start";
 import { getSellerCatalog, updateCatalogProduct, publishImport, defaultCatalogDeps } from "../services/seller-catalog";
 import { readStock, adjustInventory, setInventoryMode } from "../inventory/postgres";
 import type { SellerAgentServices } from "./seller-server";
+import { createMerchantConnectionRuntime } from "../paypal/merchant-connection-runtime";
 
 const REVIEW_PATH = "/seller/imports";
 
@@ -24,6 +25,11 @@ export function createSellerAgentServices(input: {
   paypalConnection?: SellerAgentServices["paypalConnection"];
 }): SellerAgentServices {
   const { db } = input;
+  const merchantConnection = input.paypalConnection ?? createMerchantConnectionRuntime({
+    pool: poolFor(db),
+    identityStore: input.identity,
+    env: { ...process.env, APP_ORIGIN: publicOrigin() },
+  }).service;
   const shopFor = async (shopId: string) => {
     const [shop] = await db.select({ id: shops.id, currency: shops.currency }).from(shops).where(eq(shops.id, shopId));
     if (!shop) throw Object.assign(new Error("The seller shop could not be found."), { code: "UNAUTHORIZED" });
@@ -112,7 +118,9 @@ export function createSellerAgentServices(input: {
         ? { mode: "tracked", onHand: request.onHand!, idempotencyKey: request.idempotencyKey, reason: request.reason }
         : { mode: "untracked", idempotencyKey: request.idempotencyKey, reason: request.reason }),
     },
-    ...(input.paypalConnection ? { paypalConnection: input.paypalConnection } : {}),
+    paypalConnection: {
+      start: (principal, request) => merchantConnection.start(principal, request),
+    },
   };
 }
 
