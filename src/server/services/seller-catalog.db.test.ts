@@ -352,8 +352,29 @@ describe("the PayPal Catalog record", () => {
 
     expect(answer).toMatchObject({ remaining: 0, stopped: false });
     const glass = await productNamed(shop.id, "Tempered glass");
+    const cable = await productNamed(shop.id, "USB-C cable");
     const repair = await productNamed(shop.id, "Screen repair");
     const requests = paypal.catalogCreateRequests();
+    const records = requests.map((request) => paypal.bodyOf(request));
+    expect(records).toEqual(expect.arrayContaining([
+      {
+        id: catalogRecordId(glass.id),
+        name: "Tempered glass",
+        type: "PHYSICAL",
+        description: "9H glass for iPhone 13",
+      },
+      {
+        id: catalogRecordId(cable.id),
+        name: "USB-C cable",
+        type: "PHYSICAL",
+      },
+      {
+        id: catalogRecordId(repair.id),
+        name: "Screen repair",
+        type: "SERVICE",
+        description: "Same day",
+      },
+    ]));
     const toGlass = requests.find((request) => paypal.requestIdOf(request) === glass.id);
     expect(paypal.bodyOf(toGlass!)).toEqual({
       id: catalogRecordId(glass.id),
@@ -363,7 +384,18 @@ describe("the PayPal Catalog record", () => {
     });
     const toRepair = requests.find((request) => paypal.requestIdOf(request) === repair.id);
     expect(paypal.bodyOf(toRepair!)).toMatchObject({ type: "SERVICE" });
-    expect(JSON.stringify(requests.map((request) => request.data))).not.toMatch(/price|990|deposit/i);
+    const recordKeys = ["description", "id", "name", "type"];
+    for (const body of records) {
+      expect(Object.keys(body).sort()).toEqual(
+        Object.keys(body).filter((key) => recordKeys.includes(key)).sort(),
+      );
+      expect(body).not.toHaveProperty("price");
+      expect(body).not.toHaveProperty("priceMinor");
+      expect(body).not.toHaveProperty("unit_amount");
+      expect(body).not.toHaveProperty("deposit");
+      expect(body).not.toHaveProperty("depositMinor");
+      expect(body).not.toHaveProperty("stock");
+    }
 
     expect(glass).toMatchObject({
       paypalSyncStatus: "synced",
