@@ -19,7 +19,7 @@ The schemas are in [`src/server/contracts/commerce.ts`](../src/server/contracts/
 
 | Tool | Kind | State |
 | --- | --- | --- |
-| `search_products` | Read-only | Works, with deterministic text matching. Every meaningful word of the query must appear in the product or shop text. [#10](https://github.com/ever-guild/AgentShelf/issues/10) adds semantic matching and demand events |
+| `search_products` | Read-only for the caller | Works across all shops, in English, Latvian and Russian, with deterministic matching and no model call. Records each search as demand, and reports `matching.mode`. See [Search](architecture.md#search) |
 | `create_checkout` | Write | Creates a PayPal sandbox order from the stored cart and returns its approval link, which is not payment. It returns `PAYMENT_NOT_CONFIGURED` for a shop without sandbox credentials, which is every shop until [#33](https://github.com/ever-guild/AgentShelf/issues/33) provides them. [architecture.md](architecture.md#checkout) lists its errors and when to retry |
 | `get_slots` | Read-only | Lists free appointment times for a service, with exact instants, the shop's timezone and the technician. At most 100 per answer, and `truncated` says when there are more |
 | `book_slot` | Write | Holds a slot for 15 minutes and creates a PayPal sandbox order for the service's deposit, and returns its approval link, which is not payment. The booking is confirmed only after a verified capture. It returns `PAYMENT_NOT_CONFIGURED` until [#33](https://github.com/ever-guild/AgentShelf/issues/33) provides credentials. [architecture.md](architecture.md#booking) lists its states and errors |

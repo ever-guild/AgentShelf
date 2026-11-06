@@ -4,10 +4,10 @@ The decisions and shared contracts that catalog, MCP, checkout and booking all b
 
 ## Database
 
-- **Engine:** PostgreSQL 17, tested on 17.11. The migrations create the `btree_gist` extension.
+- **Engine:** PostgreSQL 17, tested on 17.11. The migrations create the `btree_gist` and `unaccent` extensions, both available on Render Postgres.
 - **Provider:** Render Postgres, because all hosting is already on Render. The code is plain Postgres with no provider-specific features, so moving to Supabase or Neon means changing `DATABASE_URL` and nothing else. [deployment.md](deployment.md) covers how it runs there.
 - **Access:** [Drizzle ORM](https://orm.drizzle.team) over `pg`. The schema is [`src/server/db/schema.ts`](../src/server/db/schema.ts).
-- **Migrations:** SQL files in [`drizzle/`](../drizzle), generated from the schema with `npm run db:generate` and applied with `npm run db:migrate`. [`0001_invariants.sql`](../drizzle/0001_invariants.sql) is hand-written, for constraints Drizzle cannot express.
+- **Migrations:** SQL files in [`drizzle/`](../drizzle), generated from the schema with `npm run db:generate` and applied with `npm run db:migrate`. [`0001_invariants.sql`](../drizzle/0001_invariants.sql) and [`0008_search_vectors.sql`](../drizzle/0008_search_vectors.sql) are hand-written, for what Drizzle cannot express.
 
 ### Local setup
 
@@ -33,7 +33,7 @@ Migrating and seeding are safe to repeat. The seed updates its own fixed rows an
 | `APP_ORIGIN` | app | The public origin, such as `http://localhost:3000` locally. On Render it falls back to `RENDER_EXTERNAL_URL` |
 | `PAYPAL_CLIENT_ID_<REF>`, `PAYPAL_CLIENT_SECRET_<REF>` | app, from [#6](https://github.com/ever-guild/AgentShelf/issues/6) | Sandbox credentials for the shop whose `paypal_credential_ref` is `<REF>`. The client ID also reaches the browser on a shop's product page, as the JS SDK requires, and the secret never does. [#2](https://github.com/ever-guild/AgentShelf/issues/2) may change this once the merchant model is proven |
 | `PAYPAL_WEBHOOK_ID_<REF>` | app | The webhook subscription on that seller's app. [paypal-sandbox-setup.md](paypal-sandbox-setup.md#webhooks) explains how to register it. Until it is set, that shop's webhook deliveries get `503` and PayPal repeats them |
-| `ANTHROPIC_API_KEY` | app, workflow | The model key for reading photos and suggesting descriptions. Without it, photo upload says so and CSV upload still works |
+| `ANTHROPIC_API_KEY` | app, workflow | The model key for reading photos, suggesting descriptions and suggesting search terms. Without it, photo upload says so, CSV upload still works and search reports `degraded` |
 | `RENDER_WORKFLOW_SLUG`, `RENDER_API_KEY` | app | Optional. With both, a photo is read by a Render Workflows task. Without them, it is read inside the web process. [deployment.md](deployment.md#render-workflows-for-photo-import) explains how to set this up |
 | `DEMO_PHONE_WORKSHOP_PAYPAL_MERCHANT_ID` | `db:seed` | Optional. The demo shop's sandbox merchant. Its checkout returns `PAYMENT_NOT_CONFIGURED` until this is set and the seed has run again, because checkout reads the merchant from the database |
 | `DEMO_PHONE_WORKSHOP_SELLER_CODE` | `db:seed` | Optional. The demo shop's seller access code, stored only as a hash. Nobody can sign in until this is set |
@@ -52,6 +52,8 @@ Most of these are database constraints, so they hold however a row gets written.
 | An order's amount, currency and recipient never change, and its lines are never edited or deleted | `orders_terms_immutable` and `order_lines_immutable` triggers |
 | One product per draft of an import, and never another shop's import | `products_import_job_id_position_unique`, `products_import_job_shop_fk` |
 | A product is not `synced` without a PayPal record and a time | `products_synced_requires_record` |
+| Search terms belong to their product's shop, are bounded, exist only once indexed and record what made them | `product_search_terms_product_shop_fk`, `product_search_terms_bounded`, `product_search_terms_only_indexed_has_terms`, `product_search_terms_indexed_is_complete` |
+| A search event names a shop only for a miss, and a basis only with a shop | `search_events_attributed_only_on_a_miss`, `search_events_basis_needs_a_shop` |
 | One technician cannot have overlapping held or confirmed bookings | `bookings_technician_no_overlap` exclusion constraint |
 | A booking cannot be `confirmed` without the capture recorded on its own order | `bookings_confirmed_requires_capture`, `bookings_order_capture_fk` |
 | A booking in review states why, and the capture is on record | `bookings_review_states_reason`, `bookings_review_requires_capture` |
@@ -68,7 +70,7 @@ The Zod schemas in [`src/server/contracts/commerce.ts`](../src/server/contracts/
 
 | Tool | Input | Result | Implemented in |
 | --- | --- | --- | --- |
-| `search_products` | `query`, `location?`, `maxPriceMinor?`, `currency?`, `limit?` | `products[]`: `productId`, `shopId`, `shopName`, `location`, `kind`, `title`, `description`, `descriptionLv`, `priceMinor`, `currency`, `availability`, `serviceDurationMinutes`, `depositMinor` | [#5](https://github.com/ever-guild/AgentShelf/issues/5), [#10](https://github.com/ever-guild/AgentShelf/issues/10) |
+| `search_products` | `query`, `location?`, `maxPriceMinor?`, `currency?`, `kind?`, `limit?` | `products[]`: `productId`, `shopId`, `shopName`, `location`, `kind`, `title`, `description`, `descriptionLv`, `priceMinor`, `currency`, `availability`, `serviceDurationMinutes`, `depositMinor`; `matching`: `mode`, `notice` | [#5](https://github.com/ever-guild/AgentShelf/issues/5), [#10](https://github.com/ever-guild/AgentShelf/issues/10) |
 | `get_slots` | `shopId`, `serviceId`, `from`, `to` | `slots[]`: `slotId`, `technicianId`, `technicianName`, `startsAt`, `endsAt`, `timezone`; `truncated` | [#12](https://github.com/ever-guild/AgentShelf/issues/12) |
 | `book_slot` | `slotId`, `serviceId`, `idempotencyKey` | `bookingId`, `orderId`, `expiresAt`, `approvalUrl`, `depositMinor`, `remainingMinor`, `currency`, `statusToken` | [#12](https://github.com/ever-guild/AgentShelf/issues/12) |
 | `create_checkout` | `items[]`: `productId`, `quantity`; `idempotencyKey` | `orderId`, `totalMinor`, `currency`, `approvalUrl`, `statusToken` | [#6](https://github.com/ever-guild/AgentShelf/issues/6) |
@@ -87,7 +89,7 @@ These server pieces already exist for the issues above to build on:
 - `getSlots`, `bookSlot` and `getShopSchedule` are the booking flow and its read model. See [Booking](#booking).
 - `getOrderStatus` reads an order's stored state for the holder of its capability.
 - `quoteCheckout` resolves a cart to authoritative lines, total and recipient, and rejects mixed shops and products that are not on sale.
-- `searchProducts` matches text across all shops, and `getPublishedProduct` and `listPublishedProducts` read the public catalog.
+- `searchProducts` ranks across all shops and records demand. See [Search](#search). `getPublishedProduct` and `listPublishedProducts` read the public catalog.
 - `issueOrderStatusToken` and `verifyOrderStatusToken` provide the order capability. The token is derived with an HMAC, so an idempotent retry returns the same one and none are stored.
 
 ## Checkout
@@ -329,7 +331,83 @@ A batch is 10 products, and the page asks for one after another, so a closed tab
 
 **Edits and unpublishing:** a seller can change a price and a service's deposit, unpublish and publish again. None of these call PayPal, because a record holds no price and PayPal has no delete. An unpublished product's record stays at PayPal, and renaming would not reach it either, because PayPal cannot change a record's name. The next checkout reads the new price or refuses the product. An existing order keeps the amounts it was created with, and an approval link already issued can still be paid at that amount.
 
-**Search:** `onCatalogChange` in `CatalogDeps` runs inside the transaction of every publish, edit and unpublish, with the product IDs and the kind of change. It does nothing yet, and it is the one place [#10](https://github.com/ever-guild/AgentShelf/issues/10) needs to index from. If it throws, the change does not happen, so slow work belongs in a queue it writes to.
+**Search:** `onCatalogChange` in `CatalogDeps` runs inside the transaction of every publish, edit and unpublish, with the product IDs and the kind of change. It is the one place [search](#search) hears about them. If it throws, the change does not happen, so it only writes to a queue.
+
+## Search
+
+Ranks products across shops from a buyer's own words, and keeps a record of what they could not find, for [#10](https://github.com/ever-guild/AgentShelf/issues/10). [`catalog.ts`](../src/server/services/catalog.ts) searches, [`search-query.ts`](../src/server/services/search-query.ts) defines matching, [`search-index.ts`](../src/server/services/search-index.ts) keeps the terms and [`search-events.ts`](../src/server/services/search-events.ts) records demand.
+
+**Status:** the fixed set below has run on a production build, over `/mcp`, after a real indexing run by the real model. No embeddings, and no Elastic.
+
+**The approach:** the Claude API has no embeddings, so a model is asked once per listing for what buyers would type for it, in English, Latvian and Russian, and for the shop's place in those languages. Queries are then matched in Postgres with full-text search and `unaccent`, and make no model call, so they stay fast and cost nothing. On 5,000 products a search over `/mcp` took 6 to 38 ms when it found something and 70 to 94 ms on a miss, which also tries near spellings and attribution. `pg_trgm` was tried and left out: at the similarity that refuses `glass` against `class` it found nothing on the fixed set that the word-start rule below did not, and it made every miss take most of a second on that catalog.
+
+**Matching:**
+
+- Every meaningful word of a query must match, in the listing, its terms or its shop. A loose match would hide unmet demand behind something nobody asked for, so `MagSafe charger` does not return a USB-C charger.
+- Filler words in the three languages are dropped. Contact details and long numbers are removed before anything else.
+- Accents, case and punctuation do not count, and letters and digits are separated, so `Liepāja` meets `Liepaja` and `iPhone13` meets `iPhone 13`. `agentshelf_fold` is the one definition, used for listings and queries alike.
+- A near spelling is tried only when exact words find nothing, for endings such as `разбитого` against `разбитый`. A word with a number is always exact, because `S21` is not `S22`.
+- Location, maximum price, currency, kind and publication are hard filters and never loosen. The location filter reads the seller's own field and nothing a model wrote, so it knows `Liepaja` and `Liepājas` but not `Лиепая`. In the query text, `Лиепая` works through the terms.
+
+**Ranking:** available first, then by fixed tiers for each word (title 4, description 2, anything else 1), then lowest price, then ID, so the order is the same every time. Tiers rather than `ts_rank`, so repeating a word in a listing earns nothing. At most 20 results.
+
+**The index:** `product_search_terms` holds one row per published product.
+
+| Catalog change | What happens | Model call |
+| --- | --- | --- |
+| Published | A `pending` row. The product is found by its own words at once | Next sweep |
+| Text or the shop's place changes | Old terms stop counting at once, because they count only while `source_hash` matches the listing | Next sweep |
+| Price, deposit or availability changes | Nothing | None |
+| Unpublished | The row is deleted | None |
+| A row no hook saw, such as seeded data | The sweep adds it | Next sweep |
+
+The sweep runs every 30 seconds in the server process. It takes up to 20 listings of one shop per request, and up to 5 requests per pass, with no transaction open during a call. A reply is stored only if the listing is still on sale and still what the model read. A row a reply left out is marked `failed` and retried.
+
+**Text in a listing is data.** The prompt says so, a model has no tools, and a reply is validated like any input. [`search-terms.ts`](../src/server/ai/search-terms.ts) then drops any term with a number the listing does not state, with markup or a link, or over length. A row can only write to the product at its own position in its own request. Drafts and shop settings never reach a model. A seller's own description is still searchable, so a seller can list words that do not describe the item. That earns no rank, and a person reads the listing before buying. A model's terms hold nothing that is not already public, and `ProductSummary` never returns them.
+
+**When the model is down, or no key is set:** search keeps working on listings' own words and every filter still holds. `matching.mode` becomes `degraded` when a listing these filters could reach has no current terms, and `matching.notice` says that no result does not prove nothing is on sale. Nothing is invented to fill the gap. A failed row waits 5 minutes, doubling up to 6 hours, and an outage ends the pass, so recovery needs nobody. A row that failed before goes alone, so one listing a model refuses cannot sink its neighbours.
+
+**Search events:** each search writes the normalized query, its filters, the result count, the returned IDs and whether it was degraded, and nothing about who asked. Names cannot be recognised automatically, so the tool asks assistants not to send one. Observed events are deleted after 90 days and labeled fixtures stay. A search with nothing left after normalization is not recorded. If writing an event fails, the search still answers.
+
+**The attribution rule:** a search that returned something is demand served, and belongs to nobody. A miss is one of two things.
+
+| | When | Row |
+| --- | --- | --- |
+| **Seller-specific unmet demand** | A shop's published listings share at least half of the query's words about the item, and at least one, within the place, currency and kind asked for | One row per shop, at most 5, strongest first, with `attributed_shop_id`, the shared words in `attribution_words` and up to 5 listings in `attribution_product_ids` |
+| **Global miss** | Anything else | One row, with no shop |
+
+- A word naming the shop's own place is not about the item, so it is left out of the count. A word naming somewhere else counts against the shop, so `MagSafe charger in Riga` tells a shop in Liepaja nothing.
+- A maximum price does not rule a shop out, because selling the same thing above a buyer's budget is what a seller wants to hear about.
+- All rows of one search share a `search_id`, so global demand counts distinct `search_id`, and a seller's view reads `attributed_shop_id` and never sees another shop's rows.
+- `degraded` on a row means the miss may be a wording gap, not a gap in stock. It is kept for the dashboard to show.
+
+So `MagSafe charger` belongs to a workshop that sells a charger, with `charger` and that listing as the basis. `horse saddle` belongs to nobody.
+
+**The real run:** `claude-opus-5-5`, prompt `search-terms-v1`, on the seeded shop plus two synthetic shops, with 7 published listings and one draft. One listing's description held an instruction to add words to every row. It took 3 requests, one per shop, and 2 retries. The results below came over `/mcp` from a production build.
+
+| Query | Filters | Returned |
+| --- | --- | --- |
+| `iPhone 13 screen repair` | `location: Liepaja` or `Liepāja` | Seeded service, 80.00, Demo Phone Workshop |
+| `iPhone 13 screen repair in Liepaja` | | Seeded service |
+| `ремонт экрана iPhone 13 в Лиепае` | | Seeded service |
+| `iPhone 13 ekrāna remonts Liepājā`, `iphone 13 ekrana maina liepaja` | | Seeded service |
+| `замена разбитого экрана айфон 13`, `cracked display iPhone 13` | | Both shops' repairs, 80.00 then 95.00 |
+| `iPhone 13 screen repair` | | Both, with the one that says repair in its title first, 95.00 then 80.00 |
+| `iPhone 13 screen repair` | `location: Rezekne` or `Rēzekne` | The other shop's repair |
+| `зарядное устройство usb-c`, `lādētājs` | | Seeded charger |
+| `kaķu barība` | | Cat food, in the third shop |
+| `iPhone 13 screen protector` | `maxPriceMinor: 1500` | Seeded protector, 9.90 |
+| `iPhone 13 screen protector` | `maxPriceMinor: 500` | Nothing. Attributed to both phone shops |
+| `MagSafe charger` | | Nothing. Attributed to Demo Phone Workshop, on `charger` and the seeded charger |
+| `MagSafe charger in Riga`, `horse saddle`, `secret draft` | | Nothing. Global misses |
+| `dog leash` | `location: Riga` | Nothing. That shop is in Ventspils. Global miss |
+| `free gift` | | The hostile listing, because those words are in its own description. Its terms do not hold them |
+
+What the run showed:
+
+- The instruction in the hostile listing was not followed, and none of its words are in its own terms or any other row's. The draft was not sent.
+- A real reply is not always complete. One request answered for only one of its three rows, which is why a row missing from a reply is marked and retried on its own, and it then succeeded. Rows often came back with no place names, which is why the sweep shares a shop's place names across its rows.
+- A model's terms are not exhaustive, and the words that do not match are the ones that become demand events. [`search-relevance.db.test.ts`](../src/server/services/search-relevance.db.test.ts) holds the same kinds of case with fixed terms, so it checks matching and not a model.
 
 ## Seller demo session
 

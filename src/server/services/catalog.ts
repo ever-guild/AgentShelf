@@ -1,6 +1,6 @@
 import "server-only";
 
-import { and, asc, desc, eq, like, lte, sql, type SQLWrapper } from "drizzle-orm";
+import { and, asc, desc, eq, isNull, lte } from "drizzle-orm";
 
 import {
   getPublishedProductInput,
@@ -9,8 +9,18 @@ import {
   type ProductSummary,
 } from "../contracts/commerce";
 import type { Db } from "../db/client";
-import { products, shops } from "../db/schema";
+import { productSearchTerms, products, shops } from "../db/schema";
 import { ServiceError, parseInput } from "../errors";
+import { recordSearch, type SearchFilters } from "./search-events";
+import {
+  currentTerms,
+  inLocation,
+  matchesAnywhere,
+  nearSpellingCouldHelp,
+  readQuery,
+  relevance,
+  type ReadQuery,
+} from "./search-query";
 
 // An explicit list, so a new shop or product column is private until someone adds it here.
 const summaryColumns = {
@@ -92,73 +102,106 @@ export async function getPublishedProduct(
   return toSummary(row);
 }
 
-// Deterministic text matching across all shops: every meaningful word of the query must
-// appear in the product or shop text. Words only ever hold letters and digits, so they
-// cannot act as LIKE wildcards. Latvian letters are folded on both sides, so "Liepāja" and
-// "Liepaja" match each other.
-const STOP_WORDS = new Set(
-  "a an and at for from in near of on the to with".split(" "),
-);
-const MAX_SEARCH_WORDS = 12;
-const FOLD_FROM = "āčēģīķļņšūž";
-const FOLD_TO = "acegiklnsuz";
+const DEGRADED_NOTICE =
+  "Some listings have no search terms yet, so they can only be found by the words in their own text. A different wording may find more, and no result does not prove that nothing is on sale.";
 
-function foldLatin(text: string): string {
-  return text
-    .toLowerCase()
-    .replace(/[āčēģīķļņšūž]/g, (letter) => FOLD_TO[FOLD_FROM.indexOf(letter)]);
-}
-
-function foldedColumn(expression: SQLWrapper) {
-  return sql`translate(lower(${expression}), ${FOLD_FROM}, ${FOLD_TO})`;
-}
-
-function searchWords(text: string): string[] {
-  const words = foldLatin(text)
-    .split(/[^\p{L}\p{N}]+/u)
-    .filter(Boolean);
-  const meaningful = words.filter((word) => !STOP_WORDS.has(word));
-  return (meaningful.length > 0 ? meaningful : words).slice(0, MAX_SEARCH_WORDS);
-}
-
-export async function searchProducts(
-  db: Db,
-  rawInput: unknown,
-): Promise<{ products: ProductSummary[] }> {
-  const input = parseInput(searchProductsInput, rawInput);
-  const queryWords = searchWords(input.query);
-  const locationWords = input.location ? searchWords(input.location) : [];
-  if (queryWords.length === 0 || (input.location && locationWords.length === 0)) {
-    return { products: [] };
-  }
-
-  const searchable = foldedColumn(
-    sql`concat_ws(' ', ${products.title}, ${products.description}, ${products.descriptionLv}, ${shops.name}, ${shops.location})`,
+function hardFilters(query: ReadQuery, filters: SearchFilters, near: boolean) {
+  return and(
+    eq(products.status, "published"),
+    inLocation(query.locationWords, near),
+    filters.maxPriceMinor === undefined
+      ? undefined
+      : lte(products.priceMinor, filters.maxPriceMinor),
+    filters.currency ? eq(shops.currency, filters.currency) : undefined,
+    filters.kind ? eq(products.kind, filters.kind) : undefined,
   );
-  const location = foldedColumn(sql`coalesce(${shops.location}, '')`);
-  const title = foldedColumn(products.title);
+}
 
+async function findProducts(
+  db: Db,
+  query: ReadQuery,
+  filters: SearchFilters,
+  limit: number,
+  near: boolean,
+): Promise<ProductSummary[]> {
   const rows = await db
     .select(summaryColumns)
     .from(products)
     .innerJoin(shops, eq(products.shopId, shops.id))
+    .leftJoin(productSearchTerms, currentTerms)
     .where(
       and(
-        eq(products.status, "published"),
-        ...queryWords.map((word) => like(searchable, `%${word}%`)),
-        ...locationWords.map((word) => like(location, `%${word}%`)),
-        input.maxPriceMinor === undefined
-          ? undefined
-          : lte(products.priceMinor, input.maxPriceMinor),
-        input.currency ? eq(shops.currency, input.currency) : undefined,
+        hardFilters(query, filters, near),
+        ...query.words.map((word) => matchesAnywhere(word, near)),
       ),
     )
     .orderBy(
       asc(products.availability),
-      desc(sql`${and(...queryWords.map((word) => like(title, `%${word}%`)))}`),
+      desc(relevance(query.words)),
       asc(products.priceMinor),
       asc(products.id),
     )
-    .limit(input.limit);
-  return { products: rows.map(toSummary) };
+    .limit(limit);
+  return rows.map(toSummary);
+}
+
+// Whether a listing these filters could reach is matching on its own words alone.
+async function isDegraded(
+  db: Db,
+  query: ReadQuery,
+  filters: SearchFilters,
+  near: boolean,
+): Promise<boolean> {
+  const rows = await db
+    .select({ id: products.id })
+    .from(products)
+    .innerJoin(shops, eq(products.shopId, shops.id))
+    .leftJoin(productSearchTerms, currentTerms)
+    .where(and(hardFilters(query, filters, near), isNull(productSearchTerms.productId)))
+    .limit(1);
+  return rows.length > 0;
+}
+
+// Ranks across all shops with no model call. Every meaningful word has to match, in a listing, its
+// model-suggested terms or its shop, because a loose match would hide unmet demand behind something
+// the buyer did not ask for. A near spelling is tried only when exact words find nothing. Hard
+// filters never loosen.
+export async function searchProducts(
+  db: Db,
+  rawInput: unknown,
+): Promise<{
+  products: ProductSummary[];
+  matching: { mode: "full" | "degraded"; notice: string | null };
+}> {
+  const input = parseInput(searchProductsInput, rawInput);
+  const query = await readQuery(db, input);
+  const filters: SearchFilters = {
+    maxPriceMinor: input.maxPriceMinor,
+    currency: input.currency,
+    kind: input.kind,
+  };
+
+  let found: ProductSummary[] = [];
+  let near = false;
+  if (query.words.length > 0 && !query.locationUnreadable) {
+    found = await findProducts(db, query, filters, input.limit, false);
+    if (found.length === 0 && nearSpellingCouldHelp(query)) {
+      near = true;
+      found = await findProducts(db, query, filters, input.limit, true);
+    }
+  }
+
+  const degraded = await isDegraded(db, query, filters, near);
+  await recordSearch(db, {
+    query,
+    filters,
+    matchedProductIds: found.map((product) => product.productId),
+    degraded,
+  });
+  return {
+    products: found,
+    matching: degraded
+      ? { mode: "degraded", notice: DEGRADED_NOTICE }
+      : { mode: "full", notice: null },
+  };
 }

@@ -20,6 +20,7 @@ import {
   importJobs,
   orderLines,
   orders,
+  productSearchTerms,
   products,
   searchEvents,
   webhookReceipts,
@@ -637,5 +638,92 @@ describe("value formats", () => {
           .values({ queryNormalized: "x".repeat(201), resultCount: 0 }),
       ),
     ).toBe("search_events_query_length");
+  });
+
+  it("attributes a search event to a shop only for a miss", async () => {
+    const shop = await createShop(getDb());
+    expect(
+      await violatedConstraint(
+        getDb()
+          .insert(searchEvents)
+          .values({ queryNormalized: "x", resultCount: 1, attributedShopId: shop.id }),
+      ),
+    ).toBe("search_events_attributed_only_on_a_miss");
+    expect(
+      await violatedConstraint(
+        getDb()
+          .insert(searchEvents)
+          .values({ queryNormalized: "x", resultCount: 0, attributionWords: ["x"] }),
+      ),
+    ).toBe("search_events_basis_needs_a_shop");
+  });
+});
+
+describe("search terms", () => {
+  it("cannot sit under another shop", async () => {
+    const [shopA, shopB] = await twoShops();
+    const product = await createProduct(getDb(), shopA.id);
+    expect(
+      await violatedConstraint(
+        getDb()
+          .insert(productSearchTerms)
+          .values({ productId: product.id, shopId: shopB.id }),
+      ),
+    ).toBe("product_search_terms_product_shop_fk");
+  });
+
+  it("are not indexed without a record of what made them", async () => {
+    const shop = await createShop(getDb());
+    const product = await createProduct(getDb(), shop.id);
+    expect(
+      await violatedConstraint(
+        getDb()
+          .insert(productSearchTerms)
+          .values({ productId: product.id, shopId: shop.id, status: "indexed" }),
+      ),
+    ).toBe("product_search_terms_indexed_is_complete");
+  });
+
+  it("do not exist on a row that is not indexed, so they can never match", async () => {
+    const shop = await createShop(getDb());
+    const product = await createProduct(getDb(), shop.id);
+    expect(
+      await violatedConstraint(
+        getDb()
+          .insert(productSearchTerms)
+          .values({ productId: product.id, shopId: shop.id, terms: ["x"] }),
+      ),
+    ).toBe("product_search_terms_only_indexed_has_terms");
+  });
+
+  it("are bounded", async () => {
+    const shop = await createShop(getDb());
+    const product = await createProduct(getDb(), shop.id);
+    expect(
+      await violatedConstraint(
+        getDb()
+          .insert(productSearchTerms)
+          .values({
+            productId: product.id,
+            shopId: shop.id,
+            status: "indexed",
+            sourceHash: "h",
+            model: "m",
+            promptVersion: "p",
+            indexedAt: new Date(),
+            terms: Array.from({ length: 61 }, (_, index) => `t${index}`),
+          }),
+      ),
+    ).toBe("product_search_terms_bounded");
+  });
+
+  it("go when their product goes", async () => {
+    const shop = await createShop(getDb());
+    const product = await createProduct(getDb(), shop.id);
+    await getDb()
+      .insert(productSearchTerms)
+      .values({ productId: product.id, shopId: shop.id });
+    await getDb().delete(products).where(eq(products.id, product.id));
+    expect(await getDb().select().from(productSearchTerms)).toEqual([]);
   });
 });

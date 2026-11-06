@@ -58,6 +58,19 @@ export const descriptionSuggestions = z.strictObject({
   ),
 });
 
+// Lengths and counts are checked term by term afterwards, so one bad term costs itself, not the reply.
+export const searchTermsReply = z.strictObject({
+  rows: z.array(
+    z.strictObject({
+      position: z.number(),
+      english: z.array(z.string()),
+      latvian: z.array(z.string()),
+      russian: z.array(z.string()),
+      places: z.array(z.string()),
+    }),
+  ),
+});
+
 const editableText = (max: number) =>
   z
     .string()

@@ -50,7 +50,7 @@ describe("a clean database", () => {
       { n: 1 },
     ]);
     expect(await connection.db.select({ n: count() }).from(products)).toEqual([
-      { n: 2 },
+      { n: 3 },
     ]);
     expect(await connection.db.select({ n: count() }).from(technicians)).toEqual([
       { n: 2 },

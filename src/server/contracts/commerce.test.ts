@@ -87,6 +87,7 @@ describe("search_products input", () => {
     { query: "x", maxPriceMinor: 12.5 },
     { query: "x", maxPriceMinor: -1 },
     { query: "x", currency: "eur" },
+    { query: "x", kind: "bundle" },
     { query: "x", shopCredential: "anything" },
   ])("rejects %j", (input) => {
     expect(searchProductsInput.safeParse(input).success).toBe(false);

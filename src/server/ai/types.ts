@@ -35,6 +35,35 @@ export type ImportAi = {
   suggestDescriptions(rows: readonly SuggestionFacts[]): Promise<SuggestionReading>;
 };
 
+// A published listing's public text and nothing else, since a draft must never reach a model.
+export type SearchTermFacts = {
+  position: number;
+  title: string;
+  kind: "product" | "service";
+  description: string | null;
+  descriptionLv: string | null;
+  location: string | null;
+};
+
+export type SuggestedSearchTerms = {
+  position: number;
+  english: string[];
+  latvian: string[];
+  russian: string[];
+  places: string[];
+};
+
+export type SearchTermsReading = {
+  rows: SuggestedSearchTerms[];
+  model: string;
+  promptVersion: string;
+  usage: AiUsage;
+};
+
+export type SearchAi = {
+  suggestSearchTerms(rows: readonly SearchTermFacts[]): Promise<SearchTermsReading>;
+};
+
 export type AiFailureCode =
   | "PROVIDER_UNAVAILABLE"
   | "PROVIDER_REJECTED"

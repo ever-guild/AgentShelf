@@ -263,10 +263,28 @@ describe("search_products", () => {
     expect(JSON.stringify(result)).not.toContain("PRIVATE");
   });
 
+  it("takes a kind filter, and tells a client when matching is degraded", async () => {
+    await seedDemoData(getDb(), {});
+    const result = await call("search_products", {
+      query: "iPhone 13 screen",
+      kind: "service",
+    });
+    const { products, matching } = result.structuredContent as {
+      products: { kind: string }[];
+      matching: { mode: string; notice: string };
+    };
+    expect(products.map((product) => product.kind)).toEqual(["service"]);
+    expect(matching.mode).toBe("degraded");
+    expect(matching.notice).toMatch(/does not prove|no result/);
+  });
+
   it("answers a search with no match as an empty result, not an error", async () => {
     const result = await call("search_products", { query: "MagSafe charger" });
     expect(result.isError).toBeFalsy();
-    expect(result.structuredContent).toEqual({ products: [] });
+    expect(result.structuredContent).toEqual({
+      products: [],
+      matching: { mode: "full", notice: null },
+    });
   });
 
   it.each([

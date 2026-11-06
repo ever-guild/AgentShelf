@@ -27,6 +27,7 @@ import {
 } from "../paypal/orders";
 import { getImport, type SellerShop } from "./imports";
 import type { Tx } from "./payment-reconciliation";
+import { queueSearchIndexing } from "./search-index";
 
 // Publication and the seller's catalog. A product is discoverable once it is `published` here. The
 // PayPal Catalog record is a separate per-product state with its own retry, because Orders v2 does
@@ -45,15 +46,15 @@ export type CatalogChange = {
 
 export type CatalogDeps = {
   paypalFor: PayPalProvider;
-  // Runs inside the transaction of every change to what buyers can find, so this is the one place a
-  // search index hears about them. It does nothing yet. If it throws, the change does not happen, so
-  // anything slow, such as asking for an embedding, belongs in a queue it writes to.
+  // Runs inside the transaction of every change to what buyers can find, so this is the one place
+  // the search index hears about them. If it throws, the change does not happen, so it only writes
+  // to a queue, and a model is asked later.
   onCatalogChange: (tx: Tx, change: CatalogChange) => Promise<void>;
 };
 
 export const defaultCatalogDeps: CatalogDeps = {
   paypalFor,
-  onCatalogChange: async () => {},
+  onCatalogChange: queueSearchIndexing,
 };
 
 type ProductRecord = typeof products.$inferSelect;

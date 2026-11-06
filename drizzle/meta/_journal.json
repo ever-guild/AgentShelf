@@ -50,6 +50,20 @@
       "when": 1793967025286,
       "tag": "0006_booking_invariants",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1793968403767,
+      "tag": "0007_search_index",
+      "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1793968404391,
+      "tag": "0008_search_vectors",
+      "breakpoints": true
     }
   ]
 }

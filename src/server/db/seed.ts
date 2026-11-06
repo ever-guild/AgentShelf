@@ -7,6 +7,7 @@ import { products, shops, technicians, technicianWindows } from "./schema";
 export const DEMO_SHOP_ID = "10000000-0000-4000-8000-000000000001";
 export const DEMO_PRODUCT_ID = "20000000-0000-4000-8000-000000000001";
 export const DEMO_SERVICE_ID = "20000000-0000-4000-8000-000000000002";
+export const DEMO_CHARGER_ID = "20000000-0000-4000-8000-000000000003";
 export const DEMO_TECHNICIAN_IDS = [
   "30000000-0000-4000-8000-000000000001",
   "30000000-0000-4000-8000-000000000002",
@@ -54,10 +55,21 @@ export async function seedDemoData(
     status: "published",
     title: "iPhone 13 screen replacement",
     description:
-      "Synthetic demo listing. Screen replacement for iPhone 13, done at the workshop while you wait.",
+      "Synthetic demo listing. Screen repair for iPhone 13: a cracked screen replaced at the workshop while you wait.",
     priceMinor: 8000,
     serviceDurationMinutes: 60,
     depositMinor: 2000,
+    availability: "available",
+  } as const;
+
+  // Selling a charger is what makes a missing MagSafe charger this shop's unmet demand.
+  const charger = {
+    shopId: DEMO_SHOP_ID,
+    kind: "product",
+    status: "published",
+    title: "USB-C wall charger",
+    description: "Synthetic demo listing. Wall charger with one USB-C port.",
+    priceMinor: 1490,
     availability: "available",
   } as const;
 
@@ -104,6 +116,10 @@ export async function seedDemoData(
       .insert(products)
       .values({ id: DEMO_SERVICE_ID, ...service })
       .onConflictDoUpdate({ target: products.id, set: service });
+    await tx
+      .insert(products)
+      .values({ id: DEMO_CHARGER_ID, ...charger })
+      .onConflictDoUpdate({ target: products.id, set: charger });
     for (const person of staff) {
       await tx
         .insert(technicians)

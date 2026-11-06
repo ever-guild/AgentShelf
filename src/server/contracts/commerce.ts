@@ -70,10 +70,17 @@ export const searchProductsInput = z.strictObject({
   location: z.string().trim().min(1).max(100).optional(),
   maxPriceMinor: minorAmount.optional(),
   currency: currencyCode.optional(),
+  kind: productKindValue.optional(),
   limit: z.int().min(1).max(MAX_SEARCH_RESULTS).default(10),
 });
 export const searchProductsResult = z.strictObject({
   products: z.array(productSummary),
+  // `degraded` means some listing these filters could reach has only its own words to match on, so
+  // no result is weaker evidence that nothing is on sale. `notice` says so to whoever reads it.
+  matching: z.strictObject({
+    mode: z.enum(["full", "degraded"]),
+    notice: z.string().nullable(),
+  }),
 });
 
 // get_slots: read-only. `slotId` is opaque to clients. A slot is listed only while it is free, and

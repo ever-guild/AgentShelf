@@ -1,5 +1,6 @@
 import { sql } from "drizzle-orm";
 import {
+  boolean,
   check,
   customType,
   foreignKey,
@@ -107,6 +108,12 @@ export const webhookReceiptStatus = pgEnum("webhook_receipt_status", [
 export const searchEventOrigin = pgEnum("search_event_origin", [
   "observed",
   "fixture",
+]);
+
+export const searchTermsStatus = pgEnum("search_terms_status", [
+  "pending",
+  "indexed",
+  "failed",
 ]);
 
 export const shops = pgTable(
@@ -600,16 +607,76 @@ export const importRows = pgTable(
   ],
 );
 
+// Search words a model suggested for one published product, in English, Latvian and Russian. It holds
+// only what a published listing already says publicly, and a product is searched without it. Terms
+// count only while `source_hash` matches the listing, so an edit can never leave old words in force.
+// Their searchable form, and those of products and shops, are generated columns in the
+// search_vectors migration, kept out of this schema so that no ordinary read loads them.
+export const productSearchTerms = pgTable(
+  "product_search_terms",
+  {
+    productId: uuid("product_id").primaryKey(),
+    shopId: uuid("shop_id").notNull(),
+    status: searchTermsStatus("status").notNull().default("pending"),
+    sourceHash: text("source_hash"),
+    terms: text("terms").array().notNull().default(sql`'{}'::text[]`),
+    // The shop's place in other spellings. Free text only: the location filter never reads these.
+    placeTerms: text("place_terms").array().notNull().default(sql`'{}'::text[]`),
+    attempts: integer("attempts").notNull().default(0),
+    // When a worker may next take this. A claim moves it forward, so it doubles as the lease.
+    nextAttemptAt: timestamp("next_attempt_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    // A stable code.
+    error: text("error"),
+    model: text("model"),
+    promptVersion: text("prompt_version"),
+    indexedAt: timestamp("indexed_at", { withTimezone: true }),
+    createdAt: createdAt(),
+    updatedAt: updatedAt(),
+  },
+  (t) => [
+    foreignKey({
+      name: "product_search_terms_product_shop_fk",
+      columns: [t.productId, t.shopId],
+      foreignColumns: [products.id, products.shopId],
+    }).onDelete("cascade"),
+    index("product_search_terms_due_idx").on(t.nextAttemptAt),
+    check("product_search_terms_attempts", sql`${t.attempts} >= 0`),
+    check(
+      "product_search_terms_bounded",
+      sql`cardinality(${t.terms}) <= 60 AND cardinality(${t.placeTerms}) <= 12`,
+    ),
+    check(
+      "product_search_terms_indexed_is_complete",
+      sql`${t.status} <> 'indexed' OR (
+        ${t.sourceHash} IS NOT NULL
+        AND ${t.model} IS NOT NULL
+        AND ${t.promptVersion} IS NOT NULL
+        AND ${t.indexedAt} IS NOT NULL
+      )`,
+    ),
+    check(
+      "product_search_terms_only_indexed_has_terms",
+      sql`${t.status} = 'indexed' OR (cardinality(${t.terms}) = 0 AND cardinality(${t.placeTerms}) = 0)`,
+    ),
+  ],
+);
+
 // No personal data: only the normalized query and its filters. `origin` keeps labeled demo
-// fixtures apart from demand that was actually observed.
+// fixtures apart from demand that was actually observed. One search writes one row, or one per shop
+// when several could serve a miss, all with the same `search_id`, so global demand counts those.
+// docs/architecture.md has the attribution rule.
 export const searchEvents = pgTable(
   "search_events",
   {
     id: uuid("id").primaryKey().defaultRandom(),
+    searchId: uuid("search_id").notNull().defaultRandom(),
     queryNormalized: text("query_normalized").notNull(),
     location: text("location"),
     maxPriceMinor: integer("max_price_minor"),
     currency: text("currency"),
+    kind: productKind("kind"),
     resultCount: integer("result_count").notNull(),
     matchedProductIds: uuid("matched_product_ids")
       .array()
@@ -618,6 +685,17 @@ export const searchEvents = pgTable(
     attributedShopId: uuid("attributed_shop_id").references(() => shops.id, {
       onDelete: "restrict",
     }),
+    // Why this shop: the query words its listings share, and up to five of those listings.
+    attributionWords: text("attribution_words")
+      .array()
+      .notNull()
+      .default(sql`'{}'::text[]`),
+    attributionProductIds: uuid("attribution_product_ids")
+      .array()
+      .notNull()
+      .default(sql`'{}'::uuid[]`),
+    // Matching ran on listings' own words for at least one product these filters could reach.
+    degraded: boolean("degraded").notNull().default(false),
     origin: searchEventOrigin("origin").notNull().default("observed"),
     createdAt: createdAt(),
   },
@@ -635,6 +713,16 @@ export const searchEvents = pgTable(
     check(
       "search_events_max_price",
       sql`${t.maxPriceMinor} IS NULL OR ${t.maxPriceMinor} >= 0`,
+    ),
+    check(
+      "search_events_attributed_only_on_a_miss",
+      sql`${t.attributedShopId} IS NULL OR ${t.resultCount} = 0`,
+    ),
+    check(
+      "search_events_basis_needs_a_shop",
+      sql`${t.attributedShopId} IS NOT NULL OR (
+        cardinality(${t.attributionWords}) = 0 AND cardinality(${t.attributionProductIds}) = 0
+      )`,
     ),
   ],
 );
