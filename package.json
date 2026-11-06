@@ -12,6 +12,8 @@
     "db:generate": "drizzle-kit generate",
     "db:migrate": "tsx --env-file-if-exists=.env.local scripts/db-migrate.ts",
     "db:seed": "tsx --env-file-if-exists=.env.local scripts/db-seed.ts",
+    "demo:reset": "tsx --env-file-if-exists=.env.local scripts/db-reset-demo.ts",
+    "smoke:demo": "tsx scripts/demo-check.ts",
     "smoke:mcp": "tsx scripts/mcp-smoke.ts",
     "smoke:checkout": "node --env-file-if-exists=.env.local --import tsx scripts/checkout-smoke.ts",
     "smoke:booking": "tsx scripts/booking-smoke.ts",

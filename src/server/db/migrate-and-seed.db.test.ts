@@ -47,19 +47,22 @@ describe("a clean database", () => {
     await seedDemoData(connection.db, {});
 
     expect(await connection.db.select({ n: count() }).from(shops)).toEqual([
-      { n: 1 },
+      { n: 2 },
     ]);
     expect(await connection.db.select({ n: count() }).from(products)).toEqual([
-      { n: 3 },
+      { n: 8 },
     ]);
     expect(await connection.db.select({ n: count() }).from(technicians)).toEqual([
       { n: 2 },
     ]);
     expect(
       await connection.db.select({ n: count() }).from(technicianWindows),
-    ).toEqual([{ n: 11 }]);
+    ).toEqual([{ n: 12 }]);
 
-    const [shop] = await connection.db.select().from(shops);
+    const [shop] = await connection.db
+      .select()
+      .from(shops)
+      .where(eq(shops.id, DEMO_SHOP_ID));
     expect(shop).toMatchObject({
       id: DEMO_SHOP_ID,
       currency: "EUR",

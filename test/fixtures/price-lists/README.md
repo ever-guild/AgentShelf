@@ -9,3 +9,5 @@ Synthetic, written for this repository. No real shop, customer or person appears
 | `malformed.csv` | A file that should be refused, with a quote that never closes |
 
 The photos are rendered from the HTML files beside them, at 900 by 920, in a headless browser.
+
+The demo seed in `src/server/db/seed.ts` tells the same story with its own fixed rows. Nothing here is real: [docs/architecture.md](../../../docs/architecture.md#demo-data) says where the demo data comes from.

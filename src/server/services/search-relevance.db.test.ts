@@ -90,8 +90,9 @@ const idsFor = async (input: Record<string, unknown>) => {
   return result.products.map((product) => product.productId);
 };
 
+// The seed's labeled fixtures are not searches made by these tests.
 const lastEvents = () =>
-  getDb().select().from(searchEvents).orderBy(desc(searchEvents.createdAt), asc(searchEvents.id));
+  getDb().select().from(searchEvents).where(eq(searchEvents.origin, "observed")).orderBy(desc(searchEvents.createdAt), asc(searchEvents.id));
 
 describe("positive", () => {
   it.each([

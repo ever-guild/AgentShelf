@@ -19,7 +19,7 @@ npm run db:seed
 npm test
 ```
 
-Migrating and seeding are safe to repeat. The seed updates its own fixed rows and leaves everything else alone. It is a manual step, not part of a deploy, so a redeploy never resets demo data.
+Migrating and seeding are safe to repeat. The seed updates its own fixed rows and leaves everything else alone. It is a manual step, not part of a deploy, so a redeploy never resets demo data. [Demo data](#demo-data) covers what the seed writes and `npm run demo:reset`.
 
 `npm test` needs a real Postgres server and creates and drops its own temporary database on it, never touching the database named in `TEST_DATABASE_URL`. It fails when that variable is missing rather than skipping tests. `npm run test:unit` runs the tests that need no database.
 
@@ -37,6 +37,9 @@ Migrating and seeding are safe to repeat. The seed updates its own fixed rows an
 | `RENDER_WORKFLOW_SLUG`, `RENDER_API_KEY` | app | Optional. With both, a photo is read by a Render Workflows task. Without them, it is read inside the web process. [deployment.md](deployment.md#render-workflows-for-photo-import) explains how to set this up |
 | `DEMO_PHONE_WORKSHOP_PAYPAL_MERCHANT_ID` | `db:seed` | Optional. The demo shop's sandbox merchant. Its checkout returns `PAYMENT_NOT_CONFIGURED` until this is set and the seed has run again, because checkout reads the merchant from the database |
 | `DEMO_PHONE_WORKSHOP_SELLER_CODE` | `db:seed` | Optional. The demo shop's seller access code, stored only as a hash. Nobody can sign in until this is set |
+| `DEMO_SECOND_SHOP_PAYPAL_MERCHANT_ID`, `DEMO_SECOND_SHOP_SELLER_CODE` | `db:seed` | Optional, and the same for the candle studio. The merchant must differ from the workshop's, and the seed refuses two equal ones. Its credentials are `PAYPAL_CLIENT_ID_DEMO_SECOND_SHOP`, `PAYPAL_CLIENT_SECRET_DEMO_SECOND_SHOP` and `PAYPAL_WEBHOOK_ID_DEMO_SECOND_SHOP`, from a second sandbox seller app |
+| `DEMO_DATE` | `db:seed`, `demo:reset` | Optional. The demo's "today" as `YYYY-MM-DD` in Riga. Empty means today |
+| `DEMO_ENVIRONMENT` | `demo:reset` | Must be exactly `true` for the reset to run. Set it only on a demo or sandbox service |
 
 ## Rules the data model enforces
 
@@ -408,6 +411,29 @@ What the run showed:
 - The instruction in the hostile listing was not followed, and none of its words are in its own terms or any other row's. The draft was not sent.
 - A real reply is not always complete. One request answered for only one of its three rows, which is why a row missing from a reply is marked and retried on its own, and it then succeeded. Rows often came back with no place names, which is why the sweep shares a shop's place names across its rows.
 - A model's terms are not exhaustive, and the words that do not match are the ones that become demand events. [`search-relevance.db.test.ts`](../src/server/services/search-relevance.db.test.ts) holds the same kinds of case with fixed terms, so it checks matching and not a model.
+
+## Demo data
+
+**Status:** tested on real Postgres, and on a production build over `/mcp`. Nothing here involves a real PayPal account: the merchant IDs and credentials above are what connect it, and until the sandbox apps from [#33](https://github.com/ever-guild/AgentShelf/issues/33) exist, checkout runs only against the test stand-in.
+
+**What the seed writes** ([`seed.ts`](../src/server/db/seed.ts)), all with fixed IDs:
+
+| Shop | Kind | Holds |
+| --- | --- | --- |
+| Demo Phone Workshop, Liepaja | Repairs and accessories | iPhone 13 screen replacement (80.00, 60 minutes, 20.00 deposit), tempered glass (9.90), Lightning cable (7.50), USB-C wall charger (14.90), two technicians |
+| Demo Candle Studio, Riga | Goods only, no appointments | Two soy candles (12.50), a gift set (32.00), a wick trimmer (9.00) |
+
+Both shops have their own `paypal_credential_ref` and merchant, so an order in one shop is paid into that shop's account and never the other's. The glass and the cable are both under EUR 15, which is what the accessory scenario uses.
+
+**Working time and the demo date.** Technicians work Monday to Friday 09:00 to 18:00, Anna on Saturday 10:00 to 14:00 and Marek on Sunday 10:00 to 14:00, in Riga time. Working time is a weekly pattern, so a window never goes stale. The Sunday morning exists so that "tomorrow before noon" has a slot whatever day tomorrow is. What does depend on a date is the demand below, and the checks: `DEMO_DATE` fixes the demo's "today", and [`demo-calendar.ts`](../src/server/domain/demo-calendar.ts) derives "tomorrow before noon" from it in Riga time, across clock changes. A slot starting within an hour of the real clock is still never offered, so a date in the past has no free time.
+
+**Demand fixtures.** Eight `search_events` rows with `origin = 'fixture'`: three for a MagSafe charger the workshop does not stock, one for an iPhone 15 repair, one for a beeswax candle, one nobody sells, and two that found something. They are dated 1 to 6 days before the demo date, at fixed IDs, so seeding again moves them and adds none. Observed searches are never touched by the seed, and fixtures are never deleted by the 90-day sweep. The seed writes no order, booking, webhook receipt or capture, so nothing in the database claims a payment that did not happen.
+
+**Where it comes from.** Every shop, person, title, price and search is invented for this repository. No real shop, customer, photo or brand is behind it, and it is owned by the team like the rest of the code. The glass and the cable follow the sample list in [`test/fixtures/price-lists`](../test/fixtures/price-lists), the same invented shop, so the import demo and the seed tell one story. The sample list is a separate fixture and its prices are not kept equal to the seed's: the seed's screen price stays 80.00 so records already made against it do not change.
+
+**Resetting.** `npm run demo:reset` restores the demo's own rows to what the seed writes, for `DEMO_DATE` or today. It runs only when `DEMO_ENVIRONMENT` is exactly `true` and the database holds no shop other than the two demo shops, and otherwise it says why and changes nothing. It removes demo-shop products, technicians and windows the seed does not know, and rewrites the fixtures, but only where no order line or booking refers to them. It never deletes or changes orders, order lines, bookings, webhook receipts, observed searches, or the PayPal references on shops and products (merchant, catalog product, sync state), so a real sandbox transaction can still be reconciled after a reset. Running it twice gives the same IDs and no extra rows.
+
+**Checking a running service.** `npm run smoke:demo -- URL [--date YYYY-MM-DD]` is read-only. It searches both shops through one `/mcp` endpoint, finds the glass and the cable under EUR 15, and asks for repair slots between midnight and noon on the day after the date. Run it with two dates to see the slots follow the date. It places no hold and no order.
 
 ## Seller demo session
 
