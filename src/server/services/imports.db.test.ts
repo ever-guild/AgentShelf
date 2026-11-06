@@ -230,6 +230,74 @@ describe("uploading a photo", () => {
     ).resolves.toMatchObject({ status: "needs_review" });
   });
 
+  it("holds the limit on waiting photos against uploads at the same moment", async () => {
+    const shop = await createShop(getDb());
+    const { deps, started } = createImportHarness();
+    const results = await Promise.allSettled(
+      Array.from({ length: 12 }, () =>
+        createImport(getDb(), shop, { name: "a.jpg", bytes: JPEG }, deps),
+      ),
+    );
+    expect(results.filter((result) => result.status === "fulfilled")).toHaveLength(3);
+    expect(started).toHaveLength(3);
+  });
+
+  const failPhoto = (jobId: string) =>
+    getDb()
+      .update(importJobs)
+      .set({ status: "failed", error: "NOTHING_FOUND" })
+      .where(eq(importJobs.id, jobId));
+
+  it("counts a retry towards the photos a shop can read in a day", async () => {
+    const shop = await createShop(getDb());
+    const { deps, started } = createImportHarness();
+    const { id } = await createImport(getDb(), shop, { name: "a.jpg", bytes: JPEG }, deps);
+    await getDb()
+      .insert(importJobs)
+      .values(
+        Array.from({ length: 27 }, () => ({
+          shopId: shop.id,
+          sourceKind: "photo" as const,
+          status: "needs_review" as const,
+        })),
+      );
+
+    for (let retry = 0; retry < 2; retry += 1) {
+      await failPhoto(id);
+      await expect(retryImport(getDb(), shop, id, deps)).resolves.toMatchObject({ status: "queued" });
+    }
+    await failPhoto(id);
+    await expect(retryImport(getDb(), shop, id, deps)).rejects.toEqual(code("IMPORT_LIMIT_REACHED"));
+    expect(started).toHaveLength(3);
+    expect((await jobRow(getDb(), id)).status).toBe("failed");
+
+    // A new upload meets the same count.
+    await expect(
+      createImport(getDb(), shop, { name: "b.jpg", bytes: JPEG }, deps),
+    ).rejects.toEqual(code("IMPORT_LIMIT_REACHED"));
+
+    // Yesterday's do not count.
+    await getDb()
+      .update(importJobs)
+      .set({ createdAt: sql`now() - interval '25 hours'`, updatedAt: sql`now() - interval '25 hours'` })
+      .where(eq(importJobs.shopId, shop.id));
+    await expect(retryImport(getDb(), shop, id, deps)).resolves.toMatchObject({ status: "queued" });
+  });
+
+  it("does not retry a photo while others are waiting at the limit", async () => {
+    const shop = await createShop(getDb());
+    const { deps, started } = createImportHarness();
+    const { id } = await createImport(getDb(), shop, { name: "a.jpg", bytes: JPEG }, deps);
+    await failPhoto(id);
+    await createImport(getDb(), shop, { name: "b.jpg", bytes: JPEG }, deps);
+    await createImport(getDb(), shop, { name: "c.jpg", bytes: JPEG }, deps);
+    await createImport(getDb(), shop, { name: "d.jpg", bytes: JPEG }, deps);
+    started.length = 0;
+
+    await expect(retryImport(getDb(), shop, id, deps)).rejects.toEqual(code("IMPORT_LIMIT_REACHED"));
+    expect(started).toEqual([]);
+  });
+
   it("limits how many photos a shop can read in a day", async () => {
     const shop = await createShop(getDb());
     const { deps } = createImportHarness();

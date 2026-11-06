@@ -1,0 +1,2 @@
+ALTER TABLE "import_jobs" ADD COLUMN "retries" integer DEFAULT 0 NOT NULL;--> statement-breakpoint
+ALTER TABLE "import_jobs" ADD CONSTRAINT "import_jobs_retries_not_negative" CHECK ("import_jobs"."retries" >= 0);

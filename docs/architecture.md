@@ -421,7 +421,7 @@ The seller's way in, for [#8](https://github.com/ever-guild/AgentShelf/issues/8)
 | --- | --- | --- |
 | Reader | [`csv.ts`](../src/server/imports/csv.ts), deterministic, no model | Claude, through [`claude.ts`](../src/server/ai/claude.ts) |
 | When | During the upload, so the table opens at once | In a background run |
-| Limits | 1 MB, 500 rows | 7 MB, 500 rows, 3 waiting and 30 a day per shop, since each costs a model call |
+| Limits | 1 MB, 500 rows | 7 MB, 500 rows, 3 waiting and 30 a day per shop, retries included, since each costs a model call |
 | A bad file | Refused with what to fix, and nothing stored | Refused by its bytes. A file's name and declared type do not decide |
 
 **A price is never invented.** A model returns the price as printed, and [`price-text.ts`](../src/server/imports/price-text.ts) turns that text into minor units, the same as for a CSV cell or a seller's edit. It accepts only what has one meaning. `9,90`, `1 200,50` and `12,-` read as amounts. `1.200` could be 1200 or 1.20, and `from 20`, `20-30` and `free` are not one price, so those stay unknown and the row shows what the list said. A missing currency also stays unknown, until the seller states one. A model has no field for a deposit.

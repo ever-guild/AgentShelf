@@ -11,7 +11,7 @@ import type {
   ImportView,
 } from "../contracts/imports";
 import type { Db } from "../db/client";
-import { importJobs, importRows, importSources, products } from "../db/schema";
+import { importJobs, importRows, importSources, products, shops } from "../db/schema";
 import { ServiceError, parseInput } from "../errors";
 import { parsePriceListCsv } from "../imports/csv";
 import {
@@ -42,7 +42,8 @@ import type { Tx } from "./payment-reconciliation";
 export const MAX_IMAGE_BYTES = 7_000_000;
 export const MAX_UPLOAD_BODY_BYTES = MAX_IMAGE_BYTES + 64 * 1024;
 
-// A photo costs a paid model call, and a seller code is shared with a demo's judges.
+// A photo costs a paid model call, and a seller code is shared with a demo's judges. A retry reads the
+// photo again, so these hold for a retry as for an upload.
 const MAX_ACTIVE_PHOTO_IMPORTS = 3;
 const MAX_PHOTO_IMPORTS_PER_DAY = 30;
 
@@ -255,11 +256,18 @@ export async function listImports(db: Db, shop: SellerShop): Promise<ImportSumma
   }));
 }
 
-async function assertUnderPhotoLimits(db: Db, shop: SellerShop): Promise<void> {
-  const [usage] = await db
+// Takes the shop's row for the rest of the transaction, so requests arriving together are counted one
+// after another, and the transaction that passes has to add its own read before it ends. A retry is
+// counted by when its job last changed, which can only make the day's count higher than it was.
+async function assertUnderPhotoLimits(tx: Tx, shop: SellerShop): Promise<void> {
+  await tx.select({ id: shops.id }).from(shops).where(eq(shops.id, shop.id)).for("no key update");
+  const [usage] = await tx
     .select({
       active: sql<number>`count(*) FILTER (WHERE ${importJobs.status} IN ('queued', 'running'))::int`,
-      today: sql<number>`count(*) FILTER (WHERE ${importJobs.createdAt} > now() - interval '24 hours')::int`,
+      today: sql<number>`(
+        count(*) FILTER (WHERE ${importJobs.createdAt} > now() - interval '24 hours')
+        + coalesce(sum(${importJobs.retries}) FILTER (WHERE ${importJobs.updatedAt} > now() - interval '24 hours'), 0)
+      )::int`,
     })
     .from(importJobs)
     .where(and(eq(importJobs.shopId, shop.id), eq(importJobs.sourceKind, "photo")));
@@ -344,9 +352,9 @@ export async function createImport(
       "Photo reading is not set up on this server. You can upload a CSV instead.",
     );
   }
-  await assertUnderPhotoLimits(db, shop);
 
   const job = await db.transaction(async (tx) => {
+    await assertUnderPhotoLimits(tx, shop);
     const [created] = await tx
       .insert(importJobs)
       .values({ shopId: shop.id, sourceKind: "photo", status: "queued", sourceRef: name })
@@ -608,11 +616,20 @@ export async function retryImport(
   if (job.status !== "failed" || !view.error?.retryable) {
     throw new ServiceError("IMPORT_NOT_RETRYABLE", "This import cannot be tried again. Upload the file again.");
   }
-  const [queued] = await db
-    .update(importJobs)
-    .set({ status: "queued", attempts: 0, error: null })
-    .where(and(eq(importJobs.id, job.id), eq(importJobs.status, "failed")))
-    .returning();
+  const queued = await db.transaction(async (tx) => {
+    await assertUnderPhotoLimits(tx, shop);
+    const [row] = await tx
+      .update(importJobs)
+      .set({
+        status: "queued",
+        attempts: 0,
+        retries: sql`${importJobs.retries} + 1`,
+        error: null,
+      })
+      .where(and(eq(importJobs.id, job.id), eq(importJobs.status, "failed")))
+      .returning();
+    return row;
+  });
   if (queued) {
     await startRun(db, deps, queued);
   }
