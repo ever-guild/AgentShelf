@@ -63,12 +63,12 @@ export default function Home() {
             >
               See the demo workshop
             </Link>
-            <Link
-              href="/seller/sign-in"
-              className={`inline-flex h-12 items-center underline underline-offset-4 transition-colors hover:text-foreground ${SECONDARY_TEXT}`}
+            <a
+              href="/api/seller/identity/paypal/start"
+              className={`inline-flex h-12 items-center underline underline-offset-4 transition-colors hover:text-foreground focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ink ${SECONDARY_TEXT}`}
             >
               Seller sign-in
-            </Link>
+            </a>
           </div>
         </div>
       </div>

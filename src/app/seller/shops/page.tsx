@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 
 import { OwnerNav } from "../identity/owner-nav";
+import { paypalLoginErrorMessage } from "../paypal-onboarding/messages";
 import { ShopSelection } from "./shop-selection";
 
 export const metadata: Metadata = {
@@ -8,7 +9,12 @@ export const metadata: Metadata = {
   robots: { index: false, follow: false },
 };
 
-export default function ShopsPage() {
+type SearchParams = Promise<{ error?: string | string[] }>;
+
+export default async function ShopsPage({ searchParams }: { searchParams: SearchParams }) {
+  const { error } = await searchParams;
+  const notice = paypalLoginErrorMessage(error);
+
   return (
     <>
       <OwnerNav />
@@ -21,6 +27,7 @@ export default function ShopsPage() {
           </div>
           <a href="/seller/shops/new" className="inline-flex h-11 items-center rounded-lg bg-ink px-4 font-medium text-background transition-[background-color,transform] hover:bg-ink/90 active:scale-[0.98]">Add a shop</a>
         </div>
+        {notice ? <p role="status" className="rounded-lg bg-zinc-100 p-4 text-sm text-zinc-700 dark:bg-zinc-900 dark:text-zinc-300">{notice}</p> : null}
         <ShopSelection />
       </main>
     </>
