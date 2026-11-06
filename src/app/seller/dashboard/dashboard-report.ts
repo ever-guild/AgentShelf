@@ -1,14 +1,17 @@
 import type { AgReportState, AgWidgetLayoutState } from "ag-studio";
 
+import type { DemandChartMeasure } from "@/server/contracts/seller-insights";
+
 // The dashboard a seller sees first, as AG Studio report state, and how a seller's own arrangement
 // of it is kept. Field IDs are `table.field`, from dashboard-data.ts.
 
 export const PAYMENT_STATUS_WIDGET = "agentshelf-payment-status";
 export const UPCOMING_BOOKINGS_WIDGET = "agentshelf-upcoming-bookings";
 export const UNMET_DEMAND_WIDGET = "agentshelf-unmet-demand";
+export const DEMAND_INSIGHT_WIDGET = "agentshelf-demand-insight";
 
 // Raise this when a widget, field or table changes, so nobody restores a report Studio would refuse.
-const REPORT_VERSION = 1;
+const REPORT_VERSION = 2;
 const PAGE_ID = "counter";
 
 const at = (xTrack: number, yTrack: number, xSpan: number, ySpan: number): AgWidgetLayoutState => ({
@@ -102,6 +105,13 @@ export function defaultReport(): AgReportState {
             },
             format: title("What people could not find"),
           },
+          "demand-insight": {
+            type: DEMAND_INSIGHT_WIDGET,
+            dataMapping: {
+              fields: fields("demandGroups", ["groupId", "label", "searches"]),
+            },
+            format: title("What these searches may mean"),
+          },
           "captured-by-day": {
             type: "column-chart-stacked",
             dataMapping: {
@@ -156,16 +166,72 @@ export function defaultReport(): AgReportState {
           "demand-source": at(12, 14, 12, 6),
           "upcoming-bookings": at(0, 20, 12, 25),
           "unmet-demand": at(12, 20, 12, 25),
-          "captured-by-day": at(0, 45, 14, 18),
-          "paid-by-item": at(14, 45, 10, 18),
-          "order-kind": at(0, 63, 8, 6),
-          "order-state": at(8, 63, 16, 6),
-          orders: at(0, 69, 24, 26),
+          "demand-insight": at(0, 45, 24, 24),
+          "captured-by-day": at(0, 69, 14, 18),
+          "paid-by-item": at(14, 69, 10, 18),
+          "order-kind": at(0, 87, 8, 6),
+          "order-state": at(8, 87, 16, 6),
+          orders: at(0, 93, 24, 26),
         },
       },
     ],
   };
   return report as unknown as AgReportState;
+}
+
+export const DEMAND_CHART_ID = "demand-chart";
+
+const CHART_FIELDS: Record<DemandChartMeasure, { field: string; title: string }> = {
+  all: { field: "searches", title: "Searches that found nothing, by group" },
+  recorded: { field: "recordedSearches", title: "Recorded searches that found nothing, by group" },
+  demo_sample: { field: "sampleSearches", title: "Demo samples that found nothing, by group" },
+};
+
+const CHART_HEIGHT = 16;
+
+type ReportPage = {
+  id: string;
+  widgets: Record<string, unknown>;
+  widgetLayout: Record<string, AgWidgetLayoutState>;
+};
+
+// The one widget the assistant may create or change, as new state. It touches this widget and, the
+// first time, moves what sits below the insight down to make room. Nothing else on the page changes.
+export function withDemandChart(state: AgReportState, measure: DemandChartMeasure): AgReportState {
+  const { field, title: text } = CHART_FIELDS[measure];
+  const widget = {
+    type: "bar-chart-grouped",
+    dataMapping: {
+      categoryKey: [{ id: "demandGroups.label" }],
+      valueKey: [sum(`demandGroups.${field}`)],
+    },
+    format: title(text),
+  };
+  const pages = (state.pages as unknown as ReportPage[]).map((page) => {
+    if (page.id !== state.selectedPageId) {
+      return page;
+    }
+    if (page.widgetLayout[DEMAND_CHART_ID]) {
+      return { ...page, widgets: { ...page.widgets, [DEMAND_CHART_ID]: widget } };
+    }
+    const layouts = Object.values(page.widgetLayout);
+    const insight = page.widgetLayout["demand-insight"];
+    const row = insight
+      ? insight.yTrack + insight.ySpan
+      : Math.max(0, ...layouts.map(({ yTrack, ySpan }) => yTrack + ySpan));
+    const moved = Object.fromEntries(
+      Object.entries(page.widgetLayout).map(([id, layout]) => [
+        id,
+        layout.yTrack >= row ? { ...layout, yTrack: layout.yTrack + CHART_HEIGHT } : layout,
+      ]),
+    );
+    return {
+      ...page,
+      widgets: { ...page.widgets, [DEMAND_CHART_ID]: widget },
+      widgetLayout: { ...moved, [DEMAND_CHART_ID]: at(0, row, 24, CHART_HEIGHT) },
+    };
+  });
+  return { ...state, pages } as unknown as AgReportState;
 }
 
 export function layoutStorageKey(shopId: string): string {

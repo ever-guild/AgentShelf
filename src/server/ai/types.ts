@@ -64,6 +64,66 @@ export type SearchAi = {
   suggestSearchTerms(rows: readonly SearchTermFacts[]): Promise<SearchTermsReading>;
 };
 
+// One shop's unmet demand as counted by the database, and nothing else. No event reference, order,
+// payment or customer reaches a model. Query text and titles are untrusted data.
+export type DemandFacts = {
+  window: { startDate: string; endDate: string; days: number; timezone: string };
+  unmetSearches: number;
+  groups: {
+    groupId: string;
+    label: string;
+    searches: number;
+    recordedSearches: number;
+    sampleSearches: number;
+    degradedSearches: number;
+    examples: { query: string; searches: number }[];
+    sharedWords: string[];
+    closestListings: string[];
+    locations: string[];
+  }[];
+};
+
+export type DemandExplanationReading = {
+  items: { groupId: string; explanation: string; suggestedAction: string }[];
+  model: string;
+  promptVersion: string;
+  usage: AiUsage;
+};
+
+// A conversation in neutral form, already checked: it starts and ends on the user's side, and every
+// tool call has its result.
+export type AssistantMessage =
+  | {
+      role: "user";
+      content: (
+        | { type: "text"; text: string }
+        | { type: "tool_result"; callId: string; output: string }
+      )[];
+    }
+  | {
+      role: "assistant";
+      content: (
+        | { type: "text"; text: string }
+        | { type: "tool_call"; callId: string; name: string; input: Record<string, unknown> }
+      )[];
+    };
+
+export type AssistantReading = {
+  // False when the answer ran out of room, so what is there may stop short.
+  complete: boolean;
+  text: string;
+  toolCalls: { callId: string; name: string; input: unknown }[];
+  model: string;
+  promptVersion: string;
+  usage: AiUsage;
+};
+
+// The instructions and the tool list are the adapter's and the contract's, never a caller's.
+export type DemandAi = {
+  explainDemand(facts: DemandFacts): Promise<DemandExplanationReading>;
+  assistantTurn(messages: readonly AssistantMessage[]): Promise<AssistantReading>;
+};
+
 export type AiFailureCode =
   | "PROVIDER_UNAVAILABLE"
   | "PROVIDER_REJECTED"

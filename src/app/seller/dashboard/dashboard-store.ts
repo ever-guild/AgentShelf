@@ -7,12 +7,13 @@ import type {
   DashboardOrders,
   DashboardPayments,
 } from "@/server/contracts/seller-dashboard";
+import type { DashboardInsights } from "@/server/contracts/seller-insights";
 
-// What the page knows about its four datasets, shared with the widgets. Studio mounts widgets in
+// What the page knows about its datasets, shared with the widgets. Studio mounts widgets in
 // its own tree and keeps their rows in its data engine, so the rows reach them through Studio and
 // only the state around the rows comes through here: whether a dataset has loaded or failed.
 
-export const DATASET_NAMES = ["orders", "payments", "bookings", "demand"] as const;
+export const DATASET_NAMES = ["orders", "payments", "bookings", "demand", "insights"] as const;
 export type DatasetName = (typeof DATASET_NAMES)[number];
 
 export type Datasets = {
@@ -20,6 +21,7 @@ export type Datasets = {
   payments: DashboardPayments | null;
   bookings: DashboardBookings | null;
   demand: DashboardDemand | null;
+  insights: DashboardInsights | null;
 };
 
 export type DashboardState = {
@@ -38,7 +40,7 @@ export type DashboardState = {
 };
 
 export const EMPTY_STATE: DashboardState = {
-  data: { orders: null, payments: null, bookings: null, demand: null },
+  data: { orders: null, payments: null, bookings: null, demand: null, insights: null },
   failed: [],
   loading: true,
   refreshedAt: null,
@@ -48,6 +50,10 @@ export const EMPTY_STATE: DashboardState = {
 
 let state = EMPTY_STATE;
 const listeners = new Set<() => void>();
+
+export function getDashboardState(): DashboardState {
+  return state;
+}
 
 export function setDashboardState(next: Partial<DashboardState>) {
   state = { ...state, ...next };

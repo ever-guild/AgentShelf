@@ -51,7 +51,7 @@ function shiftLocalDate({ year, month, day }: LocalDate, days: number): LocalDat
   };
 }
 
-function periodOf(shop: DashboardShop, rawQuery: unknown, now: Date) {
+export function periodOf(shop: DashboardShop, rawQuery: unknown, now: Date) {
   const { days = DEFAULT_DASHBOARD_PERIOD } = parseInput(dashboardQuery, rawQuery);
   const periodDays = Number(days);
   const today = localDateOf(now, shop.timezone);

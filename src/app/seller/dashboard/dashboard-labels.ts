@@ -3,6 +3,7 @@ import type {
   DashboardPaymentTotal,
   PaymentGroup,
 } from "@/server/contracts/seller-dashboard";
+import type { DemandGroup } from "@/server/contracts/seller-insights";
 import { minorToDecimal } from "@/server/domain/money";
 
 // The words for an order's money, shared by the widgets, the grid and the order details, so they
@@ -125,4 +126,32 @@ export function shopDateTime(local: string): string {
 export function attributionBasis(sharedWords: string, listings: string): string {
   const words = sharedWords || "none recorded";
   return listings ? `Your listings share: ${words}. Closest: ${listings}.` : `Your listings share: ${words}.`;
+}
+
+// A window as a seller reads it. The dates are shop calendar days, written as they are stored.
+export function windowText(startDate: string, endDate: string): string {
+  return `${shopDay(startDate)} to ${shopDay(endDate)}`;
+}
+
+function shopDay(date: string): string {
+  const [year, month, day] = date.slice(0, 10).split("-").map(Number);
+  return new Intl.DateTimeFormat("en-GB", {
+    day: "numeric",
+    month: "short",
+    year: "numeric",
+    timeZone: "UTC",
+  }).format(new Date(Date.UTC(year, month - 1, day)));
+}
+
+// What was recorded, in plain counts and nothing else, so it can stand with no model at all.
+export function demandObservation(group: DemandGroup): string {
+  const asked = group.examples.map(({ query, searches: times }) => `"${query}" (${times})`).join(", ");
+  const more = group.examplesOmitted > 0 ? ` and ${count(group.examplesOmitted, "more wording")}` : "";
+  const source =
+    group.sampleSearches === 0
+      ? "All recorded."
+      : group.recordedSearches === 0
+        ? "All are demo samples, not real buyers."
+        : `${group.recordedSearches} recorded and ${count(group.sampleSearches, "demo sample")}.`;
+  return `${searches(group.searches)} found nothing: ${asked}${more}. ${source}`;
 }

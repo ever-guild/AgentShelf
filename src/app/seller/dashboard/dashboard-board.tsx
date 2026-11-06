@@ -48,6 +48,7 @@ const DATASET_LABELS: Record<DatasetName, string> = {
   payments: "payments",
   bookings: "bookings",
   demand: "search demand",
+  insights: "search groups",
 };
 
 const button =
@@ -200,6 +201,7 @@ export default function DashboardBoard({
   const [period, setPeriod] = useState<DashboardPeriod>(readSavedPeriod);
   const [signedOut, setSignedOut] = useState(false);
   const [mode, setMode] = useState<AgStudioMode>("view");
+  const [asking, setAsking] = useState(false);
   const [retries, setRetries] = useState(0);
   const api = useRef<AgStudioApi | null>(null);
   const data = useRef<Datasets>(state.data);
@@ -313,10 +315,11 @@ export default function DashboardBoard({
     setMode("view");
   }
 
+  const arranging = mode === "edit" && !asking;
   const loaded = DATASET_NAMES.some((name) => state.data[name] !== null);
   const studioData = useMemo(() => buildStudioData(state.data, currency), [state.data, currency]);
   const timezone = state.data.orders?.timezone ?? state.data.payments?.timezone;
-  const truncated = (["orders", "payments", "bookings", "demand"] as const).filter(
+  const truncated = (["orders", "payments", "bookings", "demand", "insights"] as const).filter(
     (name) => state.data[name]?.truncated,
   );
 
@@ -372,12 +375,28 @@ export default function DashboardBoard({
           <button
             type="button"
             className={`${button} max-md:hidden`}
-            aria-pressed={mode === "edit"}
-            onClick={() => setMode(mode === "edit" ? "view" : "edit")}
+            aria-pressed={arranging}
+            onClick={() => {
+              setAsking(false);
+              setMode(arranging ? "view" : "edit");
+            }}
           >
-            {mode === "edit" ? "Done arranging" : "Arrange"}
+            {arranging ? "Done arranging" : "Arrange"}
           </button>
-          {mode === "edit" ? (
+          {state.data.insights?.aiAvailable ? (
+            <button
+              type="button"
+              className={`${button} max-md:hidden`}
+              aria-pressed={asking}
+              onClick={() => {
+                setAsking(!asking);
+                setMode(asking ? "view" : "edit");
+              }}
+            >
+              {asking ? "Back to the dashboard" : "Ask about demand"}
+            </button>
+          ) : null}
+          {arranging ? (
             <button type="button" className={`${button} max-md:hidden`} onClick={resetLayout}>
               Reset layout
             </button>
@@ -409,7 +428,14 @@ export default function DashboardBoard({
       {loaded ? (
         <div className="relative h-[calc(100dvh-7.5rem)] min-h-[32rem] w-full border-t border-zinc-200 dark:border-zinc-800">
           <StudioBoundary>
-            <DashboardStudio licenseKey={licenseKey} shopId={shopId} data={studioData} mode={mode} onApi={onApi} />
+            <DashboardStudio
+              licenseKey={licenseKey}
+              shopId={shopId}
+              data={studioData}
+              mode={mode}
+              asking={asking}
+              onApi={onApi}
+            />
           </StudioBoundary>
         </div>
       ) : state.loading ? (

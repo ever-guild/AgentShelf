@@ -4,7 +4,7 @@ import { statusLabel } from "../schedule/schedule-labels";
 import { ORDER_KIND_LABELS, PAYMENT_GROUP_LABELS, money, orderStatusLabel, shopDateTime } from "./dashboard-labels";
 import type { Datasets } from "./dashboard-store";
 
-// The four server datasets as AG Studio tables. Amounts stay integer minor units in the engine, so
+// The server datasets as AG Studio tables. Amounts stay integer minor units in the engine, so
 // a sum is exact, and only the formatter turns them into text.
 
 type Spec = [id: string, name: string, format: "text" | "date" | "int" | "money" | "chart", hide?: boolean];
@@ -134,6 +134,15 @@ const DEMAND_FIELDS: Spec[] = [
   ["askedFor", "Also asked for", "text"],
 ];
 
+const DEMAND_GROUP_FIELDS: Spec[] = [
+  ["groupId", "Group ID", "text", true],
+  ["label", "Search group", "text"],
+  ["searches", "All searches", "int"],
+  ["recordedSearches", "Recorded searches", "int"],
+  ["sampleSearches", "Demo samples", "int"],
+  ["degradedSearches", "Possible wording gaps", "int"],
+];
+
 export function demandOriginLabel(row: { searches: number; sampleSearches: number }): string {
   if (row.sampleSearches === 0) {
     return "Recorded";
@@ -147,6 +156,7 @@ export function buildStudioData(data: Datasets, shopCurrency: string): AgDataSou
   const captures = data.payments?.captures ?? [];
   const bookings = data.bookings?.bookings ?? [];
   const demand = data.demand?.demand ?? [];
+  const demandGroups = data.insights?.groups ?? [];
 
   return {
     description:
@@ -268,6 +278,22 @@ export function buildStudioData(data: Datasets, shopCurrency: string): AgDataSou
           sharedWords: row.sharedWords.join(", "),
           listings: row.listings.join(", "),
           askedFor: askedFor(row),
+        })),
+      },
+      {
+        id: "demandGroups",
+        name: "Search groups",
+        primaryKeyField: "groupId",
+        description:
+          "The same attributed searches, with queries that hold the same words grouped together. Counted by the database.",
+        fields: fieldsOf(shopCurrency, DEMAND_GROUP_FIELDS),
+        data: demandGroups.map((group) => ({
+          groupId: group.groupId,
+          label: group.label,
+          searches: group.searches,
+          recordedSearches: group.recordedSearches,
+          sampleSearches: group.sampleSearches,
+          degradedSearches: group.degradedSearches,
         })),
       },
     ],

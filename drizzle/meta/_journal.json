@@ -64,6 +64,13 @@
       "when": 1793968404391,
       "tag": "0008_search_vectors",
       "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1793973136695,
+      "tag": "0009_demand_insights",
+      "breakpoints": true
     }
   ]
 }

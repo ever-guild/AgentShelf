@@ -9,6 +9,7 @@ import {
   jsonb,
   pgEnum,
   pgTable,
+  primaryKey,
   text,
   timestamp,
   unique,
@@ -724,5 +725,48 @@ export const searchEvents = pgTable(
         cardinality(${t.attributionWords}) = 0 AND cardinality(${t.attributionProductIds}) = 0
       )`,
     ),
+  ],
+);
+
+// The words last written about one shop's unmet demand for one period. `snapshot` is a hash of the
+// aggregates the model saw, so words are current only while the aggregates are the same. The counts
+// on the page never come from here.
+export const demandInsights = pgTable(
+  "demand_insights",
+  {
+    shopId: uuid("shop_id")
+      .notNull()
+      .references(() => shops.id, { onDelete: "restrict" }),
+    periodDays: integer("period_days").notNull(),
+    snapshot: text("snapshot").notNull(),
+    windowStartDate: text("window_start_date").notNull(),
+    windowEndDate: text("window_end_date").notNull(),
+    unmetSearches: integer("unmet_searches").notNull(),
+    items: jsonb("items").notNull(),
+    model: text("model").notNull(),
+    promptVersion: text("prompt_version").notNull(),
+    writtenAt: timestamp("written_at", { withTimezone: true }).notNull(),
+  },
+  (t) => [
+    primaryKey({ columns: [t.shopId, t.periodDays] }),
+    check("demand_insights_period", sql`${t.periodDays} IN (7, 30, 60)`),
+    check("demand_insights_counts", sql`${t.unmetSearches} > 0`),
+  ],
+);
+
+// How many model calls one shop made in one hour, counted before each call, so a signed-in browser
+// cannot spend the key without limit.
+export const sellerAiCalls = pgTable(
+  "seller_ai_calls",
+  {
+    shopId: uuid("shop_id")
+      .notNull()
+      .references(() => shops.id, { onDelete: "restrict" }),
+    hour: timestamp("hour", { withTimezone: true }).notNull(),
+    calls: integer("calls").notNull(),
+  },
+  (t) => [
+    primaryKey({ columns: [t.shopId, t.hour] }),
+    check("seller_ai_calls_positive", sql`${t.calls} > 0`),
   ],
 );

@@ -1,13 +1,17 @@
 "use client";
 
-import type {
-  AgDataSourcesDefinition,
-  AgPanelConfig,
-  AgReportState,
-  AgResponsiveLayoutBreakpoint,
-  AgStudioApi,
-  AgStudioMode,
-  AgStudioModule,
+import {
+  AgStudioAiModule,
+  createAiHarness,
+  directLlmRunner,
+  type AgAiHarnessSetup,
+  type AgDataSourcesDefinition,
+  type AgPanelConfig,
+  type AgReportState,
+  type AgResponsiveLayoutBreakpoint,
+  type AgStudioApi,
+  type AgStudioMode,
+  type AgStudioModule,
 } from "ag-studio";
 import {
   AgStudio,
@@ -16,30 +20,37 @@ import {
   type AgWidgetCustomCellRendererProps,
   type AgWidgetDefinition,
 } from "ag-studio-react";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
+import { ASSISTANT_STARTERS, assistantTools, createAssistantAdapter } from "./dashboard-assistant";
 import {
+  DEMAND_INSIGHT_WIDGET,
   PAYMENT_STATUS_WIDGET,
   UNMET_DEMAND_WIDGET,
   UPCOMING_BOOKINGS_WIDGET,
   defaultReport,
   loadSavedLayout,
   saveLayout,
+  withDemandChart,
 } from "./dashboard-report";
-import { openOrderDetails } from "./dashboard-store";
+import { getDashboardState, openOrderDetails } from "./dashboard-store";
 import { agentShelfTheme } from "./dashboard-theme";
-import { PaymentStatusWidget, UnmetDemandWidget, UpcomingBookingsWidget } from "./dashboard-widgets";
+import { DemandInsightWidget, PaymentStatusWidget, UnmetDemandWidget, UpcomingBookingsWidget } from "./dashboard-widgets";
 
 // AG Studio itself. The page around it owns the data and the session. Everything Studio is told
 // about AgentShelf is here, in dashboard-report.ts and in dashboard-data.ts.
 
-// The place for the seller's assistant. Register AgStudioAiModule here, pass its harness to the `ai`
-// property below, and add "ai" to the edit panels. Nothing on this page is an assistant yet.
-const STUDIO_MODULES: AgStudioModule[] = [];
+const STUDIO_MODULES: AgStudioModule[] = [AgStudioAiModule];
 
 const PANELS: AgPanelConfig = {
   view: {},
   edit: { left: ["data"], right: ["edit", "filters"] },
+};
+
+// Studio offers its chat panel only in edit mode, so asking opens that mode with this panel alone.
+const ASKING_PANELS: AgPanelConfig = {
+  view: {},
+  edit: { left: ["ai"] },
 };
 
 // A phone gets one column in the order the dashboard was laid out, with each widget tall enough
@@ -105,6 +116,7 @@ const WIDGETS = createWidgets({
     }),
     customWidget(UPCOMING_BOOKINGS_WIDGET, "Upcoming bookings", UpcomingBookingsWidget),
     customWidget(UNMET_DEMAND_WIDGET, "Unmet demand", UnmetDemandWidget),
+    customWidget(DEMAND_INSIGHT_WIDGET, "Demand insight", DemandInsightWidget),
   ],
   overrides: [
     {
@@ -124,20 +136,52 @@ const LOCALE_TEXT = { widgetOverlayNoData: "Nothing here in this period" };
 
 const SAVE_DELAY_MS = 800;
 
+// One agent and three tools. Studio's built-in agents are left out, because their tools can read
+// every table on the page and change any widget. There is no history store, so a conversation ends
+// with the page and no search text is kept in the browser.
+function assistantSetup(shopId: string): AgAiHarnessSetup {
+  const adapter = createAssistantAdapter();
+  return ({ api }) => {
+    const studio = api as AgStudioApi;
+    const tools = assistantTools({
+      shopId,
+      days: () => String(getDashboardState().data.insights?.periodDays ?? 30),
+      showChart: (measure) => studio.setState(withDemandChart(studio.getState(), measure)),
+    });
+    return createAiHarness(studio, () => ({
+      agents: [
+        directLlmRunner({
+          id: "demand",
+          name: "Demand assistant",
+          description: "Answers questions about what buyers could not find in this shop.",
+          adapter,
+          tools: () => tools,
+          maxTurns: 6,
+        }),
+      ],
+      primary: "demand",
+      promptStarters: ASSISTANT_STARTERS,
+    }));
+  };
+}
+
 export default function DashboardStudio({
   licenseKey,
   shopId,
   data,
   mode,
+  asking,
   onApi,
 }: {
   licenseKey: string | undefined;
   shopId: string;
   data: AgDataSourcesDefinition;
   mode: AgStudioMode;
+  asking: boolean;
   onApi: (api: AgStudioApi) => void;
 }) {
   const [initialState] = useState<AgReportState>(() => loadSavedLayout(shopId) ?? defaultReport());
+  const ai = useMemo(() => assistantSetup(shopId), [shopId]);
   const apiRef = useRef<AgStudioApi | null>(null);
   const saveTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
 
@@ -162,7 +206,8 @@ export default function DashboardStudio({
         mode={mode}
         theme={agentShelfTheme}
         widgets={WIDGETS}
-        panels={PANELS}
+        panels={asking ? ASKING_PANELS : PANELS}
+        ai={ai}
         initialState={initialState}
         responsiveLayoutBreakpoints={BREAKPOINTS}
         localeText={LOCALE_TEXT}

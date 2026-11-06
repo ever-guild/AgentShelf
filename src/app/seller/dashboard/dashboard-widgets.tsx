@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 
 import type { DashboardPaymentTotal, PaymentGroup } from "@/server/contracts/seller-dashboard";
+import type { DashboardInsights, DemandInsightItem } from "@/server/contracts/seller-insights";
 import type { ScheduleStatus } from "@/server/contracts/seller-schedule";
 
 import { depositText, effectiveStatus, statusLabel } from "../schedule/schedule-labels";
@@ -12,14 +13,16 @@ import {
   PAYMENT_GROUP_LABELS,
   attributionBasis,
   count,
+  demandObservation,
   groupTotals,
   money,
   searches,
   shopDateTime,
+  windowText,
 } from "./dashboard-labels";
-import { useDashboardState, type DatasetName } from "./dashboard-store";
+import { setDashboardState, useDashboardState, type DatasetName } from "./dashboard-store";
 
-// The three AgentShelf widgets inside AG Studio. They are plain React, and read their rows through
+// The AgentShelf widgets inside AG Studio. They are plain React, and read their rows through
 // the widget API, so Studio's page filters and cross filters apply to them like any built-in
 // widget. Search queries and titles come from outside, so they are only ever rendered as text.
 
@@ -403,6 +406,175 @@ export function UnmetDemandWidget(params: WidgetParams) {
           of its words about the item, within the place, currency and type asked for. Who searched is never recorded.
         </p>
       </DatasetState>
+    </WidgetFrame>
+  );
+}
+
+const widgetButton =
+  "rounded-md border border-zinc-300 px-3 py-1 text-sm font-medium hover:bg-zinc-100 focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-ink disabled:opacity-60 dark:border-zinc-700 dark:hover:bg-zinc-800";
+
+const WRITE_FAILED =
+  "Could not write an explanation just now. The counts here are recorded searches and are still correct. Try again in a minute.";
+
+function InsightStatus({
+  insights,
+  writing,
+  failure,
+  onWrite,
+}: {
+  insights: DashboardInsights;
+  writing: boolean;
+  failure: string | null;
+  onWrite: () => void;
+}) {
+  const { state, insight, aiAvailable } = insights;
+  const write = (label: string) =>
+    aiAvailable ? (
+      <button type="button" className={widgetButton} disabled={writing} onClick={onWrite}>
+        {writing ? "Writing" : label}
+      </button>
+    ) : null;
+
+  return (
+    <div className="mb-2 space-y-2">
+      {state === "stale" && insight ? (
+        <div className="flex flex-wrap items-center gap-2 border-l-4 border-doubt pl-3">
+          <p>
+            Out of date. The notes below were written for {searches(insight.unmetSearches)} from{" "}
+            {windowText(insight.windowStartDate, insight.windowEndDate)}, and the data has changed since. The counts
+            are current.
+          </p>
+          {write("Write it again")}
+        </div>
+      ) : null}
+      {state === "not_written" ? (
+        <div className="flex flex-wrap items-center gap-2">
+          <p className="text-zinc-600 dark:text-zinc-400">
+            {aiAvailable
+              ? "These are the recorded counts. A short note on what they may mean is written when you ask."
+              : "These are the recorded counts. Written notes are not set up on this service."}
+          </p>
+          {write("Explain these searches")}
+        </div>
+      ) : null}
+      {failure ? (
+        <p role="alert" className="border-l-4 border-blocked pl-3">
+          {failure}
+        </p>
+      ) : null}
+    </div>
+  );
+}
+
+function InsightSuggestion({ item, stale }: { item: DemandInsightItem; stale: boolean }) {
+  return (
+    <div className="mt-1 border-l-4 border-doubt pl-3">
+      <p className="text-xs font-medium text-zinc-600 dark:text-zinc-400">
+        Written by a model, not a recorded fact{stale ? `. Written when this group had ${searches(item.searchesAtWriting)}` : ""}
+      </p>
+      <p>{item.explanation}</p>
+      <p>
+        <span className="font-medium">Suggestion: </span>
+        {item.suggestedAction}
+      </p>
+    </div>
+  );
+}
+
+export function DemandInsightWidget(params: WidgetParams) {
+  const { rows, failed } = useWidgetRows(params);
+  const { data } = useDashboardState();
+  const insights = data.insights;
+  const [writing, setWriting] = useState(false);
+  const [failure, setFailure] = useState<string | null>(null);
+
+  const visible = useMemo(() => new Set((rows ?? []).map((row) => String(row.groupId))), [rows]);
+  const period = insights?.periodDays;
+
+  async function write() {
+    setWriting(true);
+    setFailure(null);
+    try {
+      const response = await fetch("/api/seller/dashboard/insights", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ days: String(period) }),
+        signal: AbortSignal.timeout(90_000),
+      });
+      const body = (await response.json().catch(() => null)) as
+        | (DashboardInsights & { error?: { message?: string } })
+        | null;
+      if (response.ok && body) {
+        setDashboardState({ data: { ...data, insights: body } });
+      } else {
+        setFailure(body?.error?.message ?? WRITE_FAILED);
+      }
+    } catch {
+      setFailure(WRITE_FAILED);
+    } finally {
+      setWriting(false);
+    }
+  }
+
+  const windowLine = insights ? windowText(insights.periodStartDate, insights.periodEndDate) : "";
+  const stale = insights?.state === "stale";
+
+  return (
+    <WidgetFrame>
+      {insights ? (
+        <p className="mb-2 text-xs text-zinc-600 tabular-nums dark:text-zinc-400">
+          Analysis window: {windowLine}, shop time. {searches(insights.unmetSearches)} in all.
+          {insights.insight && !stale ? ` Notes written ${shopDateTime(insights.insight.writtenLocal)}.` : ""}
+        </p>
+      ) : null}
+      {insights?.state === "no_data" ? (
+        <p className="text-zinc-600 dark:text-zinc-400">
+          No search found nothing and matched your shop from {windowLine}. There is nothing to explain yet, and nothing
+          here estimates demand or revenue.
+        </p>
+      ) : (
+        <DatasetState
+          dataset="insights"
+          label="search groups"
+          rows={rows}
+          failed={failed}
+          empty={<p>No search group matches the filters on this page.</p>}
+        >
+          {insights ? (
+            <InsightStatus insights={insights} writing={writing} failure={failure} onWrite={() => void write()} />
+          ) : null}
+          <ul className="space-y-3">
+            {(insights?.groups ?? [])
+              .filter((group) => visible.has(group.groupId))
+              .map((group) => {
+                const item = insights?.insight?.items.find((entry) => entry.groupId === group.groupId);
+                return (
+                  <li key={group.groupId}>
+                    <p>
+                      <span className="font-medium">Observed: </span>
+                      <span className="font-medium text-ink">{group.label}</span>
+                    </p>
+                    <p className="tabular-nums">{demandObservation(group)}</p>
+                    {group.degradedSearches > 0 ? (
+                      <p className="text-xs text-doubt">
+                        {searches(group.degradedSearches)} ran while some listings had no search terms, so this may be a
+                        wording gap and not a gap in stock.
+                      </p>
+                    ) : null}
+                    <details className="text-xs text-zinc-600 dark:text-zinc-400">
+                      <summary className="widget-summary rounded-sm">Source search events</summary>
+                      <p className="break-words tabular-nums">
+                        {group.eventRefs.map((ref) => ref.slice(0, 8).toUpperCase()).join(", ")}
+                        {group.eventRefsOmitted > 0 ? `, and ${group.eventRefsOmitted} more` : ""}
+                      </p>
+                    </details>
+                    {item ? <InsightSuggestion item={item} stale={stale} /> : null}
+                  </li>
+                );
+              })}
+          </ul>
+        </DatasetState>
+      )}
     </WidgetFrame>
   );
 }
