@@ -40,6 +40,20 @@ function assert(condition: unknown, name: string): asserts condition {
   pass(name);
 }
 
+function assertHttpStatus(
+  response: Response,
+  body: JsonRecord,
+  expected: number,
+  name: string,
+) {
+  if (response.status !== expected) {
+    const code = string(body.code);
+    const safeCode = code && /^[A-Z0-9_]{1,48}$/.test(code) ? code : "HTTP_ERROR";
+    throw new RuntimeSmokeFailure(`HTTP_${response.status}_${safeCode}`);
+  }
+  pass(name);
+}
+
 function record(value: unknown): JsonRecord {
   return typeof value === "object" && value !== null && !Array.isArray(value)
     ? value as JsonRecord
@@ -201,7 +215,7 @@ async function main() {
     password,
     idempotencyKey: randomUUID(),
   });
-  assert(registration.response.status === 201, "owner can register without seed data");
+  assertHttpStatus(registration.response, registration.body, 201, "owner can register without seed data");
   let cookie = registration.cookie;
   assert(Boolean(cookie), "owner registration starts an authenticated session");
 
@@ -523,7 +537,7 @@ main().catch((error: unknown) => {
     return;
   }
   if (error instanceof RuntimeSmokeFailure) {
-    console.error(`FAIL  seller API returned safe error code ${error.code}`);
+    console.error(`FAIL  seller API returned safe status/code ${error.code}`);
     process.exitCode = 1;
     return;
   }
