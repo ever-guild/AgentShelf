@@ -3,6 +3,7 @@ import "server-only";
 import { cookies } from "next/headers";
 
 import type { AuthenticatedOwner, SellerShopPrincipal } from "../contracts/seller-identity";
+import { SELLER_SESSION_COOKIE } from "../auth/seller-session";
 import { readBodyWithin } from "../http";
 import { publicOrigin } from "../public-origin";
 import {
@@ -50,6 +51,21 @@ export async function ownerCookieValue(
   return store.get(name)?.value;
 }
 
+export async function hasOwnerSessionCookie(request?: Request): Promise<boolean> {
+  if (request) {
+    const header = request.headers.get("cookie");
+    if (!header) return false;
+    if (header.length > 8192) return true;
+    return header.split(";").some((pair) => {
+      const separator = pair.indexOf("=");
+      const name = separator < 0 ? pair.trim() : pair.slice(0, separator).trim();
+      return name === OWNER_SESSION_COOKIE;
+    });
+  }
+  const store = await cookies();
+  return store.has(OWNER_SESSION_COOKIE);
+}
+
 export async function currentOwner(
   request?: Request,
   now = new Date(),
@@ -60,17 +76,26 @@ export async function currentOwner(
 
 /** Resolve a requested or selected shop only after checking its membership for this owner. */
 export async function currentOwnerShopPrincipal(
-  request: Request,
+  request?: Request,
   requestedShopId?: string,
   now = new Date(),
 ): Promise<SellerShopPrincipal> {
+  return (await currentOwnerShopContext(request, requestedShopId, now)).principal;
+}
+
+export async function currentOwnerShopContext(
+  request?: Request,
+  requestedShopId?: string,
+  now = new Date(),
+): Promise<{ owner: AuthenticatedOwner; principal: SellerShopPrincipal }> {
   const owner = await currentOwner(request, now);
   const selectedShopId = requestedShopId ??
     (await ownerCookieValue(OWNER_SELECTED_SHOP_COOKIE, request));
   if (!selectedShopId) {
     throw new IdentityError("UNAUTHORIZED", "Select a shop before continuing.");
   }
-  return requireSellerShopPrincipal(ownerIdentityRuntime().store, owner, selectedShopId);
+  const principal = await requireSellerShopPrincipal(ownerIdentityRuntime().store, owner, selectedShopId);
+  return { owner, principal };
 }
 
 export function ownerShopResponse(shop: ShopRecord) {
@@ -155,6 +180,12 @@ export function clearSelectedOwnerShopCookie(env = process.env): string {
   const secure = env.NODE_ENV === "production" ? "; Secure" : "";
   const expire = "Expires=Thu, 01 Jan 1970 00:00:00 GMT; Max-Age=0";
   return `${OWNER_SELECTED_SHOP_COOKIE}=; Path=/; ${expire}; HttpOnly; SameSite=Lax${secure}`;
+}
+
+export function clearLegacySellerSessionCookie(env = process.env): string {
+  const secure = env.NODE_ENV === "production" ? "; Secure" : "";
+  const expire = "Expires=Thu, 01 Jan 1970 00:00:00 GMT; Max-Age=0";
+  return `${SELLER_SESSION_COOKIE}=; Path=/; ${expire}; HttpOnly; SameSite=Lax${secure}`;
 }
 
 export function identityJsonResponse(

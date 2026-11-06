@@ -1,5 +1,6 @@
 import {
   clearOwnerCookies,
+  clearLegacySellerSessionCookie,
   identityErrorResponse,
   identityNoContentResponse,
   ownerCookieValue,
@@ -14,7 +15,7 @@ export async function POST(request: Request): Promise<Response> {
     requireSameOriginJson(request);
     const token = await ownerCookieValue(OWNER_SESSION_COOKIE, request);
     if (token) await signOutOwner(ownerIdentityRuntime().store, token);
-    return identityNoContentResponse(clearOwnerCookies());
+    return identityNoContentResponse([...clearOwnerCookies(), clearLegacySellerSessionCookie()]);
   } catch (error) {
     return identityErrorResponse(error);
   }
