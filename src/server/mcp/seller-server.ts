@@ -25,7 +25,12 @@ import {
   type SellerAgentStockInput,
 } from "../contracts/seller-agent";
 
-export type SellerAgentGrant = { shopId: string; actorId: string; shareDataConsent?: true };
+export type SellerAgentGrant = {
+  shopId: string;
+  actorId: string;
+  shareDataConsent?: true;
+  shareDataConsentAt?: Date;
+};
 export type SellerAgentScope = "read_shop" | "manage_catalog" | "manage_inventory" | "connect_paypal";
 
 // This is the integration seam for Identity, Catalog/Import and Inventory. Implementations must
@@ -194,7 +199,9 @@ export function createSellerMcpServer(services: SellerAgentServices): McpServer 
       annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: true },
     }, (input: SellerAgentPayPalConnectInput, extra) => result(async () => {
       const principal = await toolContext(extra, services, "connect_paypal");
-      if (principal.shareDataConsent !== true) throw Object.assign(new Error("Seller data sharing consent is required."), { code: "UNAUTHORIZED" });
+      if (principal.shareDataConsent !== true || !(principal.shareDataConsentAt instanceof Date) || Number.isNaN(principal.shareDataConsentAt.getTime())) {
+        throw Object.assign(new Error("Seller data sharing consent is required."), { code: "UNAUTHORIZED" });
+      }
       const started = await services.paypalConnection!.start(principal, {
         shopId: principal.shopId,
         idempotencyKey: input.idempotencyKey,

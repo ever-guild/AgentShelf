@@ -51,15 +51,19 @@ export function createSellerAgentServices(input: {
       ),
     } }),
     authorizeShop: async (token, scope, requestedShopId) => {
+      if (scope === "connect_paypal") {
+        const principal = await resolveAuthorizedSellerAgent(input.identity, token, "connect_paypal", requestedShopId);
+        if (!principal.shopId || principal.shopId !== requestedShopId || !principal.shareDataConsentAt ||
+          !(principal.shareDataConsentAt instanceof Date) || Number.isNaN(principal.shareDataConsentAt.getTime())) {
+          throw Object.assign(new Error("The owner has not authorized PayPal data sharing for this shop."), { code: "UNAUTHORIZED" });
+        }
+        return principal;
+      }
       const principal = await resolveAuthorizedSellerAgent(input.identity, token, scope, requestedShopId);
       if (!principal.shopId || principal.shopId !== requestedShopId) {
         throw Object.assign(new Error("This seller authorization does not cover the requested shop."), { code: "UNAUTHORIZED" });
       }
-      const grant = principal as typeof principal & { shareDataConsent?: boolean };
-      if (scope === "connect_paypal" && grant.shareDataConsent !== true) {
-        throw Object.assign(new Error("The owner has not authorized PayPal data sharing."), { code: "UNAUTHORIZED" });
-      }
-      return scope === "connect_paypal" ? { ...principal, shareDataConsent: true as const } : principal;
+      return principal;
     },
     ...(input.shopId ? { shopIdFromRequest: () => input.shopId } : {}),
     grantTokenFromRequest: input.grantTokenFromRequest,

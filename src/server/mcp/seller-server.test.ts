@@ -146,11 +146,12 @@ describe("seller MCP capability registration", () => {
 
   it("only forwards PayPal consent after the identity resolver confirms the owner grant", async () => {
     const shopId = "5f4b2190-f88b-4d19-bef6-cc11e71bb6f1";
+    const shareDataConsentAt = new Date("2026-11-06T11:12:13.000Z");
     const start = vi.fn(async () => ({ connection: { shopId, status: "pending" as const }, actionUrl: "https://www.sandbox.paypal.com/merchantsignup/partner/onboardingentry?token=action-token" }));
     const services: SellerAgentServices = {
       ...minimal,
       grantTokenFromRequest: () => "seller-grant-test-only",
-      authorizeShop: vi.fn(async () => ({ shopId, actorId: "owner-1", shareDataConsent: true as const })),
+      authorizeShop: vi.fn(async () => ({ shopId, actorId: "owner-1", shareDataConsent: true as const, shareDataConsentAt })),
       shopIdFromRequest: () => shopId,
       paypalConnection: { start },
     };
@@ -172,7 +173,7 @@ describe("seller MCP capability registration", () => {
         humanActionUrl: "https://www.sandbox.paypal.com/merchantsignup/partner/onboardingentry?token=action-token",
       });
       expect(start).toHaveBeenCalledWith(
-        { shopId, actorId: "owner-1", shareDataConsent: true },
+        { shopId, actorId: "owner-1", shareDataConsent: true, shareDataConsentAt },
         { shopId, idempotencyKey: "seller-connect-0001", shareDataConsent: true },
       );
     } finally {

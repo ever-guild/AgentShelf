@@ -75,4 +75,33 @@ describe("seller MCP route capabilities", () => {
     });
     expect(result.updatedAt).toBe("2026-11-06T10:00:00.000Z");
   });
+
+  it("preserves the persisted PayPal consent timestamp from the resolved identity grant", async () => {
+    const shopId = "5f4b2190-f88b-4d19-bef6-cc11e71bb6f1";
+    const consentAt = new Date("2026-11-06T11:12:13.000Z");
+    const identity = {
+      findActiveAgentGrant: vi.fn(async () => ({
+        actorId: "owner-1",
+        shopId,
+        scopes: ["connect_paypal"],
+        expiresAt: new Date("2026-11-06T12:00:00.000Z"),
+        shareDataConsent: true,
+        shareDataConsentAt: consentAt,
+      })),
+    } as unknown as IdentityStore;
+    const services = createSellerAgentServices({
+      ...dependencies,
+      identity,
+      shopId,
+    });
+
+    const principal = await services.authorizeShop!("owner-issued-grant", "connect_paypal", shopId);
+
+    expect(principal).toEqual({
+      actorId: "owner-1",
+      shopId,
+      shareDataConsent: true,
+      shareDataConsentAt: consentAt,
+    });
+  });
 });
