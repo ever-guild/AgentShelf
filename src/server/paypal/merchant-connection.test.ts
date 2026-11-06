@@ -101,7 +101,7 @@ function createHarness(options: { authorized?: boolean; status?: MerchantStatusE
     repository,
     paypal,
     authorizeShop: async (actor, shopId) => options.authorized !== false && actor.actorId === principal.actorId && actor.shopId === shopA && shopId === shopA,
-    returnUrl: "https://agentshelf.example/seller/paypal/callback",
+    returnUrl: "https://agentshelf.example/api/seller/paypal/connection/callback",
     now: () => new Date("2026-11-06T12:00:00Z"),
     createTrackingId: () => (++seq === 1 ? trackingA : "b".repeat(43)),
   });

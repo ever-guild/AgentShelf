@@ -2,6 +2,7 @@ import { z } from "zod";
 
 import {
   PartnerReferralsRequestError,
+  MERCHANT_CONNECTION_CALLBACK_PATH,
   type MerchantStatusEvidence,
   type PartnerReferralsAdapter,
 } from "./merchant-connection";
@@ -49,7 +50,7 @@ function required(env: Environment, key: string) {
   return value;
 }
 
-function validateOriginUrl(value: string, expectedOrigin: string, pathPattern: RegExp): URL {
+function validateOriginUrl(value: string, expectedOrigin: string, pathRule: RegExp | string): URL {
   let url: URL;
   try {
     url = new URL(value);
@@ -62,7 +63,7 @@ function validateOriginUrl(value: string, expectedOrigin: string, pathPattern: R
     url.username ||
     url.password ||
     url.hash ||
-    !pathPattern.test(url.pathname)
+    (typeof pathRule === "string" ? url.pathname !== pathRule : !pathRule.test(url.pathname))
   ) {
     throw new PayPalAdapterError("INVALID_RESPONSE");
   }
@@ -201,7 +202,7 @@ export function createPartnerReferralsAdapter(
       if (appOrigin.protocol !== "https:" || appOrigin.origin !== appOriginText.replace(/\/$/, "") || appOrigin.username || appOrigin.password) {
         throw new PartnerReferralsRequestError("rejected");
       }
-      const callback = validateOriginUrl(returnUrl, appOrigin.origin, /^\/seller\/paypal\/callback$/);
+      const callback = validateOriginUrl(returnUrl, appOrigin.origin, MERCHANT_CONNECTION_CALLBACK_PATH);
       if (callback.search || callback.hash) throw new PartnerReferralsRequestError("rejected");
       const body = {
         tracking_id: trackingId,

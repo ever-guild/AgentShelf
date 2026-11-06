@@ -102,6 +102,7 @@ const callbackSchema = z.strictObject({
   sellerMerchantIdHint: z.string().regex(/^[A-Za-z0-9_-]{3,128}$/),
 });
 const webhookHeadersSchema = z.instanceof(Headers);
+export const MERCHANT_CONNECTION_CALLBACK_PATH = "/api/seller/paypal/connection/callback";
 
 export class MerchantConnectionError extends Error {
   constructor(

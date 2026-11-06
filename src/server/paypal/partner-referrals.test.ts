@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 
 import { createPartnerReferralsAdapter, PayPalAdapterError } from "./partner-referrals";
+import { MERCHANT_CONNECTION_CALLBACK_PATH } from "./merchant-connection";
 
 const env = {
   APP_ORIGIN: "https://agentshelf.example",
@@ -25,7 +26,7 @@ describe("PayPal Partner Referrals adapter", () => {
     const adapter = createPartnerReferralsAdapter(env, fetchImpl);
     const result = await adapter.createReferral({
       trackingId: "a".repeat(43),
-      returnUrl: "https://agentshelf.example/seller/paypal/callback",
+      returnUrl: `https://agentshelf.example${MERCHANT_CONNECTION_CALLBACK_PATH}`,
     });
     expect(result).toEqual({
       referralUrl: "https://api-m.sandbox.paypal.com/v2/customer/partner-referrals/ref-123",
@@ -45,7 +46,7 @@ describe("PayPal Partner Referrals adapter", () => {
     const body = JSON.parse(create.body as string);
     expect(body).toMatchObject({
       tracking_id: "a".repeat(43),
-      partner_config_override: { return_url: "https://agentshelf.example/seller/paypal/callback" },
+      partner_config_override: { return_url: `https://agentshelf.example${MERCHANT_CONNECTION_CALLBACK_PATH}` },
       products: ["EXPRESS_CHECKOUT"],
       operations: [{ api_integration_preference: { rest_api_integration: { third_party_details: { features: ["PAYMENT"] } } } }],
       legal_consents: [{ type: "SHARE_DATA_CONSENT", granted: true }],
@@ -88,7 +89,7 @@ describe("PayPal Partner Referrals adapter", () => {
       .mockResolvedValueOnce(token())
       .mockResolvedValueOnce(referral("https://attacker.example/collect?token=hidden"));
     const adapter = createPartnerReferralsAdapter(env, fetchImpl);
-    await expect(adapter.createReferral({ trackingId: "a".repeat(43), returnUrl: "https://agentshelf.example/seller/paypal/callback" }))
+    await expect(adapter.createReferral({ trackingId: "a".repeat(43), returnUrl: `https://agentshelf.example${MERCHANT_CONNECTION_CALLBACK_PATH}` }))
       .rejects.toMatchObject({ outcome: "unknown" });
     expect(fetchImpl.mock.calls[1][1].method).toBe("POST");
     expect(fetchImpl).toHaveBeenCalledTimes(2);
@@ -100,7 +101,7 @@ describe("PayPal Partner Referrals adapter", () => {
       .mockResolvedValueOnce(referral("https://www.sandbox.paypal.com/us/merchantsignup/partner/onboardingentry")));
     await expect(missingToken.createReferral({
       trackingId: "a".repeat(43),
-      returnUrl: "https://agentshelf.example/seller/paypal/callback",
+      returnUrl: `https://agentshelf.example${MERCHANT_CONNECTION_CALLBACK_PATH}`,
     })).rejects.toMatchObject({ outcome: "unknown" });
 
     const oversized = createPartnerReferralsAdapter(env, vi.fn()
@@ -108,14 +109,22 @@ describe("PayPal Partner Referrals adapter", () => {
       .mockResolvedValueOnce(new Response("{" + " ".repeat(128 * 1024) + "}", { status: 201 })));
     await expect(oversized.createReferral({
       trackingId: "a".repeat(43),
-      returnUrl: "https://agentshelf.example/seller/paypal/callback",
+      returnUrl: `https://agentshelf.example${MERCHANT_CONNECTION_CALLBACK_PATH}`,
     })).rejects.toMatchObject({ outcome: "unknown" });
   });
 
   it("rejects a return URL on another host before sending a referral", async () => {
     const fetchImpl = vi.fn();
     const adapter = createPartnerReferralsAdapter(env, fetchImpl);
-    await expect(adapter.createReferral({ trackingId: "a".repeat(43), returnUrl: "https://attacker.example/seller/paypal/callback" }))
+    await expect(adapter.createReferral({ trackingId: "a".repeat(43), returnUrl: `https://attacker.example${MERCHANT_CONNECTION_CALLBACK_PATH}` }))
+      .rejects.toMatchObject({ code: "INVALID_RESPONSE" });
+    expect(fetchImpl).not.toHaveBeenCalled();
+  });
+
+  it("rejects an obsolete callback path before sending a referral", async () => {
+    const fetchImpl = vi.fn();
+    const adapter = createPartnerReferralsAdapter(env, fetchImpl);
+    await expect(adapter.createReferral({ trackingId: "a".repeat(43), returnUrl: "https://agentshelf.example/seller/paypal/callback" }))
       .rejects.toMatchObject({ code: "INVALID_RESPONSE" });
     expect(fetchImpl).not.toHaveBeenCalled();
   });

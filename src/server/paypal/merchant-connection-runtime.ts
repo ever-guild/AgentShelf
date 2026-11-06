@@ -8,7 +8,10 @@ import { currentOwnerShopPrincipal } from "../seller-identity/http-auth";
 import { ownerIdentityRuntime } from "../seller-identity/runtime";
 import type { IdentityStore } from "../seller-identity/service";
 import { createMerchantConnectionHttpHandlers } from "./merchant-connection-http";
-import { createMerchantConnectionService } from "./merchant-connection";
+import {
+  createMerchantConnectionService,
+  MERCHANT_CONNECTION_CALLBACK_PATH,
+} from "./merchant-connection";
 import { createPartnerReferralsAdapter } from "./partner-referrals";
 import { PostgresMerchantConnectionRepository } from "./postgres-merchant-connection";
 
@@ -36,12 +39,18 @@ export function createMerchantConnectionRuntime(input: {
   now?: () => Date;
 }) {
   const env = input.env ?? process.env;
-  const appOrigin = env.APP_ORIGIN?.trim();
-  if (!appOrigin) throw new Error("APP_ORIGIN is not configured");
-  const origin = new URL(appOrigin);
-  if (origin.origin !== appOrigin.replace(/\/$/, "") || origin.username || origin.password || origin.search || origin.hash) {
+  const originText = env.APP_ORIGIN ? env.APP_ORIGIN.trim() : env.RENDER_EXTERNAL_URL?.trim();
+  if (!originText) throw new Error("APP_ORIGIN is not configured");
+  let origin: URL;
+  try {
+    origin = new URL(originText);
+  } catch {
     throw new Error("APP_ORIGIN must be an exact origin");
   }
+  if (origin.origin !== originText.replace(/\/$/, "") || origin.username || origin.password || origin.search || origin.hash) {
+    throw new Error("APP_ORIGIN must be an exact origin");
+  }
+  const appOrigin = origin.origin;
   const platformConfigured = PLATFORM_KEYS.every((key) => Boolean(env[key]?.trim()));
   const hostname = origin.hostname.replace(/^\[|\]$/g, "");
   const localInsecureOrigin =
@@ -51,9 +60,10 @@ export function createMerchantConnectionRuntime(input: {
   if (origin.protocol !== "https:" && !localInsecureOrigin) {
     throw new Error("APP_ORIGIN must use HTTPS when PayPal seller connections are enabled");
   }
-  const returnUrl = new URL("/api/seller/paypal/connection/callback", origin).toString();
+  const returnUrl = new URL(MERCHANT_CONNECTION_CALLBACK_PATH, origin).toString();
   const repository = new PostgresMerchantConnectionRepository(input.pool);
-  const paypal = createPartnerReferralsAdapter(env, input.fetchImpl ?? fetch);
+  // Partner Referrals validates callbacks against APP_ORIGIN, which may be absent on Render.
+  const paypal = createPartnerReferralsAdapter({ ...env, APP_ORIGIN: appOrigin }, input.fetchImpl ?? fetch);
   const webhookConfigured = Boolean(env.PAYPAL_PLATFORM_WEBHOOK_ID?.trim());
   const service = localInsecureOrigin
     ? undefined
@@ -65,7 +75,7 @@ export function createMerchantConnectionRuntime(input: {
         returnUrl,
         now: input.now,
       });
-  return { service, repository, paypal, platformConfigured, webhookConfigured };
+  return { appOrigin, service, repository, paypal, platformConfigured, webhookConfigured };
 }
 
 /** Uses the application's shared pool and owner identity store; keeps one runtime per process. */
@@ -86,14 +96,12 @@ export function merchantConnectionHttpHandlers(): MerchantConnectionHandlers {
     return runtimeGlobal.agentshelfMerchantConnectionHandlers;
   }
   const runtime = merchantConnectionRuntime();
-  const appOrigin = process.env.APP_ORIGIN?.trim();
-  if (!appOrigin) throw new Error("APP_ORIGIN is not configured");
   const handlers = createMerchantConnectionHttpHandlers({
     service: runtime.service,
     repository: runtime.repository,
     authenticateOwnerShop: async (request, shopId) =>
       currentOwnerShopPrincipal(request, shopId),
-    appOrigin,
+    appOrigin: runtime.appOrigin,
     platformConfigured: runtime.platformConfigured,
     webhookConfigured: runtime.webhookConfigured,
   });
