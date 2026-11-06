@@ -1,61 +1,39 @@
 # AgentShelf
 
-Make any small shop buyable by AI agents in 5 minutes. A seller photographs their price list, AI builds a catalog, and the shop appears in one MCP connector. The buyer's assistant (Claude, ChatGPT) finds a product or a free slot and creates an order, and the buyer confirms payment in PayPal.
+AgentShelf gives small shops a catalog and a buyer-facing MCP connector. A seller registers, creates a shop, imports a price list and reviews the catalog. A buyer's assistant can search shops and start checkout; a person approves payment in PayPal
 
-Early development. PayPal runs in sandbox only. Most features are built and tested against stand-ins, and none has yet run against the real PayPal, a real model or a real assistant, see the [full run guide](docs/full-run.md) for what that needs.
+**Live demo:** [agentshelf-e5bk.onrender.com](https://agentshelf-e5bk.onrender.com) · [MCP setup](docs/mcp.md) · [deployment status](docs/deployment.md)
 
-As of 6 November 2026, the controlled Orders proof is blocked for both seller accounts because their separate Sandbox app credentials are not configured, see the [PayPal sandbox proof runbook](docs/paypal-sandbox-proof.md) for the approval and capture gates
+## Try the shop
 
-The `create_checkout` tool creates sandbox orders through the [shared checkout service](docs/architecture.md#checkout), and [approval, capture and webhooks](docs/architecture.md#payment-reconciliation) settle them, but for the same reason no real PayPal order or payment has gone through this code yet
+- Register or sign in at `/seller/register` and `/seller/owner-sign-in`, then create a shop in the seller area
+- Import CSV or a price-list photo at `/seller/imports`; CSV extraction is available, photo extraction needs the operator's Anthropic key and has not been verified with a real model
+- Review the rows before publishing, then manage the shop catalog and seller-agent access in the seller area
+- The buyer MCP endpoint is `/mcp`; its tools include product search, booking, checkout and order status. See [MCP setup and current client status](docs/mcp.md)
+- Seller MCP uses separate owner-authorized endpoints; see the [seller MCP contract](docs/seller-agent-mcp.md). No external seller-agent session has been verified
 
-Sellers can sign in at `/seller/imports`, upload a CSV or a photo of a price list and correct the rows in a table, as [Catalog import](docs/architecture.md#catalog-import) explains. CSV works today. Reading a photo needs `ANTHROPIC_API_KEY`, and no real model has read one yet. Publishing the reviewed rows, the seller catalog page, repair booking with a deposit, the Bryntum schedule, the AG Studio dashboard with demand insights, the storefront with PayPal buttons and the second demo shop are in the code. Their PayPal parts have not run against real sandbox credentials, and AG Studio has no licence key yet.
+The operator configures one AgentShelf PayPal platform app. Each shop owner gives PayPal consent from `/seller/paypal-connection`; a connection screen is not proof that Sandbox consent, checkout or capture has succeeded. See the [platform setup](docs/paypal-platform-setup.md) and [Sandbox proof status](docs/paypal-sandbox-proof.md)
 
-## Run locally
+## Run the demo
 
-You need Node.js 24 and PostgreSQL 17.
+Requires Node.js 24 and PostgreSQL 17
 
 ```bash
-npm install
+npm ci
 createdb agentshelf_dev
-cp .env.example .env.local   # then fill in the values
+if [ ! -e .env.local ]; then cp .env.example .env.local; fi
+# Set DATABASE_URL and APP_SIGNING_SECRET in .env.local
 npm run db:migrate
 npm run db:seed
 npm run dev
 ```
 
-Open http://localhost:3000.
+Open <http://localhost:3000>. Keep secrets in local environment files or the deployment secret store, never in Git
 
-[docs/architecture.md](docs/architecture.md) explains the environment variables, the data model and the service contracts.
+## Operate the hosted demo
 
-## Test
+Pushes to `main` run CI and, after it passes, request a Render deploy for that exact commit. The deploy workflow checks the live commit and readiness endpoints. Operators can follow [deployment and seeding instructions](docs/deployment.md); users can use the live demo link above
 
-```bash
-npm test            # needs TEST_DATABASE_URL, a Postgres server for temporary test databases
-npm run test:unit   # needs no database
-```
+**Limits:** PayPal uses Sandbox only; real OAuth, seller consent, order approval, capture and webhook delivery are not yet proven end to end. External Claude and ChatGPT sessions have not been verified. See [the current runbook](docs/full-run.md) before a rehearsal
 
-## Connect an assistant
-
-The connector is an MCP server at `/mcp`. [docs/mcp.md](docs/mcp.md) explains how to add it to Claude and ChatGPT, and what it can do so far.
-
-To try the HTTP and MCP endpoints without a client, import the [Postman smoke collection](docs/postman/README.md) or run it with `npx newman`.
-
-For PayPal development, follow the [project-scoped agent setup](docs/paypal-agent-setup.md) to install the official PayPal and APIMatic guidance, these skills provide development context and do not enable payments
-
-The diagnostic Orders proof uses APIMatic PayPal Context Plugin skills while writing client and controller setup, request models, and mocked transport checks for `@paypal/paypal-server-sdk` 2.5.0; the [runbook](docs/paypal-sandbox-proof.md) records this work without claiming a real Sandbox payment
-
-The [checkout and reconciliation services](src/server/paypal/orders.ts) were written with the same skills, [integrations.md](docs/integrations.md#apimatic-context-plugin) records what they changed in that code
-
-## Deploy
-
-Live demo: [AgentShelf](https://agentshelf-e5bk.onrender.com)
-
-[`render.yaml`](render.yaml) defines the Render web service and database, pushes to `main` run CI with lint, tests against an isolated PostgreSQL 17 service and a production build on Node.js 24
-
-After CI passes, GitHub Actions calls the Render Deploy Hook for that exact commit and verifies its public health endpoints, see [deployment and verification details](docs/deployment.md) and [deployment issue #31](https://github.com/ever-guild/AgentShelf/issues/31)
-
-## License
-
-[MIT](LICENSE)
-
-The seller dashboard depends on AG Studio, which is commercial software installed from npm under its own licence and not included in this repository. Portions of this software are copyright 2015-2026 by AG Grid Ltd.
+[Development and test commands](DEVELOP.md) · [Contribution guide](CONTRIBUTING.md) · [Changelog](CHANGELOG.md) · [MIT license](LICENSE)

@@ -1,6 +1,6 @@
 # Design direction
 
-The direction for every AgentShelf screen, in the five lines the [unslop skill](../.claude/skills/unslop/SKILL.md) asks for. UI work follows that skill and this file, so the seller screens and the storefront read as one product. To change the direction, change it here.
+The direction for every AgentShelf screen, in the five lines the [unslop skill](../.agents/skills/unslop/SKILL.md) asks for. UI work follows that skill and this file, so the seller screens and the storefront read as one product. To change the direction, change it here.
 
 - **Product.** Small shops with no online store get a catalog that buyers' assistants can search and buy from. A seller corrects it from a photo of their price list, takes bookings and sees what people asked for
 - **Character.** Exact, plain-spoken, handy

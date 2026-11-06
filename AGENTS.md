@@ -84,6 +84,9 @@ Use these for real, because partner judges will notice superficial use.
 
 ## Working in this repo
 
+- Keep documentation current, especially README, DEVELOP, docs and CHANGELOG, update related pages in the same logical change when behavior, configuration, commands or paths change
+- Do not invent releases, completed checks or external integration results, and check local links, anchors, commands and newly added external references before committing
+
 ```bash
 npm run dev    # local server on http://localhost:3000
 npm run lint
@@ -104,7 +107,7 @@ Run `npm run lint`, `npm run build` and `npm test` before pushing. [docs/archite
 - Each area has one owner: PayPal and backend; MCP and AI search; onboarding and booking; dashboard and submission. Stay inside the area you were asked to work on, and flag changes that reach into another.
 - Scope decisions belong to the team captain, so ask rather than adding features.
 - Write UI text, code, comments and the README in English.
-- UI work follows the [unslop skill](.claude/skills/unslop/SKILL.md) and [docs/design-direction.md](docs/design-direction.md). Audit a screen against the skill's `references/signs.md` before calling it done.
+- UI work follows the [unslop skill](.agents/skills/unslop/SKILL.md) and [docs/design-direction.md](docs/design-direction.md). Audit a screen against the skill's `references/signs.md` before calling it done.
 
 ## Dates
 
