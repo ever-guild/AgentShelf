@@ -84,8 +84,8 @@ Use these for real, because partner judges will notice superficial use.
 
 ## Working in this repo
 
-- Keep documentation current, especially README, DEVELOP, docs and CHANGELOG, update related pages in the same logical change when behavior, configuration, commands or paths change
-- Do not invent releases, completed checks or external integration results, and check local links, anchors, commands and newly added external references before committing
+- Update [README.md](README.md), [DEVELOP.md](DEVELOP.md), affected `docs/` pages and [CHANGELOG.md](CHANGELOG.md) in the same logical change when behavior, configuration, commands or paths change
+- Before committing, verify local link targets and anchors, new or changed external links and documented commands, never invent releases, completed checks or external integration results
 
 ```bash
 npm run dev    # local server on http://localhost:3000

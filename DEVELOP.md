@@ -2,7 +2,7 @@
 
 ## Setup and checks
 
-Use Node.js 24 and PostgreSQL 17. Create a local database and `.env.local` from `.env.example`, then run migrations and seed data as described in the [README](README.md)
+Use Node.js 24 and PostgreSQL 17, create a local database and `.env.local` from `.env.example`, then run migrations and seed data as described in the [README](README.md)
 
 ```bash
 npm run dev
@@ -27,7 +27,7 @@ Read [architecture and service contracts](docs/architecture.md) before changing 
 
 The installed PayPal Server SDK is `@paypal/paypal-server-sdk` 2.5.0; APIMatic PayPal Context Plugin skills were used while writing its client/controller configuration, request models, error handling and mocked transport tests; these are coding references, not a runtime integration or evidence of a real payment, see [the integration record](docs/integrations.md#apimatic-context-plugin) and [Sandbox proof runbook](docs/paypal-sandbox-proof.md)
 
-AG Studio and Bryntum are installed partner packages; their usage and verification limits are recorded in [integrations.md](docs/integrations.md); AG Studio has its own commercial license. PayPal Agent Toolkit is not installed as a runtime dependency; shared agent guidance lives in [AGENTS.md](AGENTS.md) and reusable project skills in [`.agents/skills`](.agents/skills/unslop/SKILL.md)
+AG Studio and Bryntum are installed partner packages; their usage and verification limits are recorded in [integrations.md](docs/integrations.md); AG Studio has its own commercial license, PayPal Agent Toolkit is not installed as a runtime dependency; shared agent guidance lives in [AGENTS.md](AGENTS.md) and reusable project skills in [`.agents/skills`](.agents/skills/unslop/SKILL.md)
 
 ## Useful operational commands
 

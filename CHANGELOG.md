@@ -1,6 +1,6 @@
 # Changelog
 
-This project has no tagged releases yet. Entries describe code present in the current unreleased repository state, not end-to-end acceptance
+This project has no tagged releases yet, entries describe code present in the current unreleased repository state, not end-to-end acceptance
 
 ## Unreleased
 
