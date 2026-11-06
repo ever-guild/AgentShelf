@@ -1,11 +1,12 @@
 import { readFile } from "node:fs/promises";
-import { randomUUID } from "node:crypto";
+import { createHmac, randomUUID } from "node:crypto";
 import { Pool } from "pg";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 
 import type { ShopRegistration } from "../contracts/seller-identity";
 import { createTemporaryDatabase } from "../../../test/database";
 import { PostgresAttemptLimiter, PostgresIdentityStore } from "./postgres-store";
+import { registerOwner, registerOwnerAndShop } from "./service";
 
 describe("Postgres seller identity store", () => {
   let temporary: Awaited<ReturnType<typeof createTemporaryDatabase>>;
@@ -161,5 +162,40 @@ describe("Postgres seller identity store", () => {
     expect(await limiter.consume("signin:test", 2, 60_000, new Date(now.getTime() + 1))).toBe(true);
     expect(await limiter.consume("signin:test", 2, 60_000, new Date(now.getTime() + 2))).toBe(false);
     expect(await limiter.consume("signin:test", 2, 60_000, new Date(now.getTime() + 60_001))).toBe(true);
+  });
+
+  it.each([
+    ["owner-only registration", false],
+    ["owner-and-shop registration", true],
+  ] as const)("rejects registration at the client limit and resets after one hour (%s)", async (_label, withShop) => {
+    const now = new Date("2026-11-06T12:00:00.000Z");
+    const clientKey = `registration-limit-${withShop ? "shop" : "owner"}`;
+    const globalKeyHash = createHmac("sha256", "test-only-attempt-key-hash-secret-32b")
+      .update(`register:${clientKey}`)
+      .digest("hex");
+    await pool.query(
+      `INSERT INTO seller_identity_attempt_windows (key_hash, window_started_at, attempts) VALUES ($1, $2, 100)`,
+      [globalKeyHash, now],
+    );
+
+    const register = (at: Date) => withShop
+      ? registerOwnerAndShop(store, limiter, {
+        username: "limitshopowner",
+        password: "correct horse battery staple",
+        shop: shop("limit-shop-owner-shop"),
+        idempotencyKey: randomUUID(),
+      }, clientKey, at)
+      : registerOwner(store, limiter, {
+        username: "limitowner",
+        password: "correct horse battery staple",
+        idempotencyKey: randomUUID(),
+      }, clientKey, at);
+
+    await expect(register(new Date(now.getTime() + 1))).rejects.toMatchObject({ code: "RATE_LIMITED" });
+    expect((await pool.query("SELECT attempts FROM seller_identity_attempt_windows WHERE key_hash=$1", [globalKeyHash])).rows[0].attempts).toBe(101);
+
+    const afterWindow = new Date(now.getTime() + 60 * 60_000 + 1);
+    await expect(register(afterWindow)).resolves.toBeTruthy();
+    expect((await pool.query("SELECT attempts FROM seller_identity_attempt_windows WHERE key_hash=$1", [globalKeyHash])).rows[0].attempts).toBe(1);
   });
 });
