@@ -1,11 +1,13 @@
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import { count } from "drizzle-orm";
+import { DrizzleQueryError } from "drizzle-orm/errors";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { setupMigratedDatabase } from "../../../test/database";
 import { createProduct, createService, createShop } from "../../../test/fixtures";
 import { createFakePayPal } from "../../../test/paypal-fake";
+import type { Db } from "../db/client";
 import { orders } from "../db/schema";
 import {
   DEMO_PRODUCT_ID,
@@ -170,6 +172,38 @@ describe("booking a repair", () => {
       to: new Date(Date.now() + 40 * DAY_MS).toISOString(),
     });
     expect(tooLong.isError).toBe(true);
+  });
+});
+
+describe("a tool that fails unexpectedly", () => {
+  it("logs no query parameters and tells the client nothing was charged", async () => {
+    const log = vi.spyOn(console, "error").mockImplementation(() => {});
+    const failure = new DrizzleQueryError("insert into orders values ($1)", ["PRIVATEMERCHANT"], new Error("down"));
+    const brokenDb = new Proxy(
+      {},
+      {
+        get() {
+          throw failure;
+        },
+      },
+    ) as Db;
+    const [clientSide, serverSide] = InMemoryTransport.createLinkedPair();
+    await createMcpServer(brokenDb).connect(serverSide);
+    const broken = new Client({ name: "test", version: "0.0.0" });
+    await broken.connect(clientSide);
+
+    const result = await broken.callTool({ name: "get_slots", arguments: {
+      shopId: DEMO_SHOP_ID,
+      serviceId: DEMO_SERVICE_ID,
+      from: new Date(Date.now() + 86_400_000).toISOString(),
+      to: new Date(Date.now() + 172_800_000).toISOString(),
+    } });
+    await broken.close();
+
+    expect(errorCode(result)).toBe("INTERNAL_ERROR");
+    expect(JSON.stringify(log.mock.calls)).toContain("MCP tool failed");
+    expect(log.mock.calls.flat().some((value) => value === failure)).toBe(false);
+    expect(JSON.stringify(log.mock.calls)).not.toContain("PRIVATEMERCHANT");
   });
 });
 

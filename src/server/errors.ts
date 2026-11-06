@@ -66,6 +66,20 @@ export class ServiceError extends Error {
   }
 }
 
+// What an unexpected error may put in a log. A failed query's message and stack hold every bound
+// parameter, such as a photo's bytes or a seller's draft, so only its name and SQLSTATE go through.
+export function describeForLog(error: unknown): { error: string; code?: string } {
+  if (!(error instanceof Error)) {
+    return { error: "unknown" };
+  }
+  const cause: unknown = error.cause;
+  const code =
+    cause && typeof cause === "object" && "code" in cause && typeof cause.code === "string"
+      ? cause.code
+      : undefined;
+  return code ? { error: error.name, code } : { error: error.name };
+}
+
 export function parseInput<Schema extends z.ZodType>(
   schema: Schema,
   raw: unknown,

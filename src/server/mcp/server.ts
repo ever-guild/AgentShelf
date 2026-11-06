@@ -16,7 +16,7 @@ import {
   searchProductsResult,
 } from "../contracts/commerce";
 import type { Db } from "../db/client";
-import { ServiceError } from "../errors";
+import { ServiceError, describeForLog } from "../errors";
 import { bookSlot, defaultBookingDeps, getSlots } from "../services/bookings";
 import { searchProducts } from "../services/catalog";
 import { createCheckout, type CheckoutDeps } from "../services/checkout";
@@ -50,7 +50,7 @@ async function toolResult(
     if (error instanceof ServiceError) {
       return errorResult(error.toJSON());
     }
-    console.error("MCP tool failed", error);
+    console.error("MCP tool failed", describeForLog(error));
     return errorResult({
       code: "INTERNAL_ERROR",
       message: "Something went wrong. Nothing was charged.",
