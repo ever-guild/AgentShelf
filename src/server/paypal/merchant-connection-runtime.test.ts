@@ -15,6 +15,16 @@ describe("merchant connection runtime composition", () => {
     expect(runtime.service).toBeUndefined();
   });
 
+  it("recognizes Node's bracketed IPv6 loopback hostname", () => {
+    const runtime = createMerchantConnectionRuntime({
+      pool: {} as Pool,
+      identityStore: {} as IdentityStore,
+      env: { APP_ORIGIN: "http://[::1]:3217" },
+    });
+    expect(runtime.platformConfigured).toBe(false);
+    expect(runtime.service).toBeUndefined();
+  });
+
   it("rejects an HTTP origin when platform credentials are configured", () => {
     expect(() => createMerchantConnectionRuntime({
       pool: {} as Pool,

@@ -43,9 +43,10 @@ export function createMerchantConnectionRuntime(input: {
     throw new Error("APP_ORIGIN must be an exact origin");
   }
   const platformConfigured = PLATFORM_KEYS.every((key) => Boolean(env[key]?.trim()));
+  const hostname = origin.hostname.replace(/^\[|\]$/g, "");
   const localInsecureOrigin =
     origin.protocol === "http:" &&
-    ["localhost", "127.0.0.1", "::1"].includes(origin.hostname) &&
+    ["localhost", "127.0.0.1", "::1"].includes(hostname) &&
     !platformConfigured;
   if (origin.protocol !== "https:" && !localInsecureOrigin) {
     throw new Error("APP_ORIGIN must use HTTPS when PayPal seller connections are enabled");
