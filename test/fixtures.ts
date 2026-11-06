@@ -8,6 +8,7 @@ import {
   products,
   shops,
   technicians,
+  technicianWindows,
 } from "../src/server/db/schema";
 
 const unique = () => randomBytes(8).toString("hex");
@@ -72,6 +73,26 @@ export async function createTechnician(db: Db, shopId: string) {
     .values({ shopId, name: `Technician ${unique()}` })
     .returning();
   return technician;
+}
+
+// A weekly working window, in the shop's own time. 09:00 to 18:00 on a Monday unless overridden.
+export async function createWindow(
+  db: Db,
+  technician: { id: string; shopId: string },
+  overrides: Partial<typeof technicianWindows.$inferInsert> = {},
+) {
+  const [window] = await db
+    .insert(technicianWindows)
+    .values({
+      technicianId: technician.id,
+      shopId: technician.shopId,
+      weekday: 1,
+      startMinute: 9 * 60,
+      endMinute: 18 * 60,
+      ...overrides,
+    })
+    .returning();
+  return window;
 }
 
 export async function createOrder(
@@ -142,6 +163,7 @@ export async function createBooking(
       startsAt: NOON,
       endsAt: hoursAfterNoon(1),
       holdExpiresAt: hoursAfterNoon(-1),
+      servicePriceMinor: 8000,
       ...overrides,
     })
     .returning();

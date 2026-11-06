@@ -91,6 +91,7 @@ npm run db:migrate
 npm run db:seed
 npm run smoke:mcp -- URL   # checks a running /mcp endpoint
 npm run smoke:checkout -- URL [--wait]   # creates one sandbox order through a running /mcp endpoint
+npm run smoke:booking -- URL [--wait]   # holds one slot and creates its sandbox deposit order through a running /mcp endpoint
 npm run smoke:import -- URL [FILE]   # uploads a price list to a running service and checks what was read
 ```
 

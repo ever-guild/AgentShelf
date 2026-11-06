@@ -7,7 +7,13 @@ import { setupMigratedDatabase } from "../../../test/database";
 import { createProduct, createService, createShop } from "../../../test/fixtures";
 import { createFakePayPal } from "../../../test/paypal-fake";
 import { orders } from "../db/schema";
-import { DEMO_PRODUCT_ID, DEMO_SHOP_ID, seedDemoData } from "../db/seed";
+import {
+  DEMO_PRODUCT_ID,
+  DEMO_SERVICE_ID,
+  DEMO_SHOP_ID,
+  DEMO_TECHNICIAN_IDS,
+  seedDemoData,
+} from "../db/seed";
 import { createPayPalProvider } from "../paypal/orders";
 import { createMcpServer } from "./server";
 
@@ -52,16 +58,139 @@ const errorCode = (result: ToolResult) => {
 const call = (name: string, args: Record<string, unknown>) =>
   client.callTool({ name, arguments: args });
 
+describe("booking a repair", () => {
+  const DAY_MS = 24 * 60 * 60 * 1000;
+  const range = () => ({
+    from: new Date(Date.now() + DAY_MS).toISOString(),
+    to: new Date(Date.now() + 8 * DAY_MS).toISOString(),
+  });
+
+  const seedWithMerchant = () =>
+    seedDemoData(getDb(), {
+      DEMO_PHONE_WORKSHOP_PAYPAL_MERCHANT_ID: "SEEDEDMERCHANT1",
+    });
+
+  const firstSlot = async () => {
+    const result = await call("get_slots", {
+      shopId: DEMO_SHOP_ID,
+      serviceId: DEMO_SERVICE_ID,
+      ...range(),
+    });
+    expect(result.isError).toBeFalsy();
+    const { slots } = result.structuredContent as {
+      slots: { slotId: string; technicianId: string; timezone: string }[];
+    };
+    return slots[0];
+  };
+
+  it("finds a slot, holds it and reports the booking and the money", async () => {
+    await seedWithMerchant();
+    const slot = await firstSlot();
+    expect(DEMO_TECHNICIAN_IDS).toContain(slot.technicianId);
+    expect(slot.timezone).toBe("Europe/Riga");
+
+    const args = {
+      slotId: slot.slotId,
+      serviceId: DEMO_SERVICE_ID,
+      idempotencyKey,
+    };
+    const booked = await call("book_slot", args);
+    expect(booked.isError).toBeFalsy();
+    const held = booked.structuredContent as {
+      bookingId: string;
+      orderId: string;
+      statusToken: string;
+      approvalUrl: string;
+      depositMinor: number;
+      remainingMinor: number;
+    };
+    expect(held).toMatchObject({ depositMinor: 2000, remainingMinor: 6000 });
+    expect(held.approvalUrl).toContain("sandbox.paypal.com");
+
+    const repeat = await call("book_slot", args);
+    expect(repeat.structuredContent).toEqual(held);
+    expect(paypal.createRequests()).toHaveLength(1);
+
+    const status = await call("get_order_status", {
+      orderId: held.orderId,
+      statusToken: held.statusToken,
+    });
+    expect(status.structuredContent).toMatchObject({
+      paymentStatus: "pending",
+      totalMinor: 2000,
+      booking: {
+        bookingId: held.bookingId,
+        status: "held",
+        reviewReason: null,
+        depositMinor: 2000,
+        remainingMinor: 6000,
+      },
+    });
+
+    // The slot is gone for this technician, and another buyer is told so.
+    expect((await firstSlot()).slotId).not.toBe(slot.slotId);
+    expect(
+      errorCode(
+        await call("book_slot", {
+          ...args,
+          idempotencyKey: "7c1a2f7e-4f7b-4a9c-9a41-0f4f7f0f1a12",
+        }),
+      ),
+    ).toBe("SLOT_UNAVAILABLE");
+  });
+
+  it("answers a shop with no PayPal set up with a stable code", async () => {
+    await seedDemoData(getDb(), {});
+    const slot = await firstSlot();
+    expect(
+      errorCode(
+        await call("book_slot", {
+          slotId: slot.slotId,
+          serviceId: DEMO_SERVICE_ID,
+          idempotencyKey,
+        }),
+      ),
+    ).toBe("PAYMENT_NOT_CONFIGURED");
+  });
+
+  it("refuses a client deposit, and a range longer than a month", async () => {
+    await seedWithMerchant();
+    const slot = await firstSlot();
+    const tampered = await call("book_slot", {
+      slotId: slot.slotId,
+      serviceId: DEMO_SERVICE_ID,
+      idempotencyKey,
+      depositMinor: 1,
+    });
+    expect(tampered.isError).toBe(true);
+    const tooLong = await call("get_slots", {
+      shopId: DEMO_SHOP_ID,
+      serviceId: DEMO_SERVICE_ID,
+      from: new Date().toISOString(),
+      to: new Date(Date.now() + 40 * DAY_MS).toISOString(),
+    });
+    expect(tooLong.isError).toBe(true);
+  });
+});
+
 describe("tools/list", () => {
   it("offers the implemented tools and marks reads and writes", async () => {
     const { tools } = await client.listTools();
     const byName = Object.fromEntries(tools.map((tool) => [tool.name, tool]));
 
     expect(Object.keys(byName).sort()).toEqual([
+      "book_slot",
       "create_checkout",
       "get_order_status",
+      "get_slots",
       "search_products",
     ]);
+    expect(byName.get_slots.annotations).toMatchObject({ readOnlyHint: true });
+    expect(byName.book_slot.annotations).toMatchObject({
+      readOnlyHint: false,
+      destructiveHint: false,
+      idempotentHint: true,
+    });
     expect(byName.search_products.annotations).toMatchObject({
       readOnlyHint: true,
     });

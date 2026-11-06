@@ -15,6 +15,7 @@ import {
   type PayPalProvider,
   type PayPalSellerApi,
 } from "../paypal/orders";
+import { confirmBookingPayment } from "./bookings";
 
 // The one place that decides what a PayPal order means for a stored order. The buyer's return, a
 // verified webhook and the sweep are all only reasons to ask: each calls reconcileOrder, which
@@ -36,7 +37,7 @@ export type ReconcileDeps = {
 
 export const defaultReconcileDeps: ReconcileDeps = {
   paypalFor,
-  onPaymentConfirmed: async () => {},
+  onPaymentConfirmed: (tx, order) => confirmBookingPayment(tx, order),
 };
 
 const unavailable = () =>

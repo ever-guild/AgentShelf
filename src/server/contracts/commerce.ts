@@ -1,6 +1,7 @@
 import { z } from "zod";
 
 import {
+  bookingReviewReason,
   bookingStatus,
   paymentStatus,
   productAvailability,
@@ -75,7 +76,8 @@ export const searchProductsResult = z.strictObject({
   products: z.array(productSummary),
 });
 
-// get_slots: read-only. `slotId` is opaque to clients.
+// get_slots: read-only. `slotId` is opaque to clients. A slot is listed only while it is free, and
+// only book_slot can actually claim it.
 export const getSlotsInput = z
   .strictObject({ shopId: id, serviceId: id, from: instant, to: instant })
   .refine((range) => Date.parse(range.to) > Date.parse(range.from), {
@@ -91,11 +93,14 @@ export const getSlotsResult = z.strictObject({
     z.strictObject({
       slotId: z.string().min(1).max(512),
       technicianId: id,
+      technicianName: z.string(),
       startsAt: instant,
       endsAt: instant,
       timezone: ianaTimezone,
     }),
   ),
+  // True when the range holds more free slots than one answer carries. Ask again from later.
+  truncated: z.boolean(),
 });
 
 // book_slot: mutating. The booking stays pending until a verified capture of the deposit.
@@ -173,10 +178,14 @@ export const getOrderStatusResult = z.strictObject({
     .strictObject({
       bookingId: id,
       status: z.enum(bookingStatus.enumValues),
+      // Why a person has to look. Set only when status is review_required.
+      reviewReason: z.enum(bookingReviewReason.enumValues).nullable(),
       startsAt: instant,
       endsAt: instant,
       expiresAt: instant,
       timezone: ianaTimezone,
+      depositMinor: minorAmount,
+      remainingMinor: minorAmount,
     })
     .nullable(),
   updatedAt: instant,

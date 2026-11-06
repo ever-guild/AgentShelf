@@ -34,9 +34,9 @@ export type CheckoutDeps = { paypalFor: PayPalProvider };
 type CheckoutInput = z.output<typeof createCheckoutInput>;
 type CheckoutResult = z.infer<typeof createCheckoutResult>;
 type OrderRow = typeof orders.$inferSelect;
-type StoredOrder = { order: OrderRow; credentialRef: string };
+export type StoredOrder = { order: OrderRow; credentialRef: string };
 
-const notConfigured = () =>
+export const notConfigured = () =>
   new ServiceError("PAYMENT_NOT_CONFIGURED", "This shop cannot take payments yet.");
 
 const declined = () =>
@@ -231,6 +231,39 @@ async function requestPayPalOrder(
   throw needsReview();
 }
 
+// Brings a stored order to the point where it has an approval link, or says why it cannot. Shared by
+// checkout and booking, so both make the same PayPal request and answer failures the same way.
+export async function ensureApprovalLink(
+  db: Db,
+  { order, credentialRef }: StoredOrder,
+  statusToken: string,
+  deps: CheckoutDeps,
+): Promise<OrderRow> {
+  if (order.paymentStatus === "failed") {
+    throw declined();
+  }
+  if (order.paymentStatus === "review_required") {
+    throw needsReview();
+  }
+  if (order.approvalUrl) {
+    return order;
+  }
+  if (order.paymentStatus !== "pending") {
+    throw needsReview();
+  }
+  if (Date.now() - order.createdAt.getTime() >= PROVIDER_REPLAY_WINDOW_MS) {
+    // The first attempt's outcome was never learned, but its link never reached anyone, so
+    // nobody can pay that order. A new key cannot lead to two payments.
+    console.error("PayPal order needs review", {
+      orderId: order.id,
+      reason: "retry window passed",
+    });
+    await markForReview(db, order.id);
+    throw needsReview();
+  }
+  return requestPayPalOrder(db, order, credentialRef, statusToken, deps);
+}
+
 // The one checkout entry point, for MCP and the storefront. The agent gets a link and the buyer
 // approves in PayPal, so an order stays `pending` here: only verified capture marks it paid.
 export async function createCheckout(
@@ -250,7 +283,7 @@ export async function createCheckout(
     }
     stored = await insertOrder(db, input, fingerprint, quote);
   }
-  const { order, credentialRef } = stored;
+  const { order } = stored;
 
   if (order.requestFingerprint !== fingerprint) {
     throw new ServiceError(
@@ -261,39 +294,12 @@ export async function createCheckout(
 
   // Signed before PayPal is called, so a misconfigured server cannot leave an order behind.
   const statusToken = issueOrderStatusToken(order.id);
-  const toResult = (row: OrderRow) =>
-    createCheckoutResult.parse({
-      orderId: row.id,
-      totalMinor: row.totalMinor,
-      currency: row.currency,
-      approvalUrl: row.approvalUrl,
-      statusToken,
-    });
-
-  if (order.paymentStatus === "failed") {
-    throw declined();
-  }
-  if (order.paymentStatus === "review_required") {
-    throw needsReview();
-  }
-  if (order.approvalUrl) {
-    return toResult(order);
-  }
-  if (order.paymentStatus !== "pending") {
-    throw needsReview();
-  }
-  if (Date.now() - order.createdAt.getTime() >= PROVIDER_REPLAY_WINDOW_MS) {
-    // The first attempt's outcome was never learned, but its link never reached anyone, so
-    // nobody can pay that order. A new key cannot lead to two payments.
-    console.error("PayPal order needs review", {
-      orderId: order.id,
-      reason: "retry window passed",
-    });
-    await markForReview(db, order.id);
-    throw needsReview();
-  }
-
-  return toResult(
-    await requestPayPalOrder(db, order, credentialRef, statusToken, deps),
-  );
+  const row = await ensureApprovalLink(db, stored, statusToken, deps);
+  return createCheckoutResult.parse({
+    orderId: row.id,
+    totalMinor: row.totalMinor,
+    currency: row.currency,
+    approvalUrl: row.approvalUrl,
+    statusToken,
+  });
 }

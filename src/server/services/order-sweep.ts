@@ -5,6 +5,7 @@ import { and, eq, inArray, isNotNull, isNull, lt, sql } from "drizzle-orm";
 import type { Db } from "../db/client";
 import { getDb } from "../db";
 import { orders } from "../db/schema";
+import { expireHolds } from "./bookings";
 import {
   defaultReconcileDeps,
   reconcileOrder,
@@ -25,6 +26,10 @@ export async function sweepOpenOrders(
   deps: ReconcileDeps = defaultReconcileDeps,
   batch = SWEEP_BATCH,
 ): Promise<number> {
+  // Frees a technician's time. The order behind an expired hold is still asked about below, so a
+  // late payment is found and reaches review rather than being lost.
+  await expireHolds(db);
+
   // PayPal never acknowledged these, so their link never reached anyone and nobody can pay them.
   await db
     .update(orders)

@@ -36,6 +36,20 @@
       "when": 1793966259316,
       "tag": "0004_catalog_publication",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1793967024720,
+      "tag": "0005_booking_holds",
+      "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1793967025286,
+      "tag": "0006_booking_invariants",
+      "breakpoints": true
     }
   ]
 }

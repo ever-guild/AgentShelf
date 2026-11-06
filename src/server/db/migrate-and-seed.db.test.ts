@@ -4,8 +4,13 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { createTemporaryDatabase } from "../../../test/database";
 import { createDb } from "./client";
 import { runMigrations } from "./migrate";
-import { products, shops } from "./schema";
-import { DEMO_PRODUCT_ID, DEMO_SHOP_ID, seedDemoData } from "./seed";
+import { products, shops, technicians, technicianWindows } from "./schema";
+import {
+  DEMO_PRODUCT_ID,
+  DEMO_SERVICE_ID,
+  DEMO_SHOP_ID,
+  seedDemoData,
+} from "./seed";
 
 describe("a clean database", () => {
   let temporary: Awaited<ReturnType<typeof createTemporaryDatabase>>;
@@ -45,8 +50,14 @@ describe("a clean database", () => {
       { n: 1 },
     ]);
     expect(await connection.db.select({ n: count() }).from(products)).toEqual([
-      { n: 1 },
+      { n: 2 },
     ]);
+    expect(await connection.db.select({ n: count() }).from(technicians)).toEqual([
+      { n: 2 },
+    ]);
+    expect(
+      await connection.db.select({ n: count() }).from(technicianWindows),
+    ).toEqual([{ n: 11 }]);
 
     const [shop] = await connection.db.select().from(shops);
     expect(shop).toMatchObject({
@@ -55,12 +66,27 @@ describe("a clean database", () => {
       timezone: "Europe/Riga",
     });
 
-    const [product] = await connection.db.select().from(products);
+    const [product] = await connection.db
+      .select()
+      .from(products)
+      .where(eq(products.id, DEMO_PRODUCT_ID));
     expect(product).toMatchObject({
-      id: DEMO_PRODUCT_ID,
       shopId: DEMO_SHOP_ID,
       status: "published",
       priceMinor: 990,
+    });
+
+    const [service] = await connection.db
+      .select()
+      .from(products)
+      .where(eq(products.id, DEMO_SERVICE_ID));
+    expect(service).toMatchObject({
+      shopId: DEMO_SHOP_ID,
+      kind: "service",
+      status: "published",
+      priceMinor: 8000,
+      serviceDurationMinutes: 60,
+      depositMinor: 2000,
     });
   });
 

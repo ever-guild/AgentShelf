@@ -19,7 +19,7 @@ import {
 } from "../../../test/payments";
 import { issueOrderStatusToken } from "../auth/order-status-token";
 import { getOrderStatusResult } from "../contracts/commerce";
-import { orders } from "../db/schema";
+import { bookings, orders } from "../db/schema";
 import { ServiceError, type ServiceErrorCode } from "../errors";
 import { getOrderStatus } from "./order-status";
 import { reconcileOrder } from "./payment-reconciliation";
@@ -188,19 +188,34 @@ describe("getOrderStatus", () => {
       orderId: order.id,
     });
 
-    const status = await getOrderStatus(getDb(), {
-      orderId: order.id,
-      statusToken: issueOrderStatusToken(order.id),
-    });
+    const statusAt = (now: Date) =>
+      getOrderStatus(
+        getDb(),
+        { orderId: order.id, statusToken: issueOrderStatusToken(order.id) },
+        now,
+      );
+
+    const status = await statusAt(hoursAfterNoon(-2));
 
     expect(status.booking).toEqual({
       bookingId: booking.id,
       status: "held",
+      reviewReason: null,
       startsAt: NOON.toISOString(),
       endsAt: hoursAfterNoon(1).toISOString(),
       expiresAt: hoursAfterNoon(-1).toISOString(),
       timezone: "Europe/Riga",
+      depositMinor: 990,
+      remainingMinor: 7010,
     });
+
+    // A hold past its expiry reads as expired, and the read writes nothing.
+    expect((await statusAt(hoursAfterNoon(-1))).booking?.status).toBe("expired");
+    const [stored] = await getDb()
+      .select({ status: bookings.status })
+      .from(bookings)
+      .where(eq(bookings.id, booking.id));
+    expect(stored.status).toBe("held");
   });
 
   it("exposes nothing beyond the public contract", async () => {

@@ -20,7 +20,7 @@ import {
 // - Rows owned by a shop reference each other through (id, shop_id), so the database
 //   itself rejects a row that mixes two shops.
 // - Constraints drizzle cannot express (the booking overlap exclusion and the immutability
-//   triggers) live in drizzle/0001_invariants.sql.
+//   triggers) live in drizzle/0001_invariants.sql and drizzle/0006_booking_invariants.sql.
 
 const createdAt = () =>
   timestamp("created_at", { withTimezone: true }).notNull().defaultNow();
@@ -73,6 +73,12 @@ export const bookingStatus = pgEnum("booking_status", [
   "expired",
   "cancelled",
   "review_required",
+]);
+
+// Why a booking needs a person: its deposit was captured after the hold had already ended.
+export const bookingReviewReason = pgEnum("booking_review_reason", [
+  "late_capture",
+  "captured_after_cancel",
 ]);
 
 export const importSourceKind = pgEnum("import_source_kind", ["photo", "csv"]);
@@ -234,6 +240,38 @@ export const technicians = pgTable(
   ],
 );
 
+// When a technician works, as a weekly pattern in the shop's own time, so 09:00 stays 09:00 across
+// a clock change. UTC instants are derived per date in src/server/domain/shop-time.ts. Minutes are
+// counted from local midnight, and 1440 means the end of that day. One technician's windows cannot
+// overlap (see the exclusion constraint in 0006_booking_invariants.sql).
+export const technicianWindows = pgTable(
+  "technician_windows",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    shopId: uuid("shop_id").notNull(),
+    technicianId: uuid("technician_id").notNull(),
+    // ISO weekday: 1 is Monday, 7 is Sunday.
+    weekday: integer("weekday").notNull(),
+    startMinute: integer("start_minute").notNull(),
+    endMinute: integer("end_minute").notNull(),
+    createdAt: createdAt(),
+    updatedAt: updatedAt(),
+  },
+  (t) => [
+    foreignKey({
+      name: "technician_windows_technician_shop_fk",
+      columns: [t.technicianId, t.shopId],
+      foreignColumns: [technicians.id, technicians.shopId],
+    }).onDelete("cascade"),
+    index("technician_windows_shop_id_idx").on(t.shopId),
+    check("technician_windows_weekday", sql`${t.weekday} BETWEEN 1 AND 7`),
+    check(
+      "technician_windows_within_day",
+      sql`${t.startMinute} >= 0 AND ${t.endMinute} <= 1440 AND ${t.endMinute} > ${t.startMinute}`,
+    ),
+  ],
+);
+
 export const orders = pgTable(
   "orders",
   {
@@ -324,8 +362,12 @@ export const bookings = pgTable(
     holdExpiresAt: timestamp("hold_expires_at", {
       withTimezone: true,
     }).notNull(),
+    // The service's price when this was booked. The deposit is the order's total, so together they
+    // give the remaining balance, whatever happens to the price later.
+    servicePriceMinor: integer("service_price_minor").notNull(),
     // Must equal the capture recorded on this booking's own order (composite key below).
     depositCaptureId: text("deposit_capture_id"),
+    reviewReason: bookingReviewReason("review_reason"),
     createdAt: createdAt(),
     updatedAt: updatedAt(),
   },
@@ -351,7 +393,20 @@ export const bookings = pgTable(
       foreignColumns: [orders.id, orders.paypalCaptureId],
     }).onDelete("restrict"),
     index("bookings_shop_id_starts_at_idx").on(t.shopId, t.startsAt),
+    index("bookings_held_expiry_idx")
+      .on(t.holdExpiresAt)
+      .where(sql`${t.status} = 'held'`),
     check("bookings_ends_after_start", sql`${t.endsAt} > ${t.startsAt}`),
+    check("bookings_service_price_positive", sql`${t.servicePriceMinor} > 0`),
+    check(
+      "bookings_review_states_reason",
+      sql`(${t.status} = 'review_required') = (${t.reviewReason} IS NOT NULL)`,
+    ),
+    // A booking only reaches review because money arrived, so the capture is always on record.
+    check(
+      "bookings_review_requires_capture",
+      sql`${t.status} <> 'review_required' OR ${t.depositCaptureId} IS NOT NULL`,
+    ),
     check(
       "bookings_confirmed_requires_capture",
       sql`${t.status} <> 'confirmed' OR ${t.depositCaptureId} IS NOT NULL`,

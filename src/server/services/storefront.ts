@@ -321,6 +321,7 @@ export type BuyerOrder = {
   currency: string;
   shop: { slug: string; name: string };
   lines: { title: string; quantity: number }[];
+  booking: z.infer<typeof getOrderStatusResult>["booking"];
 };
 
 // What a buyer's result page shows, for the holder of the order's capability only. The state is
@@ -349,5 +350,6 @@ export async function getBuyerOrder(db: Db, rawInput: unknown): Promise<BuyerOrd
     currency: status.currency,
     shop,
     lines,
+    booking: status.booking,
   };
 }

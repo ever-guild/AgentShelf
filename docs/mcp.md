@@ -21,8 +21,9 @@ The schemas are in [`src/server/contracts/commerce.ts`](../src/server/contracts/
 | --- | --- | --- |
 | `search_products` | Read-only | Works, with deterministic text matching. Every meaningful word of the query must appear in the product or shop text. [#10](https://github.com/ever-guild/AgentShelf/issues/10) adds semantic matching and demand events |
 | `create_checkout` | Write | Creates a PayPal sandbox order from the stored cart and returns its approval link, which is not payment. It returns `PAYMENT_NOT_CONFIGURED` for a shop without sandbox credentials, which is every shop until [#33](https://github.com/ever-guild/AgentShelf/issues/33) provides them. [architecture.md](architecture.md#checkout) lists its errors and when to retry |
-| `get_order_status` | Read-only | Reads one order's stored payment status with the `statusToken` from `create_checkout`. It never asks PayPal and never changes anything. [architecture.md](architecture.md#payment-reconciliation) explains how an order gets to each status |
-| `get_slots`, `book_slot` | Read-only, write | Not offered yet, belong to [#12](https://github.com/ever-guild/AgentShelf/issues/12) |
+| `get_slots` | Read-only | Lists free appointment times for a service, with exact instants, the shop's timezone and the technician. At most 100 per answer, and `truncated` says when there are more |
+| `book_slot` | Write | Holds a slot for 15 minutes and creates a PayPal sandbox order for the service's deposit, and returns its approval link, which is not payment. The booking is confirmed only after a verified capture. It returns `PAYMENT_NOT_CONFIGURED` until [#33](https://github.com/ever-guild/AgentShelf/issues/33) provides credentials. [architecture.md](architecture.md#booking) lists its states and errors |
+| `get_order_status` | Read-only | Reads one order's stored payment status with the `statusToken` from `create_checkout` or `book_slot`, and for a booking its state, deposit and remaining balance. It never asks PayPal and never changes anything. [architecture.md](architecture.md#payment-reconciliation) explains how an order gets to each status |
 
 A result carries `structuredContent` and the same JSON as text. A failure has `isError: true` and text with a JSON object holding a stable `code`, a `message` that is safe to show, and optional `details`. An input rejected by the schema has `isError: true` and text naming the field. A search with no match is an empty list, not an error.
 
@@ -31,7 +32,7 @@ A result carries `structuredContent` and the same JSON as text. A failure has `i
 The connector has no sign-in, because everything it offers is public:
 
 - It only reads published catalog data, and it returns no merchant identifiers or credentials.
-- A checkout only returns an approval link, and the buyer still confirms the payment in PayPal.
+- A checkout or a booking only returns an approval link, and the buyer still confirms the payment in PayPal.
 - An order's status needs the capability returned with that order, so an order identifier alone reveals nothing.
 - Seller data is not reachable through it. Seller routes use their own [demo session](architecture.md#seller-demo-session).
 
@@ -64,7 +65,7 @@ Follow [Connect and test your plugin](https://developers.openai.com/plugins/depl
 4. Review the discovered tools. In a new conversation, type `@`, select the plugin and ask the same question.
 5. After a server change, select **Refresh** on the connection and start a new conversation.
 
-[ChatGPT honours `readOnlyHint`](https://developers.openai.com/api/docs/guides/custom-mcp-server): it treats a tool without that hint as a write action, and write actions require confirmation by default. `create_checkout` is marked as a write.
+[ChatGPT honours `readOnlyHint`](https://developers.openai.com/api/docs/guides/custom-mcp-server): it treats a tool without that hint as a write action, and write actions require confirmation by default. `create_checkout` and `book_slot` are marked as writes.
 
 ## Smoke check
 
@@ -82,4 +83,10 @@ With `--wait`, it then waits up to ten minutes for a person to approve in PayPal
 
 ```bash
 npm run smoke:checkout -- https://YOUR-SERVICE.onrender.com/mcp --wait
+```
+
+To check a booking the same way, run the following. It holds one real slot on the seeded repair for 15 minutes and creates one unpaid sandbox deposit order. With `--wait`, it passes only once `get_order_status` reports the deposit `paid` and the booking `confirmed`.
+
+```bash
+npm run smoke:booking -- https://YOUR-SERVICE.onrender.com/mcp --wait
 ```

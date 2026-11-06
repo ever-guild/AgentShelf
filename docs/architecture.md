@@ -54,6 +54,9 @@ Most of these are database constraints, so they hold however a row gets written.
 | A product is not `synced` without a PayPal record and a time | `products_synced_requires_record` |
 | One technician cannot have overlapping held or confirmed bookings | `bookings_technician_no_overlap` exclusion constraint |
 | A booking cannot be `confirmed` without the capture recorded on its own order | `bookings_confirmed_requires_capture`, `bookings_order_capture_fk` |
+| A booking in review states why, and the capture is on record | `bookings_review_states_reason`, `bookings_review_requires_capture` |
+| A cancelled or failed order keeps no hold, whatever code closed it | `orders_release_hold` trigger |
+| One technician's working windows cannot overlap on a weekday, and stay inside one day | `technician_windows_no_overlap`, `technician_windows_within_day` |
 
 Payment state lives on `orders` and booking state on `bookings`. Instants are stored in UTC, and a shop's IANA timezone (`Europe/Riga` for the demo shop) is used for display.
 
@@ -66,10 +69,10 @@ The Zod schemas in [`src/server/contracts/commerce.ts`](../src/server/contracts/
 | Tool | Input | Result | Implemented in |
 | --- | --- | --- | --- |
 | `search_products` | `query`, `location?`, `maxPriceMinor?`, `currency?`, `limit?` | `products[]`: `productId`, `shopId`, `shopName`, `location`, `kind`, `title`, `description`, `descriptionLv`, `priceMinor`, `currency`, `availability`, `serviceDurationMinutes`, `depositMinor` | [#5](https://github.com/ever-guild/AgentShelf/issues/5), [#10](https://github.com/ever-guild/AgentShelf/issues/10) |
-| `get_slots` | `shopId`, `serviceId`, `from`, `to` | `slots[]`: `slotId`, `technicianId`, `startsAt`, `endsAt`, `timezone` | [#12](https://github.com/ever-guild/AgentShelf/issues/12) |
+| `get_slots` | `shopId`, `serviceId`, `from`, `to` | `slots[]`: `slotId`, `technicianId`, `technicianName`, `startsAt`, `endsAt`, `timezone`; `truncated` | [#12](https://github.com/ever-guild/AgentShelf/issues/12) |
 | `book_slot` | `slotId`, `serviceId`, `idempotencyKey` | `bookingId`, `orderId`, `expiresAt`, `approvalUrl`, `depositMinor`, `remainingMinor`, `currency`, `statusToken` | [#12](https://github.com/ever-guild/AgentShelf/issues/12) |
 | `create_checkout` | `items[]`: `productId`, `quantity`; `idempotencyKey` | `orderId`, `totalMinor`, `currency`, `approvalUrl`, `statusToken` | [#6](https://github.com/ever-guild/AgentShelf/issues/6) |
-| `get_order_status` | `orderId`, `statusToken` | `orderId`, `paymentStatus`, `totalMinor`, `currency`, `booking`, `updatedAt` | [#11](https://github.com/ever-guild/AgentShelf/issues/11) |
+| `get_order_status` | `orderId`, `statusToken` | `orderId`, `paymentStatus`, `totalMinor`, `currency`, `updatedAt`, and `booking`: `bookingId`, `status`, `reviewReason`, `startsAt`, `endsAt`, `expiresAt`, `timezone`, `depositMinor`, `remainingMinor` | [#11](https://github.com/ever-guild/AgentShelf/issues/11), [#12](https://github.com/ever-guild/AgentShelf/issues/12) |
 
 Services throw a `ServiceError` with a stable code from [`errors.ts`](../src/server/errors.ts). Its message and details are safe to return to a client.
 
@@ -81,6 +84,7 @@ These server pieces already exist for the issues above to build on:
 - `reconcileOrder` is the one place that decides what a PayPal order means for a stored one. See [Payment reconciliation](#payment-reconciliation).
 - `createImport` and the review functions around it turn a price list into accepted draft rows. See [Catalog import](#catalog-import).
 - `publishImport` and the functions around it turn accepted rows into products and keep their PayPal Catalog records. See [Catalog publication](#catalog-publication).
+- `getSlots`, `bookSlot` and `getShopSchedule` are the booking flow and its read model. See [Booking](#booking).
 - `getOrderStatus` reads an order's stored state for the holder of its capability.
 - `quoteCheckout` resolves a cart to authoritative lines, total and recipient, and rejects mixed shops and products that are not on sale.
 - `searchProducts` matches text across all shops, and `getPublishedProduct` and `listPublishedProducts` read the public catalog.
@@ -154,9 +158,73 @@ Each delivery is recorded in `webhook_receipts` once, by its event ID. A receipt
 
 **The sweep** settles what nothing else has: a buyer who approved and closed the tab, a capture whose outcome was lost, a shop with no webhook registered. It runs every 5 minutes in the server process, from [`instrumentation.ts`](../src/instrumentation.ts), and only calls `reconcileOrder`. It is bounded: 20 orders per pass, skipping orders under 2 minutes old, and asking less often as an order ages, up to one twelfth of its age. After 72 hours an open order is closed: `pending` becomes `cancelled`, and `approved` becomes `review_required`, because a person has to look at it.
 
-**The payment-confirmed hook:** `onPaymentConfirmed` in `ReconcileDeps` runs inside the transaction that marks an order paid, exactly once per order. It does nothing yet. [#12](https://github.com/ever-guild/AgentShelf/issues/12) confirms a booking there, and later notifications can start from it. If it throws, the order stays unpaid here and the next reconciliation tries again, so a hook that cannot fulfil an order, such as a booking whose hold has expired, must record that rather than throw. The money has been captured by then, and [#12](https://github.com/ever-guild/AgentShelf/issues/12) owns what happens next.
+**The payment-confirmed hook:** `onPaymentConfirmed` in `ReconcileDeps` runs inside the transaction that marks an order paid, exactly once per order. It confirms a [booking](#booking) there, and does nothing for a purchase. Later notifications can start from it. If it throws, the order stays unpaid here and the next reconciliation tries again, so a hook that cannot fulfil an order, such as a booking whose hold has expired, must record that rather than throw. The money has been captured by then.
 
 **The status read:** `getOrderStatus` follows [paypal-order-status-contract.md](paypal-order-status-contract.md). It reads stored state only, and a missing order and a wrong capability get the same `ORDER_STATUS_UNAVAILABLE`.
+
+## Booking
+
+A buyer's assistant holds a technician's time and the buyer pays a deposit in PayPal, for [#12](https://github.com/ever-guild/AgentShelf/issues/12). [`bookings.ts`](../src/server/services/bookings.ts) holds the writes and [`booking-schedule.ts`](../src/server/services/booking-schedule.ts) the one read.
+
+**Status:** tested with the real SDK against a stand-in for PayPal, on real Postgres, and on a production build. No real deposit has been paid, because the credentials from [#33](https://github.com/ever-guild/AgentShelf/issues/33) do not exist yet. `npm run smoke:booking -- URL --wait` does that once they do.
+
+**The demo's policy** is in [`booking-policy.ts`](../src/server/domain/booking-policy.ts).
+
+| Setting | Value | Why |
+| --- | --- | --- |
+| Hold lifetime | 15 minutes from `book_slot` | Long enough to open PayPal and approve, short enough that an abandoned hold soon frees the time |
+| Deposit | The service's own `deposit_minor`, set by the seller | The rest of the price is paid at the shop. Both are fixed on the booking, so a later price edit changes nothing for it |
+| Late payment | The deposit is kept on record, the booking goes to `review_required`, and a person refunds or rebooks | No automatic refund, because a refund is a payment decision for the seller |
+| Slot step | 30 minutes from the start of a working window | |
+| Lead time | A slot starting within 60 minutes is not offered | Always longer than a hold, so a hold ends before its appointment starts |
+
+**Working time is stored in shop time.** `technician_windows` holds an ISO weekday and minutes from local midnight, and [`shop-time.ts`](../src/server/domain/shop-time.ts) derives UTC per date, so 09:00 stays 09:00 across a clock change. Inside a window everything is elapsed time, so a 60-minute appointment is 60 real minutes. A local time that happens twice means the first time, and one that does not exist moves forward by the size of the gap, which is Temporal's `compatible` rule. In Riga, a window of 02:00 to 06:00 offers 3 hours on the night the clocks go forward and 5 on the night they go back. Any technician can do any service. Working time is set by the seed for now: sellers have no page for it, and a shop with no windows offers no slots.
+
+**A slot ID holds nothing secret and grants nothing.** It names a service, technician, start and duration. `book_slot` checks it against the service and the windows as they are at that moment, with the same function that made the offer, so a made-up ID can only reach a time that `get_slots` would have offered. A slot is listed only while it is free, so being listed is its availability.
+
+**The database decides who gets a slot.** `book_slot` opens one transaction, takes a lock on the technician, marks that technician's stale holds expired, and inserts the order, its line and the hold. It reads no availability first: if the time is taken, `bookings_technician_no_overlap` refuses the insert, the transaction rolls back and the caller gets `SLOT_UNAVAILABLE`. The lock is there because two inserts that see each other can deadlock, and it is not what keeps a slot single. PayPal is called after that commit, by the same [`ensureApprovalLink`](../src/server/services/checkout.ts) as checkout.
+
+**Repeating `book_slot` with a key** answers from what is stored, so it never makes a second booking or a second PayPal order. The key is stored as `booking:<key>`, so it cannot reach an order made through `create_checkout`.
+
+| Booking | Means | Holds the time | How it gets there | A repeat of the key |
+| --- | --- | --- | --- | --- |
+| `held` | Waiting for the deposit | Yes, until `hold_expires_at` | `book_slot` | Same booking and link |
+| `confirmed` | Deposit verified | Yes | A verified capture before `hold_expires_at`, in the transaction that marks the order paid | Same booking and link |
+| `expired` | Nobody paid in time | No | The sweep, or the next hold on that technician | `BOOKING_HOLD_ENDED` |
+| `cancelled` | The order was cancelled or failed | No | The `orders_release_hold` trigger | `BOOKING_HOLD_ENDED`, or `PAYMENT_DECLINED` if PayPal refused the order |
+| `review_required` | The deposit arrived after the hold ended | No | A verified capture at or after `hold_expires_at`, or after a cancel | Same booking and link |
+
+**Time decides expiry, not the sweep.** A hold ends at the exact instant of `hold_expires_at`. Every read treats a hold past that as `expired`, and a capture after it as late, whether or not the row has been marked yet. Marking only matters because the exclusion constraint counts rows still marked `held`, so it happens in the sweep and before every new hold. Slots ask the same clock, so a stale hold's time is offered straight away.
+
+**A late capture never loses money or double-books.** PayPal cannot be told to stop a link it has issued, so a buyer can still approve after a hold ends. The order becomes `paid`, because that is the truth about the money. The booking becomes `review_required` with `deposit_capture_id` and `review_reason` set: `late_capture` after expiry, `captured_after_cancel` after a cancel. A booking in review claims no time, so someone else may already have that slot, or may still take it. The buyer's result page and `get_order_status` say the appointment is not confirmed. The seller has to refund or rebook, and the schedule keeps showing it until a seller tool exists for that, which is outside this issue. A hold whose order goes to `review_required` for another reason just runs out, and the order's own state says a person has to look.
+
+**Errors:** beyond the ones listed under [Checkout](#checkout):
+
+| Code | When | What the caller does |
+| --- | --- | --- |
+| `SLOT_UNAVAILABLE` | The time is taken, or the slot is no longer one the service and windows offer | Calls `get_slots` again |
+| `BOOKING_HOLD_ENDED` | A repeat of a key whose hold has expired or been cancelled | Calls `get_slots` again and uses a new key |
+| `PRODUCT_NOT_FOUND` | No published service with this ID, or it belongs to another shop | Searches again |
+
+**The read model:** `getShopSchedule(db, shopId, from, to, now?)` is what the scheduler and the dashboard read, and `getOrderBooking(db, orderId, now?)` gives `get_order_status` the same view of one booking. The caller must already know the shop is theirs, so a seller route takes `shopId` from the session. It returns technicians with their weekly windows, and every booking touching the range, in every state:
+
+```ts
+{
+  shopId, timezone, currency, from, to,
+  technicians: [{ technicianId, name, windows: [{ weekday, startMinute, endMinute }] }],
+  bookings: [{
+    bookingId, orderId, status, reviewReason, blocksTime,
+    serviceId, serviceTitle, technicianId, technicianName,
+    startsAt, endsAt, holdExpiresAt, timezone,
+    paymentStatus, priceMinor, depositMinor, remainingMinor, currency,
+    depositCaptureId, updatedAt,
+  }],
+}
+```
+
+A view of what occupies the calendar filters on `blocksTime`. `depositCaptureId` is for the seller, and `get_order_status` leaves it out. A booking confirmed and later refunded at PayPal stays `confirmed` with `paymentStatus: "review_required"`, so a view should show both.
+
+**Known limit:** the connector has no sign-in, so an assistant can hold free slots with new keys, each for 15 minutes, and each creates a PayPal order. Nothing limits that yet.
 
 ## Storefront
 
@@ -174,7 +242,7 @@ The public shop link at `/shops/<slug>`, for [#16](https://github.com/ever-guild
 
 **With no payment set up:** a shop with no merchant or no credentials still lists its products, says that payment is not set up, and loads no PayPal script.
 
-**Services** are not sold here. Their rows and pages point to booking through an assistant, because booking has one flow, in [#12](https://github.com/ever-guild/AgentShelf/issues/12).
+**Services** are not sold here. Their rows and pages point to booking through an assistant, because [booking](#booking) has one flow.
 
 **Descriptions:** `chooseDescription` shows the seller's reviewed English or Latvian text, then the source's own words, and translates nothing itself. It reads `description_en` and `description_lv` on `products`, which [publication](#catalog-publication) fills. A shop with no reviewed Latvian shows `description` and offers no language choice. Titles are not translated.
 
@@ -236,7 +304,7 @@ The accepted rows of a finished review become products, for [#9](https://github.
 
 **Status:** tested with the real SDK against a stand-in for PayPal, which follows PayPal's published schema. No real Catalog record has been created, because the credentials from [#33](https://github.com/ever-guild/AgentShelf/issues/33) do not exist yet. That the sandbox accepts an ID chosen by the caller, and refuses a repeat with `DUPLICATE_RESOURCE_IDENTIFIER`, comes from the documentation and has not been seen.
 
-**The rule for what buyers can find:** a product is discoverable once its status is `published`, and only then. Search, the public catalog, checkout and the storefront all read that one column, and it does not depend on PayPal Catalog. Orders v2 does not need a Catalog record, so a failure there never stops a sale. [#12](https://github.com/ever-guild/AgentShelf/issues/12)'s `get_slots` and `book_slot` must hold to the same rule.
+**The rule for what buyers can find:** a product is discoverable once its status is `published`, and only then. Search, the public catalog, checkout and the storefront all read that one column, and it does not depend on PayPal Catalog. Orders v2 does not need a Catalog record, so a failure there never stops a sale. `get_slots` and `book_slot` hold to the same rule.
 
 **A Catalog record is not a listing.** It holds a name, a description and a type. Creating one does not prove or cause listing in Store Sync, Agent Ready or any other shopping search, and nothing here claims so. Price, stock, variants and duration stay local, because a record has nowhere to put them.
 

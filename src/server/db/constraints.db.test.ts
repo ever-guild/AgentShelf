@@ -11,6 +11,7 @@ import {
   createService,
   createShop,
   createTechnician,
+  createWindow,
   hoursAfterNoon,
   violatedConstraint,
 } from "../../../test/fixtures";
@@ -384,7 +385,7 @@ describe("bookings", () => {
     await createBooking(getDb(), shop.id, service.id, other.id);
   });
 
-  it.each(["expired", "cancelled", "review_required"] as const)(
+  it.each(["expired", "cancelled"] as const)(
     "releases the slot once a booking is %s",
     async (status) => {
       const { shop, service, technician } = await bookingContext();
@@ -401,6 +402,108 @@ describe("bookings", () => {
       await createBooking(getDb(), shop.id, service.id, technician.id);
     },
   );
+
+  it("releases the slot once a booking is in review", async () => {
+    const { shop, service, technician } = await bookingContext();
+    const first = await createBooking(
+      getDb(),
+      shop.id,
+      service.id,
+      technician.id,
+    );
+    await getDb()
+      .update(orders)
+      .set({ paymentStatus: "paid", paypalCaptureId: "LATE-CAPTURE" })
+      .where(eq(orders.id, first.orderId));
+    await getDb()
+      .update(bookings)
+      .set({
+        status: "review_required",
+        reviewReason: "late_capture",
+        depositCaptureId: "LATE-CAPTURE",
+      })
+      .where(eq(bookings.id, first.id));
+    await createBooking(getDb(), shop.id, service.id, technician.id);
+  });
+
+  it("cannot be in review without a reason and the capture", async () => {
+    const { shop, service, technician } = await bookingContext();
+    const booking = await createBooking(
+      getDb(),
+      shop.id,
+      service.id,
+      technician.id,
+    );
+    const write = (changes: Partial<typeof bookings.$inferInsert>) =>
+      getDb().update(bookings).set(changes).where(eq(bookings.id, booking.id));
+
+    expect(
+      await violatedConstraint(write({ reviewReason: "late_capture" })),
+    ).toBe("bookings_review_states_reason");
+    expect(
+      await violatedConstraint(
+        write({ status: "review_required", reviewReason: "late_capture" }),
+      ),
+    ).toBe("bookings_review_requires_capture");
+
+    await getDb()
+      .update(orders)
+      .set({ paymentStatus: "paid", paypalCaptureId: "LATE-CAPTURE" })
+      .where(eq(orders.id, booking.orderId));
+    expect(
+      await violatedConstraint(
+        write({ status: "review_required", depositCaptureId: "LATE-CAPTURE" }),
+      ),
+    ).toBe("bookings_review_states_reason");
+  });
+
+  it("releases only a hold when its order closes", async () => {
+    const { shop, service, technician } = await bookingContext();
+    const held = await createBooking(getDb(), shop.id, service.id, technician.id);
+    const statusOf = async () =>
+      (
+        await getDb()
+          .select({ status: bookings.status })
+          .from(bookings)
+          .where(eq(bookings.id, held.id))
+      )[0].status;
+    const setPayment = (
+      paymentStatus: (typeof orders.$inferInsert)["paymentStatus"],
+    ) =>
+      getDb()
+        .update(orders)
+        .set({ paymentStatus })
+        .where(eq(orders.id, held.orderId));
+
+    await setPayment("approved");
+    expect(await statusOf()).toBe("held");
+    await setPayment("review_required");
+    expect(await statusOf()).toBe("held");
+    await setPayment("failed");
+    expect(await statusOf()).toBe("cancelled");
+
+    const another = await createBooking(getDb(), shop.id, service.id, technician.id);
+    await getDb()
+      .update(orders)
+      .set({ paymentStatus: "cancelled" })
+      .where(eq(orders.id, another.orderId));
+    const [row] = await getDb()
+      .select({ status: bookings.status })
+      .from(bookings)
+      .where(eq(bookings.id, another.id));
+    expect(row.status).toBe("cancelled");
+  });
+
+  it("needs a real service price", async () => {
+    const { shop, service, technician } = await bookingContext();
+    expect(
+      await violatedConstraint(
+        createBooking(getDb(), shop.id, service.id, technician.id, {
+          servicePriceMinor: 0,
+        }),
+      ),
+    ).toBe("bookings_service_price_positive");
+  });
 
   it("cannot be confirmed without its own order's capture", async () => {
     const { shop, service, technician } = await bookingContext();
@@ -459,6 +562,55 @@ describe("bookings", () => {
         }),
       ),
     ).toBe("bookings_ends_after_start");
+  });
+});
+
+describe("technician windows", () => {
+  const technicianOf = async () => {
+    const shop = await createShop(getDb());
+    return { shop, technician: await createTechnician(getDb(), shop.id) };
+  };
+
+  it("cannot overlap for one technician on one weekday", async () => {
+    const { technician } = await technicianOf();
+    await createWindow(getDb(), technician);
+    expect(
+      await violatedConstraint(
+        createWindow(getDb(), technician, { startMinute: 600, endMinute: 660 }),
+      ),
+    ).toBe("technician_windows_no_overlap");
+  });
+
+  it("allows adjoining windows, other weekdays and other technicians", async () => {
+    const { shop, technician } = await technicianOf();
+    await createWindow(getDb(), technician, { startMinute: 540, endMinute: 720 });
+    await createWindow(getDb(), technician, { startMinute: 720, endMinute: 1080 });
+    await createWindow(getDb(), technician, { weekday: 2 });
+    await createWindow(getDb(), await createTechnician(getDb(), shop.id));
+  });
+
+  it("must stay inside one day and name a real weekday", async () => {
+    const { technician } = await technicianOf();
+    const write = (changes: { weekday?: number; startMinute?: number; endMinute?: number }) =>
+      violatedConstraint(createWindow(getDb(), technician, changes));
+
+    expect(await write({ weekday: 0 })).toBe("technician_windows_weekday");
+    expect(await write({ weekday: 8 })).toBe("technician_windows_weekday");
+    expect(await write({ startMinute: -1 })).toBe("technician_windows_within_day");
+    expect(await write({ endMinute: 1441 })).toBe("technician_windows_within_day");
+    expect(await write({ startMinute: 600, endMinute: 600 })).toBe(
+      "technician_windows_within_day",
+    );
+  });
+
+  it("cannot belong to another shop's technician", async () => {
+    const { technician } = await technicianOf();
+    const other = await createShop(getDb());
+    expect(
+      await violatedConstraint(
+        createWindow(getDb(), { id: technician.id, shopId: other.id }),
+      ),
+    ).toBe("technician_windows_technician_shop_fk");
   });
 });
 
