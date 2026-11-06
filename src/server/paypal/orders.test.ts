@@ -172,6 +172,36 @@ describe("createPayPalProvider", () => {
     expect(paypal.tokenRequests()[0].headers).not.toHaveProperty("PayPal-Partner-Attribution-Id");
   });
 
+  it("uses platform assertion and partner attribution for Catalog create and read", async () => {
+    const paypal = createFakePayPal();
+    const api = createPayPalProvider(PLATFORM_ENV, paypal.adapter)(
+      "PAYPAL_PLATFORM",
+      snapshot.payeeMerchantId,
+    );
+    expect(api).toBeDefined();
+    const record = {
+      id: "AS-123456",
+      name: "Sandbox catalog item",
+      type: "PHYSICAL" as const,
+    };
+
+    await api!.createCatalogRecord(record, REQUEST_ID);
+    await api!.readCatalogRecord(record.id);
+
+    const assertion = `${Buffer.from(JSON.stringify({ alg: "none" })).toString("base64")}.${Buffer.from(JSON.stringify({ iss: "platform-client-id", payer_id: snapshot.payeeMerchantId })).toString("base64")}.`;
+    const catalogRequests = [...paypal.catalogCreateRequests(), ...paypal.catalogReadRequests()];
+    expect(catalogRequests).toHaveLength(2);
+    for (const request of catalogRequests) {
+      expect(request.headers).toMatchObject({
+        "PayPal-Auth-Assertion": assertion,
+        "PayPal-Partner-Attribution-Id": "AGENT_SHELF_BN_CODE",
+      });
+    }
+    expect(paypal.requestIdOf(catalogRequests[0])).toBe(REQUEST_ID);
+    expect(paypal.tokenRequests()[0].headers).not.toHaveProperty("PayPal-Auth-Assertion");
+    expect(paypal.tokenRequests()[0].headers).not.toHaveProperty("PayPal-Partner-Attribution-Id");
+  });
+
   it("requires a connected seller identity and platform credentials before resolving platform mode", () => {
     const paypal = createFakePayPal();
     const provider = createPayPalProvider(PLATFORM_ENV, paypal.adapter);

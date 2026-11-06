@@ -55,11 +55,13 @@ export async function createCatalogRecord(
   client: Client,
   record: CatalogRecord,
   requestId: string,
+  paypalAuthAssertion?: string,
 ): Promise<{ id?: string }> {
   const request = client.getRequestBuilderFactory()("POST", CATALOG_PATH);
   request.header("Content-Type", "application/json");
   request.header("PayPal-Request-Id", requestId);
   request.header("Prefer", "return=representation");
+  if (paypalAuthAssertion) request.header("PayPal-Auth-Assertion", paypalAuthAssertion);
   request.json(record);
   request.authenticate([{ oauth2: true }]);
   const { result } = await request.callAsText();
@@ -69,11 +71,13 @@ export async function createCatalogRecord(
 export async function readCatalogRecord(
   client: Client,
   id: string,
+  paypalAuthAssertion?: string,
 ): Promise<{ id?: string }> {
   const request = client.getRequestBuilderFactory()(
     "GET",
     `${CATALOG_PATH}/${encodeURIComponent(id)}`,
   );
+  if (paypalAuthAssertion) request.header("PayPal-Auth-Assertion", paypalAuthAssertion);
   request.authenticate([{ oauth2: true }]);
   const { result } = await request.callAsText();
   return readAnswer(result);

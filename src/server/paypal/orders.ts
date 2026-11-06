@@ -107,15 +107,19 @@ function createSellerClient(
       const factory = getFactory();
       return ((method, path) => {
         const builder = factory(method, path);
-        const isOrdersPath = (value: string | undefined) =>
-          Boolean(value && /(?:^|\/)v2\/checkout\/orders(?:\/|$)/.test(value));
-        if (isOrdersPath(path)) {
+        const isPartnerApiPath = (value: string | undefined) =>
+          Boolean(
+            value &&
+              (/(?:^|\/)v2\/checkout\/orders(?:\/|$)/.test(value) ||
+                /(?:^|\/)v1\/catalogs\/products(?:\/|$)/.test(value)),
+          );
+        if (isPartnerApiPath(path)) {
           builder.header("PayPal-Partner-Attribution-Id", partnerAttributionId);
         }
         const appendTemplatePath = builder.appendTemplatePath.bind(builder);
         builder.appendTemplatePath = ((strings, ...values) => {
           appendTemplatePath(strings, ...values);
-          if (isOrdersPath(strings.join(""))) {
+          if (isPartnerApiPath(strings.join(""))) {
             builder.header("PayPal-Partner-Attribution-Id", partnerAttributionId);
           }
         }) as typeof builder.appendTemplatePath;
@@ -228,11 +232,11 @@ export function createPayPalProvider(
           ),
         createCatalogRecord: (record, requestId) =>
           callWithClient(PLATFORM_PAYPAL_CREDENTIAL_REF, attributionId, (_orders, client) =>
-            createCatalogRecord(client, record, requestId),
+            createCatalogRecord(client, record, requestId, assertion),
           ),
         readCatalogRecord: (id) =>
           callWithClient(PLATFORM_PAYPAL_CREDENTIAL_REF, attributionId, (_orders, client) =>
-            readCatalogRecord(client, id),
+            readCatalogRecord(client, id, assertion),
           ),
       };
     }

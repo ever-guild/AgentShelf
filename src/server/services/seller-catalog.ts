@@ -20,6 +20,10 @@ import { hasBlocker, minorToText, rowIssues } from "../imports/draft-rows";
 import { parsePriceText, priceProblemMessage } from "../imports/price-text";
 import { buildCatalogRecord } from "../paypal/catalog";
 import {
+  merchantEligibilityPool,
+  resolveShopPayPalRoute,
+} from "../paypal/merchant-eligibility";
+import {
   describePayPalFailure,
   paypalFor,
   type PayPalProvider,
@@ -170,7 +174,7 @@ export async function publishImport(
     }
 
     const [owner] = await tx
-      .select({ currency: shops.currency, credentialRef: shops.paypalCredentialRef })
+      .select({ currency: shops.currency, credentialRef: shops.paypalCredentialRef, merchantId: shops.paypalMerchantId })
       .from(shops)
       .where(eq(shops.id, shop.id));
     const ofThisJob = and(eq(importRows.jobId, job.id), eq(importRows.shopId, shop.id));
@@ -182,7 +186,18 @@ export async function publishImport(
     const ready = accepted.filter((row) => !hasBlocker(rowIssues(row, owner.currency)));
 
     if (ready.length > 0) {
-      const paypalSyncStatus = deps.paypalFor(owner.credentialRef) ? "pending" : "not_configured";
+      const paymentRoute = await resolveShopPayPalRoute(
+        merchantEligibilityPool(db),
+        {
+          shopId: shop.id,
+          credentialRef: owner.credentialRef,
+          legacyMerchantId: owner.merchantId,
+        },
+      );
+      const paypalSyncStatus =
+        paymentRoute && deps.paypalFor(paymentRoute.credentialRef, paymentRoute.payeeMerchantId)
+          ? "pending"
+          : "not_configured";
       const published = await tx
         .insert(products)
         .values(
@@ -389,13 +404,23 @@ export async function syncCatalog(
 
   const waiting = and(published, eq(products.paypalSyncStatus, "pending"));
   const [owner] = await db
-    .select({ credentialRef: shops.paypalCredentialRef })
+    .select({
+      shopId: shops.id,
+      credentialRef: shops.paypalCredentialRef,
+      merchantId: shops.paypalMerchantId,
+    })
     .from(shops)
     .where(eq(shops.id, shop.id));
-  const paypal = deps.paypalFor(owner.credentialRef);
   let stopped = false;
 
-  if (!paypal) {
+  const paymentRoute = owner
+    ? await resolveShopPayPalRoute(merchantEligibilityPool(db), {
+        shopId: owner.shopId,
+        credentialRef: owner.credentialRef,
+        legacyMerchantId: owner.merchantId,
+      })
+    : undefined;
+  if (!paymentRoute || !deps.paypalFor(paymentRoute.credentialRef, paymentRoute.payeeMerchantId)) {
     await db
       .update(products)
       .set({ paypalSyncStatus: "not_configured", paypalSyncError: null })
@@ -408,6 +433,23 @@ export async function syncCatalog(
       .orderBy(asc(products.createdAt), asc(products.id))
       .limit(SYNC_BATCH);
     for (const row of batch) {
+      // Recheck immediately before each external write so a revoked connection cannot be reused
+      // for a later item in the same batch.
+      const currentRoute = await resolveShopPayPalRoute(merchantEligibilityPool(db), {
+        shopId: owner.shopId,
+        credentialRef: owner.credentialRef,
+        legacyMerchantId: owner.merchantId,
+      });
+      const paypal = currentRoute
+        ? deps.paypalFor(currentRoute.credentialRef, currentRoute.payeeMerchantId)
+        : undefined;
+      if (!currentRoute || !paypal) {
+        await db
+          .update(products)
+          .set({ paypalSyncStatus: "not_configured", paypalSyncError: null })
+          .where(eq(products.id, row.id));
+        continue;
+      }
       const outcome = await sendToCatalog(paypal, row);
       if (outcome.ok) {
         await db
