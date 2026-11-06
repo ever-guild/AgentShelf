@@ -20,6 +20,7 @@ const shopIdInput = z.uuid();
 const MAX_WEBHOOK_BYTES = 256 * 1024;
 
 type AuthenticateOwnerShop = (request: Request, shopId: string) => Promise<MerchantConnectionPrincipal>;
+const unavailableConnection = (shopId: string) => ({ shopId, status: "not_connected" as const });
 
 function privateJson(body: unknown, status = 200) {
   return Response.json(body, { status, headers: { "Cache-Control": "private, no-store" } });
@@ -62,7 +63,7 @@ function queryValue(url: URL, key: string) {
 
 /** Framework-neutral HTTP handlers; route modules supply the shared owner+membership resolver. */
 export function createMerchantConnectionHttpHandlers(input: {
-  service: MerchantConnectionService;
+  service?: MerchantConnectionService;
   repository: MerchantConnectionRepository;
   authenticateOwnerShop: AuthenticateOwnerShop;
   appOrigin: string;
@@ -81,7 +82,7 @@ export function createMerchantConnectionHttpHandlers(input: {
         }
         const parsed = startInput.safeParse(body);
         if (!parsed.success) return privateJson({ error: { code: "INVALID_INPUT", message: "The request is not valid." } }, 400);
-        if (!input.platformConfigured) {
+        if (!input.platformConfigured || !input.service) {
           return privateJson({ error: { code: "PROVIDER_STATUS_UNAVAILABLE", message: "PayPal seller connection is not configured yet." } }, 503);
         }
         const principal = await input.authenticateOwnerShop(request, parsed.data.shopId);
@@ -98,6 +99,9 @@ export function createMerchantConnectionHttpHandlers(input: {
         const shopId = shopIdInput.safeParse(queryValue(url, "shopId"));
         if (!shopId.success) return privateJson({ error: { code: "INVALID_INPUT", message: "The request is not valid." } }, 400);
         const principal = await input.authenticateOwnerShop(request, shopId.data);
+        if (!input.service) {
+          return privateJson({ connection: unavailableConnection(shopId.data), configured: false, webhookConfigured: input.webhookConfigured });
+        }
         return privateJson({
           connection: await input.service.get(principal, shopId.data),
           configured: input.platformConfigured,
@@ -116,6 +120,9 @@ export function createMerchantConnectionHttpHandlers(input: {
         const body = await readJsonWithin(request, 8 * 1024);
         const shopId = z.strictObject({ shopId: z.uuid() }).safeParse(body);
         if (!shopId.success) return privateJson({ error: { code: "INVALID_INPUT", message: "The request is not valid." } }, 400);
+        if (!input.platformConfigured || !input.service) {
+          return privateJson({ error: { code: "PROVIDER_STATUS_UNAVAILABLE", message: "PayPal seller connection is not configured yet." } }, 503);
+        }
         const principal = await input.authenticateOwnerShop(request, shopId.data.shopId);
         return privateJson({
           connection: await input.service.refreshStatus(principal, shopId.data.shopId),
@@ -129,6 +136,9 @@ export function createMerchantConnectionHttpHandlers(input: {
 
     async callback(request: Request) {
       try {
+        if (!input.service) {
+          return privateJson({ error: { code: "PROVIDER_STATUS_UNAVAILABLE", message: "PayPal seller connection is not configured yet." } }, 503);
+        }
         const url = new URL(request.url);
         const trackingId = queryValue(url, "merchantId");
         const sellerMerchantIdHint = queryValue(url, "merchantIdInPayPal");
@@ -147,6 +157,7 @@ export function createMerchantConnectionHttpHandlers(input: {
     },
 
     async revocationWebhook(request: Request) {
+      if (!input.service) return new Response(null, { status: 503 });
       const body = await readBodyWithin(request, MAX_WEBHOOK_BYTES);
       if (body === undefined) return new Response(null, { status: 413 });
       try {

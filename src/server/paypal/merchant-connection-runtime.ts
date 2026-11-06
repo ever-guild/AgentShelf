@@ -27,18 +27,31 @@ export function createMerchantConnectionRuntime(input: {
   const env = input.env ?? process.env;
   const appOrigin = env.APP_ORIGIN?.trim();
   if (!appOrigin) throw new Error("APP_ORIGIN is not configured");
-  const returnUrl = new URL("/api/seller/paypal/connection/callback", appOrigin).toString();
+  const origin = new URL(appOrigin);
+  if (origin.origin !== appOrigin.replace(/\/$/, "") || origin.username || origin.password || origin.search || origin.hash) {
+    throw new Error("APP_ORIGIN must be an exact origin");
+  }
+  const platformConfigured = PLATFORM_KEYS.every((key) => Boolean(env[key]?.trim()));
+  const localInsecureOrigin =
+    origin.protocol === "http:" &&
+    ["localhost", "127.0.0.1", "::1"].includes(origin.hostname) &&
+    !platformConfigured;
+  if (origin.protocol !== "https:" && !localInsecureOrigin) {
+    throw new Error("APP_ORIGIN must use HTTPS when PayPal seller connections are enabled");
+  }
+  const returnUrl = new URL("/api/seller/paypal/connection/callback", origin).toString();
   const repository = new PostgresMerchantConnectionRepository(input.pool);
   const paypal = createPartnerReferralsAdapter(env, input.fetchImpl ?? fetch);
-  const platformConfigured = PLATFORM_KEYS.every((key) => Boolean(env[key]?.trim()));
   const webhookConfigured = Boolean(env.PAYPAL_PLATFORM_WEBHOOK_ID?.trim());
-  const service = createMerchantConnectionService({
-    repository,
-    paypal,
-    authorizeShop: async (principal, shopId) =>
-      principal.shopId === shopId && Boolean(await input.identityStore.findOwnedShop(principal.actorId, shopId)),
-    returnUrl,
-    now: input.now,
-  });
+  const service = localInsecureOrigin
+    ? undefined
+    : createMerchantConnectionService({
+        repository,
+        paypal,
+        authorizeShop: async (principal, shopId) =>
+          principal.shopId === shopId && Boolean(await input.identityStore.findOwnedShop(principal.actorId, shopId)),
+        returnUrl,
+        now: input.now,
+      });
   return { service, repository, paypal, platformConfigured, webhookConfigured };
 }

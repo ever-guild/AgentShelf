@@ -95,6 +95,29 @@ describe("PayPal merchant connection HTTP handlers", () => {
     });
   });
 
+  it("keeps local features available with an HTTP localhost origin and no PayPal service", async () => {
+    const handlers = createMerchantConnectionHttpHandlers({
+      repository: {} as MerchantConnectionRepository,
+      authenticateOwnerShop: vi.fn(async () => principal),
+      appOrigin: "http://localhost:3217",
+      platformConfigured: false,
+      webhookConfigured: false,
+    });
+    const response = await handlers.status(new Request(`http://localhost:3217/api/seller/paypal/connection?shopId=${shopId}`));
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({
+      connection: { shopId, status: "not_connected" },
+      configured: false,
+      webhookConfigured: false,
+    });
+    const refresh = await handlers.refreshStatus(new Request("http://localhost:3217/api/seller/paypal/connection/refresh", {
+      method: "POST",
+      headers: { origin: "http://localhost:3217", "content-type": "application/json" },
+      body: JSON.stringify({ shopId }),
+    }));
+    expect(refresh.status).toBe(503);
+  });
+
   it("authenticates the shop bound to PayPal tracking before processing callback hints", async () => {
     const { handlers, service, authenticateOwnerShop } = harness();
     const response = await handlers.callback(new Request(
