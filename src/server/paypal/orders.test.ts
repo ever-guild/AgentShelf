@@ -20,6 +20,11 @@ const ENV = {
   PAYPAL_CLIENT_ID_SHOP_A: "client-id-a",
   PAYPAL_CLIENT_SECRET_SHOP_A: "client-secret-a",
 };
+const PLATFORM_ENV = {
+  PAYPAL_PLATFORM_CLIENT_ID: "platform-client-id",
+  PAYPAL_PLATFORM_CLIENT_SECRET: "platform-client-secret",
+  PAYPAL_PARTNER_ATTRIBUTION_ID: "AGENT_SHELF_BN_CODE",
+};
 
 const snapshot = {
   id: REQUEST_ID,
@@ -135,6 +140,53 @@ describe("createPayPalProvider", () => {
     });
 
     expect(paypal.tokenRequests()).toHaveLength(2);
+  });
+
+  it("uses the SDK Orders API with platform assertion and attribution on create, get, and capture", async () => {
+    const paypal = createFakePayPal();
+    const provider = createPayPalProvider(PLATFORM_ENV, paypal.adapter);
+    const api = provider("PAYPAL_PLATFORM", snapshot.payeeMerchantId);
+    expect(api).toBeDefined();
+
+    const created = await api!.createOrder(orderCall());
+    const id = created.result.id!;
+    paypal.approve(id);
+    await api!.getOrder({ id });
+    await api!.captureOrder({ id, paypalRequestId: `capture-${REQUEST_ID}`, body: {} });
+
+    const assertion = `${Buffer.from(JSON.stringify({ alg: "none" })).toString("base64")}.${Buffer.from(JSON.stringify({ iss: "platform-client-id", payer_id: snapshot.payeeMerchantId })).toString("base64")}.`;
+    const orderRequests = paypal.requests.filter((request) =>
+      new URL(request.url).pathname.startsWith("/v2/checkout/orders"),
+    );
+    expect(orderRequests).toHaveLength(3);
+    for (const request of orderRequests) {
+      expect(request.headers).toMatchObject({
+        "PayPal-Auth-Assertion": assertion,
+        "PayPal-Partner-Attribution-Id": "AGENT_SHELF_BN_CODE",
+      });
+    }
+    expect(paypal.requestIdOf(orderRequests[0])).toBe(REQUEST_ID);
+    expect(paypal.requestIdOf(orderRequests[2])).toBe(`capture-${REQUEST_ID}`);
+    expect(paypal.tokenRequests()).toHaveLength(1);
+    expect(paypal.tokenRequests()[0].headers).not.toHaveProperty("PayPal-Auth-Assertion");
+    expect(paypal.tokenRequests()[0].headers).not.toHaveProperty("PayPal-Partner-Attribution-Id");
+  });
+
+  it("requires a connected seller identity and platform credentials before resolving platform mode", () => {
+    const paypal = createFakePayPal();
+    const provider = createPayPalProvider(PLATFORM_ENV, paypal.adapter);
+    expect(provider("PAYPAL_PLATFORM")).toBeUndefined();
+    expect(provider("PAYPAL_PLATFORM", "bad seller id with spaces")).toBeUndefined();
+    expect(provider("PAYPAL_PLATFORM", "MERCHANT1")?.clientId).toBe("platform-client-id");
+    expect(createPayPalProvider({}, paypal.adapter)("PAYPAL_PLATFORM", "MERCHANT1")).toBeUndefined();
+    expect(paypal.requests).toHaveLength(0);
+  });
+
+  it("refuses a platform order whose stored payee differs from the verified seller context", async () => {
+    const paypal = createFakePayPal();
+    const api = createPayPalProvider(PLATFORM_ENV, paypal.adapter)("PAYPAL_PLATFORM", "MERCHANT2");
+    await expect(api?.createOrder(orderCall())).rejects.toThrow("payee does not match");
+    expect(paypal.requests).toHaveLength(0);
   });
 });
 
@@ -298,6 +350,7 @@ describe("readPayPalOrder", () => {
   const captured = (
     status: CaptureStatus,
     amount = { currencyCode: "EUR", value: "12.50" },
+    createTime: string | null = "2026-11-06T10:20:30.123Z",
   ): Order => ({
     id: "ORDER1",
     intent: CheckoutPaymentIntent.Capture,
@@ -307,7 +360,14 @@ describe("readPayPalOrder", () => {
         referenceId: REQUEST_ID,
         payee: { merchantId: "MERCHANT1" },
         amount: { currencyCode: "EUR", value: "12.50" },
-        payments: { captures: [{ id: CAPTURE_ID, status, amount }] },
+        payments: {
+          captures: [{
+            id: CAPTURE_ID,
+            status,
+            amount,
+            ...(createTime === null ? {} : { createTime }),
+          }],
+        },
       },
     ],
   });
@@ -335,8 +395,24 @@ describe("readPayPalOrder", () => {
     expect(readPayPalOrder(captured(status), snapshot)).toEqual({
       outcome,
       captureId: CAPTURE_ID,
+      ...(status === CaptureStatus.Completed
+        ? { capturedAt: new Date("2026-11-06T10:20:30.123Z") }
+        : {}),
     });
   });
+
+  it.each([null, "not-a-date", "2026-02-31T10:20:30Z", "2026-11-06T10:20:60Z"])(
+    "requires a valid provider capture create_time (%s)",
+    (createTime) => {
+      expect(
+        readPayPalOrder(captured(CaptureStatus.Completed, undefined, createTime), snapshot),
+      ).toEqual({
+        outcome: "needs_review",
+        reason: "capture time",
+        captureId: CAPTURE_ID,
+      });
+    },
+  );
 
   it.each([CaptureStatus.Refunded, CaptureStatus.PartiallyRefunded])(
     "sends a %s capture to review",

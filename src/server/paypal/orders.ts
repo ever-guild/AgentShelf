@@ -30,6 +30,10 @@ const SANDBOX_CHECKOUT_ORIGIN = "https://www.sandbox.paypal.com";
 const TOKEN_PATH = "/v1/oauth2/token";
 const VERIFY_WEBHOOK_PATH = "/v1/notifications/verify-webhook-signature";
 const TIMEOUT_CODES = new Set(["ECONNABORTED", "ETIMEDOUT"]);
+// The server-side credential resolver may select this only for a shop with a
+// current, consented PayPal connection. Never accept it from a browser or MCP arg.
+export const PLATFORM_PAYPAL_CREDENTIAL_REF = "PAYPAL_PLATFORM";
+const PAYPAL_PARTNER_ATTRIBUTION_ID = "PAYPAL_PARTNER_ATTRIBUTION_ID";
 
 export type WebhookSignature = {
   authAlgo: string;
@@ -61,9 +65,12 @@ export type PayPalSellerApi = Pick<
   readCatalogRecord: (id: string) => Promise<{ id?: string }>;
 };
 
-// Resolves a shop's `paypal_credential_ref` to its seller's own REST app. This is the merchant
-// model under test in docs/paypal-sandbox-proof.md, and the only code that depends on it.
-export type PayPalProvider = (credentialRef: string) => PayPalSellerApi | undefined;
+// Resolves a shop's server-owned credential reference. Direct seller refs retain their own REST
+// apps; the reserved platform ref requires an already-verified seller ID from the persisted order.
+export type PayPalProvider = (
+  credentialRef: string,
+  payeeMerchantId?: string,
+) => PayPalSellerApi | undefined;
 
 type SellerClient = { client: Client; orders: OrdersController };
 
@@ -71,6 +78,7 @@ function createSellerClient(
   oAuthClientId: string,
   oAuthClientSecret: string,
   testAdapter: unknown,
+  partnerAttributionId?: string,
 ): SellerClient {
   const client = new Client({
     environment: Environment.Sandbox,
@@ -93,7 +101,34 @@ function createSellerClient(
       ...(testAdapter ? { adapter: testAdapter } : {}),
     },
   });
+  if (partnerAttributionId) {
+    const getFactory = client.getRequestBuilderFactory.bind(client);
+    client.getRequestBuilderFactory = () => {
+      const factory = getFactory();
+      return ((method, path) => {
+        const builder = factory(method, path);
+        const isOrdersPath = (value: string | undefined) =>
+          Boolean(value && /(?:^|\/)v2\/checkout\/orders(?:\/|$)/.test(value));
+        if (isOrdersPath(path)) {
+          builder.header("PayPal-Partner-Attribution-Id", partnerAttributionId);
+        }
+        const appendTemplatePath = builder.appendTemplatePath.bind(builder);
+        builder.appendTemplatePath = ((strings, ...values) => {
+          appendTemplatePath(strings, ...values);
+          if (isOrdersPath(strings.join(""))) {
+            builder.header("PayPal-Partner-Attribution-Id", partnerAttributionId);
+          }
+        }) as typeof builder.appendTemplatePath;
+        return builder;
+      }) as ReturnType<typeof client.getRequestBuilderFactory>;
+    };
+  }
   return { client, orders: new OrdersController(client) };
+}
+
+function buildPayPalAuthAssertion(platformClientId: string, sellerMerchantId: string): string {
+  const encode = (value: unknown) => Buffer.from(JSON.stringify(value)).toString("base64");
+  return `${encode({ alg: "none" })}.${encode({ iss: platformClientId, payer_id: sellerMerchantId })}.`;
 }
 
 // The SDK has no webhook API, so this goes through its request builder, which brings the same
@@ -128,47 +163,101 @@ export function createPayPalProvider(
 ): PayPalProvider {
   // One client per seller app, so its cached token is reused between calls.
   const sellers = new Map<string, SellerClient>();
+  const callWithClient = async <T>(
+    credentialRef: string,
+    partnerAttributionId: string | undefined,
+    call: (orders: OrdersController, client: Client) => Promise<T>,
+  ): Promise<T> => {
+    const platform = credentialRef === PLATFORM_PAYPAL_CREDENTIAL_REF;
+    const clientId = (platform ? env.PAYPAL_PLATFORM_CLIENT_ID : env[`PAYPAL_CLIENT_ID_${credentialRef}`])?.trim();
+    const clientSecret = (platform ? env.PAYPAL_PLATFORM_CLIENT_SECRET : env[`PAYPAL_CLIENT_SECRET_${credentialRef}`])?.trim();
+    if (!clientId || !clientSecret) {
+      throw new Error("PayPal credentials are not configured");
+    }
+    const seller = sellers.get(credentialRef) ?? createSellerClient(clientId, clientSecret, testAdapter, partnerAttributionId);
+    sellers.set(credentialRef, seller);
+    try {
+      return await call(seller.orders, seller.client);
+    } catch (error) {
+      // The SDK keeps a failed token exchange as a rejected promise and rethrows it on every
+      // later call without sending a request, so one network failure would otherwise stop
+      // this seller's payments until a restart. The next call starts with a new client.
+      sellers.delete(credentialRef);
+      throw error;
+    }
+  };
 
-  return (credentialRef) => {
+  return (credentialRef, payeeMerchantId) => {
+    if (credentialRef === PLATFORM_PAYPAL_CREDENTIAL_REF) {
+      const clientId = env.PAYPAL_PLATFORM_CLIENT_ID?.trim();
+      const clientSecret = env.PAYPAL_PLATFORM_CLIENT_SECRET?.trim();
+      const attributionId = env[PAYPAL_PARTNER_ATTRIBUTION_ID]?.trim();
+      if (
+        !clientId || !clientSecret || !attributionId ||
+        !payeeMerchantId || !/^[A-Za-z0-9_-]{3,128}$/.test(payeeMerchantId)
+      ) {
+        return undefined;
+      }
+      const assertion = buildPayPalAuthAssertion(clientId, payeeMerchantId);
+      return {
+        clientId,
+        webhookId: env.PAYPAL_PLATFORM_WEBHOOK_ID?.trim() || undefined,
+        createOrder: (request, options) => {
+          const units = request.body.purchaseUnits;
+          if (!units.length || units.some((unit) => unit.payee?.merchantId !== payeeMerchantId)) {
+            return Promise.reject(new Error("The PayPal order payee does not match the connected seller"));
+          }
+          return callWithClient(PLATFORM_PAYPAL_CREDENTIAL_REF, attributionId, (orders) =>
+            orders.createOrder(
+              { ...request, paypalAuthAssertion: assertion, paypalPartnerAttributionId: attributionId },
+              options,
+            ),
+          );
+        },
+        getOrder: (request, options) =>
+          callWithClient(PLATFORM_PAYPAL_CREDENTIAL_REF, attributionId, (orders) =>
+            orders.getOrder({ ...request, paypalAuthAssertion: assertion }, options),
+          ),
+        captureOrder: (request, options) =>
+          callWithClient(PLATFORM_PAYPAL_CREDENTIAL_REF, attributionId, (orders) =>
+            orders.captureOrder({ ...request, paypalAuthAssertion: assertion }, options),
+          ),
+        verifyWebhookSignature: (webhookId, signature, rawBody) =>
+          callWithClient(PLATFORM_PAYPAL_CREDENTIAL_REF, attributionId, (_orders, client) =>
+            verifySignature(client, webhookId, signature, rawBody),
+          ),
+        createCatalogRecord: (record, requestId) =>
+          callWithClient(PLATFORM_PAYPAL_CREDENTIAL_REF, attributionId, (_orders, client) =>
+            createCatalogRecord(client, record, requestId),
+          ),
+        readCatalogRecord: (id) =>
+          callWithClient(PLATFORM_PAYPAL_CREDENTIAL_REF, attributionId, (_orders, client) =>
+            readCatalogRecord(client, id),
+          ),
+      };
+    }
     const clientId = env[`PAYPAL_CLIENT_ID_${credentialRef}`]?.trim();
     const clientSecret = env[`PAYPAL_CLIENT_SECRET_${credentialRef}`]?.trim();
     if (!clientId || !clientSecret) {
       return undefined;
     }
 
-    const withClient = async <T>(call: (seller: SellerClient) => Promise<T>) => {
-      const seller =
-        sellers.get(credentialRef) ??
-        createSellerClient(clientId, clientSecret, testAdapter);
-      sellers.set(credentialRef, seller);
-      try {
-        return await call(seller);
-      } catch (error) {
-        // The SDK keeps a failed token exchange as a rejected promise and rethrows it on every
-        // later call without sending a request, so one network failure would otherwise stop
-        // this seller's payments until a restart. The next call starts with a new client.
-        sellers.delete(credentialRef);
-        throw error;
-      }
-    };
-
     return {
       clientId,
       webhookId: env[`PAYPAL_WEBHOOK_ID_${credentialRef}`]?.trim() || undefined,
       createOrder: (request, options) =>
-        withClient(({ orders }) => orders.createOrder(request, options)),
+        callWithClient(credentialRef, undefined, (orders) => orders.createOrder(request, options)),
       getOrder: (request, options) =>
-        withClient(({ orders }) => orders.getOrder(request, options)),
+        callWithClient(credentialRef, undefined, (orders) => orders.getOrder(request, options)),
       captureOrder: (request, options) =>
-        withClient(({ orders }) => orders.captureOrder(request, options)),
+        callWithClient(credentialRef, undefined, (orders) => orders.captureOrder(request, options)),
       verifyWebhookSignature: (webhookId, signature, rawBody) =>
-        withClient(({ client }) =>
-          verifySignature(client, webhookId, signature, rawBody),
-        ),
+        callWithClient(credentialRef, undefined, (_orders, client) =>
+          verifySignature(client, webhookId, signature, rawBody)),
       createCatalogRecord: (record, requestId) =>
-        withClient(({ client }) => createCatalogRecord(client, record, requestId)),
+        callWithClient(credentialRef, undefined, (_orders, client) => createCatalogRecord(client, record, requestId)),
       readCatalogRecord: (id) =>
-        withClient(({ client }) => readCatalogRecord(client, id)),
+        callWithClient(credentialRef, undefined, (_orders, client) => readCatalogRecord(client, id)),
     };
   };
 }
@@ -277,7 +366,7 @@ export type PayPalOrderReading =
   | { outcome: "awaiting_buyer" }
   | { outcome: "ready_to_capture" }
   | { outcome: "capture_pending"; captureId: string }
-  | { outcome: "paid"; captureId: string }
+  | { outcome: "paid"; captureId: string; capturedAt: Date }
   | { outcome: "capture_refused"; captureId?: string }
   | { outcome: "voided" }
   | { outcome: "needs_review"; reason: string; captureId?: string };
@@ -322,8 +411,13 @@ export function readPayPalOrder(
   }
 
   switch (capture.status) {
-    case CaptureStatus.Completed:
-      return { outcome: "paid", captureId };
+    case CaptureStatus.Completed: {
+      const capturedAt = parseCaptureTime(capture.createTime);
+      if (!capturedAt) {
+        return { outcome: "needs_review", reason: "capture time", captureId };
+      }
+      return { outcome: "paid", captureId, capturedAt };
+    }
     case CaptureStatus.Pending:
       return { outcome: "capture_pending", captureId };
     case CaptureStatus.Declined:
@@ -357,6 +451,35 @@ function safeToken(value: unknown): string | undefined {
   return typeof value === "string" && /^[\w.-]{1,100}$/.test(value)
     ? value
     : undefined;
+}
+
+// PayPal's captured-payment create_time is RFC 3339. Date.parse alone accepts some
+// impossible calendar dates by normalizing them, so check the written fields first.
+function parseCaptureTime(value: unknown): Date | undefined {
+  if (typeof value !== "string") return undefined;
+  const match = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})(?:\.\d+)?(Z|[+-]\d{2}:\d{2})$/i.exec(value);
+  if (!match) return undefined;
+  const [, year, month, day, hour, minute, second, zone] = match;
+  const y = Number(year);
+  const m = Number(month);
+  const d = Number(day);
+  const h = Number(hour);
+  const min = Number(minute);
+  const sec = Number(second);
+  const leapYear = y % 4 === 0 && (y % 100 !== 0 || y % 400 === 0);
+  const daysInMonth = [31, leapYear ? 29 : 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
+  if (
+    y < 1 ||
+    m < 1 || m > 12 ||
+    d < 1 || d > (daysInMonth[m - 1] ?? 0) ||
+    h > 23 || min > 59 || sec > 59
+  ) return undefined;
+  if (zone.toUpperCase() !== "Z") {
+    const offset = /[+-](\d{2}):(\d{2})$/.exec(zone);
+    if (!offset || Number(offset[1]) > 23 || Number(offset[2]) > 59) return undefined;
+  }
+  const timestamp = Date.parse(value);
+  return Number.isFinite(timestamp) ? new Date(timestamp) : undefined;
 }
 
 function errorPayload(error: Record<string, unknown>): Record<string, unknown> {
