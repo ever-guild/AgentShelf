@@ -89,7 +89,9 @@ function parseToolResult(result: Awaited<ReturnType<Client["callTool"]>>): JsonR
   if (result.structuredContent) return record(result.structuredContent);
   const blocks = result.content as { type: string; text?: string }[];
   const first = blocks.find((item) => item.type === "text");
-  if (first?.type !== "text") throw new Error("MCP operation returned no structured result");
+  if (first?.type !== "text" || typeof first.text !== "string") {
+    throw new Error("MCP operation returned no structured result");
+  }
   try {
     return record(JSON.parse(first.text));
   } catch {
