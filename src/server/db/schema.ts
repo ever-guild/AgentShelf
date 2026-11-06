@@ -444,6 +444,8 @@ export const orders = pgTable(
     payeeMerchantId: text("payee_merchant_id").notNull(),
     paypalOrderId: text("paypal_order_id").unique(),
     paypalCaptureId: text("paypal_capture_id").unique(),
+    // Snapshot of the credential mapping used to create this PayPal order.
+    paypalCredentialRef: text("paypal_credential_ref"),
     inventoryReservationId: uuid("inventory_reservation_id"),
     approvalUrl: text("approval_url"),
     // When the sweep last asked PayPal about this order, so it can back off. Not order state.
