@@ -51,6 +51,16 @@ For the current seller UI, sign in at `/seller/sign-in` with the access code for
 
 This baseline does not exercise new-shop signup, an external seller agent, agent grants, or quantity inventory
 
+After the owner identity and seller MCP routes are wired, `smoke:runtime` performs a local end-to-end owner and seller-agent path, it creates a synthetic owner, shops, import and catalog row, and stock adjustments before searching the published row through buyer MCP
+
+The runtime smoke is restricted to `localhost` and requires an explicit disposable-database acknowledgement, the app needs `ANTHROPIC_API_KEY` for the import step
+
+```bash
+RUNTIME_SMOKE_DISPOSABLE_DB=1 npm run smoke:runtime -- http://localhost:3000
+```
+
+This helper does not create a checkout, call PayPal, or prove buyer payment approval, webhook delivery, capture reconciliation, or public-client connector compatibility
+
 ## Acceptance matrix
 
 Run the blocked rows after their feature issues merge and the exact contracts are documented, do not invent route or tool names before then
