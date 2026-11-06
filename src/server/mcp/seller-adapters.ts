@@ -12,7 +12,6 @@ import { defaultImportDeps } from "../services/import-start";
 import { getSellerCatalog, updateCatalogProduct, publishImport, defaultCatalogDeps } from "../services/seller-catalog";
 import { readStock, adjustInventory, setInventoryMode } from "../inventory/postgres";
 import type { SellerAgentServices } from "./seller-server";
-import type { Pool } from "pg";
 import { merchantConnectionRuntime } from "../paypal/merchant-connection-runtime";
 
 const REVIEW_PATH = "/seller/imports";
