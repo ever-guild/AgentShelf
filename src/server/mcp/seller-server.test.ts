@@ -75,6 +75,7 @@ describe("seller MCP capability registration", () => {
           reserved: 1,
           available: 3,
           version: 2,
+          updatedAt: "2026-11-06T10:00:00.000Z",
         }),
         adjust: async (_principal, input) => ({
           productId: input.productId,
@@ -83,6 +84,7 @@ describe("seller MCP capability registration", () => {
           reserved: 1,
           available: 4,
           version: 3,
+          updatedAt: "2026-11-06T10:01:00.000Z",
         }),
         setMode: async (_principal, input) => ({
           productId: input.productId,
@@ -91,6 +93,7 @@ describe("seller MCP capability registration", () => {
           reserved: input.mode === "tracked" ? 0 : null,
           available: input.mode === "tracked" ? (input.onHand ?? 0) : null,
           version: 1,
+          updatedAt: "2026-11-06T10:02:00.000Z",
         }),
       },
       catalog: {
@@ -126,14 +129,14 @@ describe("seller MCP capability registration", () => {
       expect(attemptedTenantOverride.isError).toBe(true);
 
       const result = await client.callTool({ name: "seller_manage_stock", arguments: { action: "read", productId } });
-      expect(result.structuredContent).toEqual({ productId, mode: "tracked", onHand: 4, reserved: 1, available: 3, version: 2 });
+      expect(result.structuredContent).toEqual({ productId, mode: "tracked", onHand: 4, reserved: 1, available: 3, version: 2, updatedAt: "2026-11-06T10:00:00.000Z" });
       expect(authorizeShop).toHaveBeenCalledWith("seller-grant-test-only", "read_shop", shopId);
 
       const adjusted = await client.callTool({
         name: "seller_manage_stock",
         arguments: { action: "adjust", productId, delta: 1, expectedVersion: 2, idempotencyKey: "stock-adjust-0001", reason: "Restocked unit" },
       });
-      expect(adjusted.structuredContent).toEqual({ productId, mode: "tracked", onHand: 5, reserved: 1, available: 4, version: 3 });
+      expect(adjusted.structuredContent).toEqual({ productId, mode: "tracked", onHand: 5, reserved: 1, available: 4, version: 3, updatedAt: "2026-11-06T10:01:00.000Z" });
       expect(authorizeShop).toHaveBeenLastCalledWith("seller-grant-test-only", "manage_inventory", shopId);
     } finally {
       await client.close();

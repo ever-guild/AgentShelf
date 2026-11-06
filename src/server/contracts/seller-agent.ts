@@ -167,6 +167,7 @@ export const sellerAgentStockResult = z.strictObject({
   reserved: z.number().int().nonnegative().nullable(),
   available: z.number().int().nonnegative().nullable(),
   version: z.number().int().nonnegative(),
+  updatedAt: z.string().datetime(),
 });
 
 export const sellerAgentPayPalConnectInput = z.strictObject({

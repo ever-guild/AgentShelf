@@ -13,8 +13,12 @@ import { getSellerCatalog, updateCatalogProduct, publishImport, defaultCatalogDe
 import { readStock, adjustInventory, setInventoryMode } from "../inventory/postgres";
 import type { SellerAgentServices } from "./seller-server";
 import { createMerchantConnectionRuntime } from "../paypal/merchant-connection-runtime";
+import type { MerchantConnectionService } from "../paypal/merchant-connection";
+import type { Pool } from "pg";
 
 const REVIEW_PATH = "/seller/imports";
+type MerchantRuntimeState = { service: MerchantConnectionService; configured: boolean };
+const merchantServices = new WeakMap<Pool, MerchantRuntimeState | null>();
 
 export function createSellerAgentServices(input: {
   db: Db;
@@ -25,11 +29,6 @@ export function createSellerAgentServices(input: {
   paypalConnection?: SellerAgentServices["paypalConnection"];
 }): SellerAgentServices {
   const { db } = input;
-  const merchantConnection = input.paypalConnection ?? createMerchantConnectionRuntime({
-    pool: poolFor(db),
-    identityStore: input.identity,
-    env: { ...process.env, APP_ORIGIN: publicOrigin() },
-  }).service;
   const shopFor = async (shopId: string) => {
     const [shop] = await db.select({ id: shops.id, currency: shops.currency }).from(shops).where(eq(shops.id, shopId));
     if (!shop) throw Object.assign(new Error("The seller shop could not be found."), { code: "UNAUTHORIZED" });
@@ -112,18 +111,49 @@ export function createSellerAgentServices(input: {
       },
     },
     stock: {
-      read: (principal, productId) => readStock(poolFor(db), principal, productId),
-      adjust: (principal, request) => adjustInventory(poolFor(db), principal, request),
-      setMode: (principal, request) => setInventoryMode(poolFor(db), principal, request.productId, request.mode === "tracked"
+      read: async (principal, productId) => stockResult(await readStock(poolFor(db), principal, productId)),
+      adjust: async (principal, request) => stockResult(await adjustInventory(poolFor(db), principal, request)),
+      setMode: async (principal, request) => stockResult(await setInventoryMode(poolFor(db), principal, request.productId, request.mode === "tracked"
         ? { mode: "tracked", onHand: request.onHand!, idempotencyKey: request.idempotencyKey, reason: request.reason }
-        : { mode: "untracked", idempotencyKey: request.idempotencyKey, reason: request.reason }),
+        : { mode: "untracked", idempotencyKey: request.idempotencyKey, reason: request.reason })),
     },
     paypalConnection: {
-      start: (principal, request) => merchantConnection.start(principal, request),
+      start: (principal, request) => {
+        if (input.paypalConnection) return input.paypalConnection.start(principal, request);
+        const runtime = getMerchantRuntime(db, input.identity);
+        if (!runtime?.configured) return Promise.resolve({ connection: { shopId: principal.shopId, status: "error" as const, nextAction: "contact_support" as const } });
+        return runtime.service.start(principal, request);
+      },
     },
   };
 }
 
 function poolFor(db: Db) {
   return (db as Db & { $client: import("pg").Pool }).$client;
+}
+
+function getMerchantRuntime(db: Db, identity: IdentityStore): MerchantRuntimeState | null {
+  const pool = poolFor(db);
+  if (merchantServices.has(pool)) return merchantServices.get(pool) ?? null;
+  try {
+    const runtime = createMerchantConnectionRuntime({
+      pool,
+      identityStore: identity,
+      env: { ...process.env, APP_ORIGIN: publicOrigin() },
+    });
+    const state = { service: runtime.service, configured: runtime.platformConfigured };
+    merchantServices.set(pool, state);
+    return state;
+  } catch {
+    // Local HTTP and incomplete sandbox settings block this capability only. Other seller MCP
+    // tools remain available; the connection tool returns an explicit blocked state.
+    merchantServices.set(pool, null);
+    return null;
+  }
+}
+
+function stockResult<T extends { productId: string; version: number }>(stock: T) {
+  const updatedAt = (stock as T & { updatedAt?: Date }).updatedAt;
+  if (!(updatedAt instanceof Date)) throw new Error("The inventory service did not return its update timestamp.");
+  return { ...stock, updatedAt: updatedAt.toISOString() };
 }
