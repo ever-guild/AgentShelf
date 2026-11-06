@@ -478,6 +478,7 @@ export const importJobs = pgTable(
     // Fences a run: only the run holding the current token may finish the job, so one that lost
     // its lease cannot overwrite the run that took over.
     runToken: uuid("run_token"),
+    // Also held while a job under review waits for a model's suggested descriptions.
     leaseExpiresAt: timestamp("lease_expires_at", { withTimezone: true }),
     // What actually read the source. Null for a CSV, which no model touches.
     model: text("model"),

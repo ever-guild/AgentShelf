@@ -220,7 +220,12 @@ export async function getDashboardInsights(
 
 // Counted before the call, so what a failed call cost is counted too. The row is one per hour, and a
 // shop's old rows go as it makes new ones.
-export async function takeAiCall(db: Db, shopId: string, now: Date): Promise<void> {
+export async function takeAiCall(
+  db: Db,
+  shopId: string,
+  now: Date,
+  limitMessage = "This shop has used its AI answers for this hour. The counts on the page are still correct. Try again later.",
+): Promise<void> {
   const hour = new Date(now.getTime() - (now.getTime() % HOUR_MS));
   const [{ calls }] = await db
     .insert(sellerAiCalls)
@@ -234,10 +239,7 @@ export async function takeAiCall(db: Db, shopId: string, now: Date): Promise<voi
     .delete(sellerAiCalls)
     .where(and(eq(sellerAiCalls.shopId, shopId), lt(sellerAiCalls.hour, hour)));
   if (calls > AI_CALLS_PER_HOUR) {
-    throw new ServiceError(
-      "AI_LIMIT_REACHED",
-      "This shop has used its AI answers for this hour. The counts on the page are still correct. Try again later.",
-    );
+    throw new ServiceError("AI_LIMIT_REACHED", limitMessage);
   }
 }
 

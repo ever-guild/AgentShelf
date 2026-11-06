@@ -15,7 +15,8 @@ import {
   sourceOf,
 } from "../../../test/imports";
 import { AiFailure } from "../ai/types";
-import { importJobs, importRows, products } from "../db/schema";
+import { importJobs, importRows, products, sellerAiCalls } from "../db/schema";
+import { takeAiCall } from "./demand-insights";
 import { runImportJob } from "./import-run";
 import type { ImportDeps } from "./import-start";
 import {
@@ -972,6 +973,72 @@ describe("suggesting descriptions", () => {
     await updateImportRow(getDb(), shop, jobId, view.rows[0].id, { status: "removed" });
     await suggestDescriptions(getDb(), shop, jobId, deps);
     expect(model.suggestionRequests[0].map((row) => row.title)).toEqual(["Charger"]);
+  });
+
+  it("pays for a row once, however many requests arrive together", async () => {
+    const { shop, jobId, model, deps } = await csvImport();
+    const results = await Promise.allSettled(
+      Array.from({ length: 20 }, () => suggestDescriptions(getDb(), shop, jobId, deps)),
+    );
+    expect(model.suggestionRequests).toHaveLength(1);
+    expect(results.some((result) => result.status === "fulfilled")).toBe(true);
+    for (const result of results) {
+      if (result.status === "rejected") {
+        expect(result.reason).toEqual(code("SUGGESTIONS_BUSY"));
+      }
+    }
+  });
+
+  it("refuses a request while another is writing, until that one's lease has run out", async () => {
+    const { shop, jobId, model, deps } = await csvImport();
+    await getDb()
+      .update(importJobs)
+      .set({ leaseExpiresAt: sql`now() + interval '1 minute'` })
+      .where(eq(importJobs.id, jobId));
+    await expect(suggestDescriptions(getDb(), shop, jobId, deps)).rejects.toEqual(code("SUGGESTIONS_BUSY"));
+    expect(model.suggestionRequests).toEqual([]);
+
+    await getDb()
+      .update(importJobs)
+      .set({ leaseExpiresAt: sql`now() - interval '1 minute'` })
+      .where(eq(importJobs.id, jobId));
+    await expect(suggestDescriptions(getDb(), shop, jobId, deps)).resolves.toMatchObject({ remaining: 0 });
+  });
+
+  it("can ask again after a failed call", async () => {
+    const { shop, jobId, model, deps } = await csvImport();
+    model.setSuggestion(new AiFailure("PROVIDER_UNAVAILABLE"));
+    await expect(suggestDescriptions(getDb(), shop, jobId, deps)).rejects.toEqual(code("SUGGESTIONS_UNAVAILABLE"));
+    model.setSuggestion((rows) =>
+      rows.map((row) => ({ position: row.position, english: `A ${row.title}.`, latvian: `B ${row.title}.` })),
+    );
+    await expect(suggestDescriptions(getDb(), shop, jobId, deps)).resolves.toMatchObject({ remaining: 0 });
+  });
+
+  it("counts each model call towards the shop's hourly limit", async () => {
+    const { shop, view, jobId, model, deps } = await csvImport();
+    await suggestDescriptions(getDb(), shop, jobId, deps);
+    expect(await getDb().select().from(sellerAiCalls)).toMatchObject([{ shopId: shop.id, calls: 1 }]);
+
+    for (let call = 0; call < 59; call += 1) {
+      await takeAiCall(getDb(), shop.id, new Date());
+    }
+    await updateImportRow(getDb(), shop, jobId, view.rows[0].id, { descriptionEn: "", descriptionLv: "" });
+    await expect(suggestDescriptions(getDb(), shop, jobId, deps)).rejects.toEqual(
+      expect.objectContaining({
+        code: "AI_LIMIT_REACHED",
+        message: "This shop has used its AI answers for this hour. Your rows are unchanged. Try again later.",
+      }),
+    );
+    expect(model.suggestionRequests).toHaveLength(1);
+    expect((await jobRow(getDb(), jobId)).leaseExpiresAt).toBeNull();
+  });
+
+  it("spends nothing when no row is left to write", async () => {
+    const { shop, jobId, deps } = await csvImport();
+    await suggestDescriptions(getDb(), shop, jobId, deps);
+    await suggestDescriptions(getDb(), shop, jobId, deps);
+    expect(await getDb().select().from(sellerAiCalls)).toMatchObject([{ calls: 1 }]);
   });
 
   it("does not overwrite what a seller wrote while the model was answering", async () => {

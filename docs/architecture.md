@@ -453,7 +453,7 @@ The seller's way in, for [#8](https://github.com/ever-guild/AgentShelf/issues/8)
 
 **Keeping the photo:** a photo is stored in `import_sources`, because the web service and a workflow run share no disk, and a run's arguments are limited to 4 MB. **It is deleted when the seller finishes the review, or 72 hours after upload, whichever comes first.** The sweep enforces the second, and a job left with no photo tells the seller to upload it again. The rows of a review stay when its photo goes. The browser redraws a photo before uploading it, which shrinks it to what a model can use and drops its location metadata. A CSV is not kept at all.
 
-**Suggestions:** a seller can ask for English and Latvian descriptions, in batches of 25. They are generated from the row's own words and stored as editable text, and never overwrite what a seller wrote. A suggestion with a number the row does not contain, such as `5000 mAh`, is dropped and the row says so. That catches the checkable inventions, and the seller reads the rest.
+**Suggestions:** a seller can ask for English and Latvian descriptions, in batches of 25. An import writes one batch at a time, and each batch counts towards the shop's hourly AI calls. They are generated from the row's own words and stored as editable text, and never overwrite what a seller wrote. A suggestion with a number the row does not contain, such as `5000 mAh`, is dropped and the row says so. That catches the checkable inventions, and the seller reads the rest.
 
 **Sessions:** the cookie is `SameSite=Lax`, so another site cannot send these requests with it. Every query is scoped to the shop in the session, and an import in another shop gets the same `IMPORT_NOT_FOUND` as one that does not exist.
 
