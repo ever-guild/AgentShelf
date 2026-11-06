@@ -26,6 +26,9 @@ const timeoutMs = 10_000;
 const importTimeoutMs = 45_000;
 
 class RuntimeSmokeBlocked extends Error {}
+class RuntimeSmokeFailure extends Error {
+  constructor(readonly code: string) { super(code); }
+}
 
 function pass(name: string) {
   console.log(`PASS  ${name}`);
@@ -85,7 +88,7 @@ function toolErrorCode(result: Awaited<ReturnType<Client["callTool"]>>): string 
 }
 
 function parseToolResult(result: Awaited<ReturnType<Client["callTool"]>>): JsonRecord {
-  if (result.isError) throw new Error("Seller or buyer MCP operation returned an error");
+  if (result.isError) throw new RuntimeSmokeFailure(toolErrorCode(result) ?? "MCP_OPERATION_FAILED");
   if (result.structuredContent) return record(result.structuredContent);
   const blocks = result.content as { type: string; text?: string }[];
   const first = blocks.find((item) => item.type === "text");
@@ -278,7 +281,17 @@ async function main() {
     const agentToken = string(agentGrant.body.grantToken);
     assert(Boolean(agentToken), "shop-bound grant is returned once");
 
-    await runShopMcp(origin, agentShop, agentToken!, cookie, runId);
+    await verifyCrossShopDenied(origin, agentShop.id, agentToken!, cookie, runId);
+    const revocationGrant = await ownerPost(origin, "/api/seller/identity/agent-grants", {
+      shopId: agentShop.id,
+      scopes: ["read_shop", "manage_catalog", "manage_inventory"],
+    }, cookie);
+    assert(revocationGrant.response.status === 201, "owner can issue a second independent shop grant");
+    const revocationToken = string(revocationGrant.body.grantToken);
+    assert(Boolean(revocationToken), "second grant is returned once for revocation testing");
+    await verifyGrantRevocation(origin, agentShop.id, revocationToken!, cookie, runId);
+
+    await runShopMcp(origin, agentShop, agentToken!, runId);
   } finally {
     await onboardingClient.close();
   }
@@ -291,7 +304,7 @@ async function main() {
   assert(afterSignOut.response.status === 401, "revoked owner session is rejected");
 }
 
-async function runShopMcp(origin: URL, shop: SmokeShop, token: string, ownerCookie: string, runId: string) {
+async function runShopMcp(origin: URL, shop: SmokeShop, token: string, runId: string) {
   const route = `/mcp/seller/shop/${encodeURIComponent(shop.id)}`;
   const client = await connectMcp(new URL(route, origin), token);
   let publishedProductId: string | undefined;
@@ -311,7 +324,10 @@ async function runShopMcp(origin: URL, shop: SmokeShop, token: string, ownerCook
     });
     assert(injectedTenant.isError === true, "seller MCP rejects tenant IDs in tool arguments");
 
-    const csv = `name,kind,price,currency,description\n${title},product,12.50,EUR,Disposable runtime smoke item\n`;
+    const csv = [
+      "name,kind,price,currency,description",
+      `${title},product,12.50,EUR,Disposable runtime smoke item`,
+    ].join("\n");
     const importResult = await client.callTool({
       name: "seller_import_price_list",
       arguments: {
@@ -371,6 +387,7 @@ async function runShopMcp(origin: URL, shop: SmokeShop, token: string, ownerCook
       },
     }));
     assert(stockSet.mode === "tracked" && stockSet.available === 2, "seller agent initializes tracked quantity");
+    assert(Number.isInteger(stockSet.version), "stock mode response includes a version for safe adjustment");
 
     const adjusted = parseToolResult(await client.callTool({
       name: "seller_manage_stock",
@@ -386,8 +403,6 @@ async function runShopMcp(origin: URL, shop: SmokeShop, token: string, ownerCook
     assert(adjusted.onHand === 1 && adjusted.available === 1, "stock adjustment leaves one available unit");
 
     await verifyBuyerSearch(origin, title, publishedProductId!);
-    await verifyCrossShopDenied(origin, shop.id, token, ownerCookie, runId);
-    await verifyGrantRevocation(origin, shop.id, token, ownerCookie, runId);
   } finally {
     await client.close();
   }
@@ -480,6 +495,11 @@ main().catch((error: unknown) => {
   if (error instanceof RuntimeSmokeBlocked) {
     console.error(`BLOCKED  ${error.message}`);
     process.exitCode = 2;
+    return;
+  }
+  if (error instanceof RuntimeSmokeFailure) {
+    console.error(`FAIL  seller API returned safe error code ${error.code}`);
+    process.exitCode = 1;
     return;
   }
   console.error("FAIL  Runtime smoke failed; details are suppressed to protect session data");
