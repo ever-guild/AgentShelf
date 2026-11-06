@@ -1,9 +1,9 @@
-import { readFile } from "node:fs/promises";
 import { randomUUID } from "node:crypto";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { Pool } from "pg";
 
 import { createDb } from "@/server/db/client";
+import { runMigrations } from "@/server/db/migrate";
 import { createTemporaryDatabase } from "../../../../../test/database";
 import { POST as register } from "./register/route";
 import { POST as signIn } from "./sign-in/route";
@@ -51,28 +51,12 @@ describe("seller identity HTTP routes with disposable Postgres", () => {
 
   beforeAll(async () => {
     temporary = await createTemporaryDatabase();
+    await runMigrations(temporary.url);
     const db = createDb(temporary.url);
     runtimeGlobal.agentshelfDb = db.db;
     close = db.close;
     runtimeGlobal.agentshelfOwnerIdentityRuntime = undefined;
     pool = (db.db as ReturnType<typeof createDb>["db"] & { $client: Pool }).$client;
-    await pool.query(`
-      CREATE TABLE shops (
-        id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-        slug text NOT NULL UNIQUE,
-        name text NOT NULL,
-        location text,
-        currency text NOT NULL,
-        timezone text NOT NULL,
-        paypal_credential_ref text NOT NULL,
-        paypal_merchant_id text,
-        seller_access_code_hash text,
-        created_at timestamptz NOT NULL DEFAULT now(),
-        updated_at timestamptz NOT NULL DEFAULT now()
-      )
-    `);
-    const draft = await readFile(new URL("../../../../../drizzle/drafts/identity-registration.sql", import.meta.url), "utf8");
-    await pool.query(draft);
     process.env.APP_ORIGIN = origin;
   });
 

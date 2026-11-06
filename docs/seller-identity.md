@@ -51,17 +51,16 @@ The adapter must enforce the following in SQL:
 - `shop_memberships`: primary key `(owner_id, shop_id)`; owner IDs and shop IDs are foreign keys
 - `owner_sessions`: token hash, expiry, revocation timestamp; lookup requires `expires_at > now()` and `revoked_at IS NULL`
 - `seller_agent_grants`: token hash, nullable shop scope, allowed scope array, expiry and revocation timestamp; management grants reference an owner membership
-- `seller_identity_operations`: idempotency key, operation, request fingerprint, owner and resulting shop; same key plus same request replays, changed request conflicts
+- `seller_identity_operations`: idempotency key, operation, request fingerprint, owner and resulting shop; same key plus same request replays, changed request conflicts; the in-transaction reservation allows both result IDs to be null before the transaction fills its final result
 - `seller_identity_attempt_windows`: hashed limiter key and bounded counter updated atomically
 
-Owner registration and shop creation write the operation row, owner, membership and shop in one transaction. An agent request must validate the grant and perform its idempotency lookup and writes in the same transaction. Unique slug errors must never trigger a second attempt that reuses an existing shop. `postgres-store.db.test.ts` applies the draft DDL from `drizzle/drafts/identity-registration.sql` against a disposable database with a minimal shops fixture. The draft is not numbered, wired to the migration journal, or applied to a shared database.
+Owner registration and shop creation write the operation row, owner, membership and shop in one transaction. An agent request must validate the grant and perform its idempotency lookup and writes in the same transaction. Unique slug errors must never trigger a second attempt that reuses an existing shop. The identity route suite runs the registered migration journal, including `0011_identity_registration.sql`, against a disposable PostgreSQL database. The lower-level `postgres-store.db.test.ts` also applies the DDL draft to a minimal shops fixture to isolate adapter constraints.
 
 ## Integration points awaiting review
 
-- Add identity table definitions to `src/server/db/schema.ts` and register the coordinated numbered migration
-- Integrate the identity table definitions into `src/server/db/schema.ts` and register the reviewed numbered migration before enabling owner signup in production
+- Publish the reviewed schema and migration candidate to the shared branch before enabling owner signup in production
 - Complete the owner registration UI and connect new seller-agent inventory and PayPal routes through `currentOwnerShopPrincipal`
 - Ensure every seller mutation obtains the shop from membership/session server state, not request input
 - Keep unconfigured shops in catalog flows and rely on the current checkout guard for payment rejection
 
-The HTTP route suite exercises registration, sign-in, sign-out, shop selection, grant issuance, PayPal consent evidence and revocation against an isolated temporary PostgreSQL database. This candidate also routes legacy seller calls through the owner guard while preserving legacy access-code sessions; it has not been published to the shared branch. The numbered migration, registration UI and live PayPal connection are still separate integration steps, so deployed end-to-end onboarding remains blocked.
+The HTTP route suite exercises registration, sign-in, sign-out, shop selection, grant issuance, PayPal consent evidence and revocation against an isolated temporary PostgreSQL database with the registered migrations. This candidate also routes legacy seller calls through the owner guard while preserving legacy access-code sessions; it has not been published to the shared branch. The registration UI is included in the review candidate; live PayPal connection and production activation remain separate, so deployed end-to-end onboarding is still blocked.

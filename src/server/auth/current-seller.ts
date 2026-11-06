@@ -37,7 +37,7 @@ export async function currentSeller(request?: Request) {
   const cookieStore = request ? undefined : await cookies();
   const hasOwnerCookie = request
     ? await hasOwnerSessionCookie(request)
-    : cookieStore?.has(OWNER_SESSION_COOKIE) ?? false;
+    : cookieStore?.get(OWNER_SESSION_COOKIE) !== undefined;
   if (hasOwnerCookie) {
     try {
       const { owner, principal } = await currentOwnerShopContext(request);
