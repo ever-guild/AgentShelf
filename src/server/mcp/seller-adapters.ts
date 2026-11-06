@@ -110,7 +110,13 @@ export function createSellerAgentServices(input: {
     },
     stock: {
       read: async (principal, productId) => stockResult(await readStock(poolFor(db), principal, productId)),
-      adjust: async (principal, request) => stockResult(await adjustInventory(poolFor(db), principal, request)),
+      adjust: async (principal, request) => stockResult(await adjustInventory(poolFor(db), principal, {
+        productId: request.productId,
+        delta: request.delta,
+        expectedVersion: request.expectedVersion,
+        idempotencyKey: request.idempotencyKey,
+        reason: request.reason,
+      })),
       setMode: async (principal, request) => stockResult(await setInventoryMode(poolFor(db), principal, request.productId, request.mode === "tracked"
         ? { mode: "tracked", onHand: request.onHand!, idempotencyKey: request.idempotencyKey, reason: request.reason }
         : { mode: "untracked", idempotencyKey: request.idempotencyKey, reason: request.reason })),
