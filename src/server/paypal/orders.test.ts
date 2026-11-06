@@ -202,6 +202,36 @@ describe("createPayPalProvider", () => {
     expect(paypal.tokenRequests()[0].headers).not.toHaveProperty("PayPal-Partner-Attribution-Id");
   });
 
+  it("verifies global platform webhook subscriptions without requiring a seller context", async () => {
+    const paypal = createFakePayPal();
+    const provider = createPayPalProvider(PLATFORM_ENV, paypal.adapter);
+    const event = JSON.stringify({
+      id: "WH-EVENT-PLATFORM-1",
+      event_type: "PAYMENT.CAPTURE.COMPLETED",
+      resource: {},
+    }, null, 2);
+    const headers = paypal.signDelivery("WH-PLATFORM-PAYMENTS", event);
+    const signature = {
+      authAlgo: headers.get("paypal-auth-algo")!,
+      certUrl: headers.get("paypal-cert-url")!,
+      transmissionId: headers.get("paypal-transmission-id")!,
+      transmissionSig: headers.get("paypal-transmission-sig")!,
+      transmissionTime: headers.get("paypal-transmission-time")!,
+    };
+
+    await expect(provider.verifyPlatformWebhookSignature?.(
+      "WH-PLATFORM-PAYMENTS",
+      signature,
+      event,
+    )).resolves.toBe(true);
+
+    const [verification] = paypal.verifyRequests();
+    expect(verification.data).toContain('"webhook_id":"WH-PLATFORM-PAYMENTS"');
+    expect(verification.data).toContain(event);
+    expect(verification.headers).not.toHaveProperty("PayPal-Auth-Assertion");
+    expect(verification.headers).not.toHaveProperty("PayPal-Partner-Attribution-Id");
+  });
+
   it("requires a connected seller identity and platform credentials before resolving platform mode", () => {
     const paypal = createFakePayPal();
     const provider = createPayPalProvider(PLATFORM_ENV, paypal.adapter);

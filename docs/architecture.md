@@ -33,6 +33,8 @@ Migrating and seeding are safe to repeat. The seed updates its own fixed rows an
 | `APP_ORIGIN` | app | The public origin, such as `http://localhost:3000` locally. On Render it falls back to `RENDER_EXTERNAL_URL` |
 | `PAYPAL_CLIENT_ID_<REF>`, `PAYPAL_CLIENT_SECRET_<REF>` | app, from [#6](https://github.com/ever-guild/AgentShelf/issues/6) | Sandbox credentials for the shop whose `paypal_credential_ref` is `<REF>`. The client ID also reaches the browser on a shop's product page, as the JS SDK requires, and the secret never does. [#2](https://github.com/ever-guild/AgentShelf/issues/2) may change this once the merchant model is proven |
 | `PAYPAL_WEBHOOK_ID_<REF>` | app | The webhook subscription on that seller's app. [paypal-sandbox-setup.md](paypal-sandbox-setup.md#webhooks) explains how to register it. Until it is set, that shop's webhook deliveries get `503` and PayPal repeats them |
+| `PAYPAL_PLATFORM_WEBHOOK_ID` | app | The Platform REST app's seller-consent revocation subscription at `/api/seller/paypal/connection/webhook` |
+| `PAYPAL_PLATFORM_PAYMENT_WEBHOOK_ID` | app | A separate Platform REST app subscription for Orders/capture events at `/api/paypal/platform-webhooks`; its ID is verified before any receipt is written |
 | `ANTHROPIC_API_KEY` | app, workflow | The model key for reading photos, suggesting descriptions and search terms, and explaining and answering about demand. Without it, photo upload says so, CSV upload still works, search reports `degraded`, and the dashboard shows its counts with no written notes and no assistant |
 | `RENDER_WORKFLOW_SLUG`, `RENDER_API_KEY` | app | Optional. With both, a photo is read by a Render Workflows task. Without them, it is read inside the web process. [deployment.md](deployment.md#render-workflows-for-photo-import) explains how to set this up |
 | `DEMO_PHONE_WORKSHOP_PAYPAL_MERCHANT_ID` | `db:seed` | Optional. The demo shop's sandbox merchant. Its checkout returns `PAYMENT_NOT_CONFIGURED` until this is set and the seed has run again, because checkout reads the merchant from the database |
@@ -151,7 +153,7 @@ The merchant model is the candidate from [paypal-sandbox-proof.md](paypal-sandbo
 
 **The buyer's return:** `/checkout/return` and `/checkout/cancel` reconcile, then redirect to `/checkout/result`, which only reads the stored state. The links carry the order's status capability, so an order identifier alone does nothing and shows nothing. The capability is a bearer token in a URL, so these pages send no referrer and are not indexed.
 
-**Webhooks:** `POST /api/paypal/webhooks/<shop-slug>`, one URL per shop because each seller's app has its own subscription. The signature is checked by PayPal's verification endpoint against the exact bytes received, before anything else is trusted.
+**Webhooks:** direct seller apps use `POST /api/paypal/webhooks/<shop-slug>`. Platform app payment events use `POST /api/paypal/platform-webhooks` with `PAYPAL_PLATFORM_PAYMENT_WEBHOOK_ID`, and seller-consent revocations use `POST /api/seller/paypal/connection/webhook` with `PAYPAL_PLATFORM_WEBHOOK_ID`. Those are separate webhook subscriptions under the Platform REST app. Each handler verifies the exact received bytes against its own Webhook ID before writing a receipt. Platform payment events must match a stored order's `PAYPAL_PLATFORM` credential snapshot and saved seller ID; completed orders remain readable after revocation, while the reconciler blocks new captures when consent is no longer ready.
 
 | Answer | When | What PayPal does |
 | --- | --- | --- |

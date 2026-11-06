@@ -5,7 +5,12 @@ import { z } from "zod";
 
 import type { Db } from "../db/client";
 import { orders, shops, webhookReceipts } from "../db/schema";
-import { describePayPalFailure, type WebhookSignature } from "../paypal/orders";
+import {
+  describePayPalFailure,
+  PLATFORM_PAYPAL_CREDENTIAL_REF,
+  type PayPalPlatformWebhookVerifier,
+  type WebhookSignature,
+} from "../paypal/orders";
 import {
   defaultReconcileDeps,
   reconcileOrder,
@@ -74,6 +79,7 @@ function paypalOrderIdOf({ event_type, resource }: WebhookEvent): string | undef
 // Enough to trace a delivery. Order events carry the payer's name, email and address, which this
 // service has no reason to keep.
 function receiptPayload(event: WebhookEvent) {
+  const customId = z.uuid().safeParse(event.resource.custom_id);
   return {
     id: event.id,
     event_type: event.event_type,
@@ -82,7 +88,7 @@ function receiptPayload(event: WebhookEvent) {
     resource: {
       id: event.resource.id,
       status: event.resource.status,
-      custom_id: event.resource.custom_id,
+      ...(customId.success ? { custom_id: customId.data } : {}),
       order_id: paypalOrderIdOf(event),
     },
   };
@@ -115,6 +121,16 @@ export type WebhookDelivery = {
   shopSlug: string;
   rawBody: string;
   headers: Headers;
+};
+
+export type PlatformWebhookDelivery = {
+  rawBody: string;
+  headers: Headers;
+};
+
+type PlatformWebhookOptions = {
+  webhookId?: string;
+  verifySignature?: PayPalPlatformWebhookVerifier;
 };
 
 // Returns the HTTP status to answer with. PayPal repeats a delivery that gets anything but 2xx,
@@ -209,6 +225,139 @@ export async function handlePayPalWebhook(
     await reconcileOrder(db, order.id, deps);
   } catch (error) {
     console.error("PayPal webhook could not settle its order", {
+      orderId: order.id,
+      error: error instanceof Error ? error.name : "unknown",
+    });
+    await settle("failed");
+    return 503;
+  }
+  await settle("processed");
+  return 200;
+}
+
+async function findPlatformEventOrder(db: Db, event: WebhookEvent) {
+  const paypalOrderId = paypalOrderIdOf(event);
+  const rawCustomId = asString(event.resource.custom_id);
+  const parsedCustomId = z.uuid().safeParse(rawCustomId);
+  if (rawCustomId && !parsedCustomId.success) return undefined;
+  const localId = parsedCustomId.success ? parsedCustomId.data : undefined;
+  if (!paypalOrderId && !localId) return undefined;
+
+  const identity = paypalOrderId && localId
+    ? and(eq(orders.paypalOrderId, paypalOrderId), eq(orders.id, localId))
+    : paypalOrderId
+      ? eq(orders.paypalOrderId, paypalOrderId)
+      : eq(orders.id, localId!);
+  const [order] = await db
+    .select({
+      id: orders.id,
+      shopId: orders.shopId,
+      paypalOrderId: orders.paypalOrderId,
+      paypalCredentialRef: orders.paypalCredentialRef,
+      payeeMerchantId: orders.payeeMerchantId,
+    })
+    .from(orders)
+    .where(and(
+      eq(orders.paypalCredentialRef, PLATFORM_PAYPAL_CREDENTIAL_REF),
+      identity,
+    ));
+  if (
+    !order ||
+    !order.payeeMerchantId ||
+    !/^[A-Za-z0-9_-]{3,128}$/.test(order.payeeMerchantId)
+  ) {
+    return undefined;
+  }
+  return order;
+}
+
+/**
+ * Verifies platform-app events before recording a receipt, then selects only an order whose
+ * immutable app/payee snapshot and every event-supplied order identifier agree. The selected
+ * payee is routed through platform credentials for reconciliation, even after consent revocation;
+ * reconciliation itself decides whether a fresh capture is still allowed.
+ */
+export async function handlePlatformPayPalWebhook(
+  db: Db,
+  { rawBody, headers }: PlatformWebhookDelivery,
+  deps: ReconcileDeps = defaultReconcileDeps,
+  options: PlatformWebhookOptions = {},
+): Promise<number> {
+  const signature = readSignature(headers);
+  const event = readEvent(rawBody);
+  if (!signature || !event) return 400;
+
+  const webhookId = options.webhookId ?? process.env.PAYPAL_PLATFORM_PAYMENT_WEBHOOK_ID?.trim();
+  const verifySignature = options.verifySignature ?? deps.paypalFor.verifyPlatformWebhookSignature;
+  if (!webhookId || !verifySignature) {
+    console.error("PayPal platform payment webhook is not configured");
+    return 503;
+  }
+
+  let verified: boolean;
+  try {
+    verified = await verifySignature(webhookId, signature, rawBody);
+  } catch (thrown) {
+    console.error("PayPal platform webhook verification could not run", {
+      ...describePayPalFailure(thrown),
+    });
+    return 503;
+  }
+  if (!verified) {
+    console.warn("Rejected a PayPal platform webhook with an invalid signature");
+    return 400;
+  }
+
+  const handled = HANDLED_EVENTS.has(event.event_type);
+  const order = handled ? await findPlatformEventOrder(db, event) : undefined;
+  const [inserted] = await db
+    .insert(webhookReceipts)
+    .values({
+      providerEventId: event.id,
+      eventType: event.event_type,
+      resourceId: asString(event.resource.id),
+      shopId: order?.shopId,
+      orderId: order?.id,
+      status: order ? "received" : "ignored",
+      payload: receiptPayload(event),
+    })
+    .onConflictDoNothing({ target: webhookReceipts.providerEventId })
+    .returning({ id: webhookReceipts.id });
+
+  if (!inserted) {
+    const [existing] = await db
+      .select({ status: webhookReceipts.status, orderId: webhookReceipts.orderId, shopId: webhookReceipts.shopId })
+      .from(webhookReceipts)
+      .where(eq(webhookReceipts.providerEventId, event.id));
+    if (
+      existing?.status === "processed" ||
+      existing?.status === "ignored" ||
+      !order ||
+      existing?.orderId !== order.id ||
+      existing.shopId !== order.shopId
+    ) {
+      return 200;
+    }
+  }
+  if (!order) return 200;
+
+  const settle = (status: "processed" | "failed") =>
+    db
+      .update(webhookReceipts)
+      .set({ status, processedAt: status === "processed" ? new Date() : null })
+      .where(eq(webhookReceipts.providerEventId, event.id));
+
+  // The order snapshot, not the current shop setting or event body, selects the seller for reads.
+  // This preserves the financial source of truth after a seller revokes consent. The reconciler's
+  // capture guard remains responsible for preventing a new capture after revocation.
+  const platformDeps: ReconcileDeps = {
+    ...deps,
+    paypalFor: () => deps.paypalFor(PLATFORM_PAYPAL_CREDENTIAL_REF, order.payeeMerchantId),
+  };
+  try {
+    await reconcileOrder(db, order.id, platformDeps);
+  } catch (error) {
+    console.error("PayPal platform webhook could not settle its order", {
       orderId: order.id,
       error: error instanceof Error ? error.name : "unknown",
     });

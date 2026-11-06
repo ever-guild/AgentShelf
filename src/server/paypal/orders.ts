@@ -67,10 +67,18 @@ export type PayPalSellerApi = Pick<
 
 // Resolves a shop's server-owned credential reference. Direct seller refs retain their own REST
 // apps; the reserved platform ref requires an already-verified seller ID from the persisted order.
-export type PayPalProvider = (
+export type PayPalPlatformWebhookVerifier = (
+  webhookId: string,
+  signature: WebhookSignature,
+  rawBody: string,
+) => Promise<boolean>;
+
+export type PayPalProvider = ((
   credentialRef: string,
   payeeMerchantId?: string,
-) => PayPalSellerApi | undefined;
+) => PayPalSellerApi | undefined) & {
+  verifyPlatformWebhookSignature?: PayPalPlatformWebhookVerifier;
+};
 
 type SellerClient = { client: Client; orders: OrdersController };
 
@@ -191,7 +199,7 @@ export function createPayPalProvider(
     }
   };
 
-  return (credentialRef, payeeMerchantId) => {
+  const provider = (credentialRef: string, payeeMerchantId?: string): PayPalSellerApi | undefined => {
     if (credentialRef === PLATFORM_PAYPAL_CREDENTIAL_REF) {
       const clientId = env.PAYPAL_PLATFORM_CLIENT_ID?.trim();
       const clientSecret = env.PAYPAL_PLATFORM_CLIENT_SECRET?.trim();
@@ -264,6 +272,18 @@ export function createPayPalProvider(
         callWithClient(credentialRef, undefined, (_orders, client) => readCatalogRecord(client, id)),
     };
   };
+  return Object.assign(provider, {
+    verifyPlatformWebhookSignature: (
+      webhookId: string,
+      signature: WebhookSignature,
+      rawBody: string,
+    ) =>
+      callWithClient(
+        PLATFORM_PAYPAL_CREDENTIAL_REF,
+        env[PAYPAL_PARTNER_ATTRIBUTION_ID]?.trim(),
+        (_orders, client) => verifySignature(client, webhookId, signature, rawBody),
+      ),
+  });
 }
 
 export const paypalFor = createPayPalProvider();
