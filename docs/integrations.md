@@ -2,9 +2,9 @@
 
 Evidence for [#3](https://github.com/ever-guild/AgentShelf/issues/3).
 
-Checked on 2026-11-05 with `next` 16.4.5, `react` 19.3.0, Node 24.15.0 and npm 11.12.1 on macOS arm64.
+Checked on 2026-11-05 with `next` 16.4.5, `react` 19.3.0, Node 24.15.0 and npm 11.12.1 on macOS arm64. Updated on 2026-11-06 with the deployment and APIMatic results.
 
-**No partner is integrated into the product yet.** This file records access, setup and the smallest check that could run without an account.
+**Render hosts the application, and the APIMatic skills were used while writing PayPal code. No other partner is integrated into the product yet.** This file records access, setup and the smallest check that could run without an account.
 
 - **Ran:** the step was executed. Clean installs used new empty directories, an empty npm config and a fresh cache, so no login was in play. Checks used small throwaway probes outside this repo, with `next build`, `next start` and a real browser.
 - **Read:** taken from vendor docs or shipped package code, not exercised.
@@ -17,7 +17,7 @@ Checked on 2026-11-05 with `next` 16.4.5, `react` 19.3.0, Node 24.15.0 and npm 1
 | Studio Agent Framework | Included in `ag-studio` 3.1.0: `AgStudioAiModule`, `createAiHarness`. No separate package | Register the module, supply an `AgLlmAdapter`, keep the model key behind a server route | Module **PASS**. Real model **BLOCKED**, owner action 6 | **INCONCLUSIVE**: chat panel and one harness turn work through a local stub adapter (ran). No model was called | Same key as AG Studio, and the key must cover AI (read) | Model key stays on the server. Same trial terms question |
 | Bryntum Scheduler | 8.0.0 tier packages on public npm. Devpost still names the 7.3.8 trial | See [tracks](#bryntum-scheduler). No registry login | Install **PASS** on every track. Track choice is owner action 3 | 8.0 Community **PASS**, 8.0 Business without a key **PASS**, 7.3.8 trial **PASS**, `@bryntum/scheduler@latest` **FAIL** (all ran) | Community: none. Business and 7.3.8: masked at expiry (ran) | Community is MIT, fully compatible. A Business key must not be committed (read) |
 | Render Workflows | Render service, `@renderinc/sdk` 1.7.0, Render CLI 2.35.0 | `type: workflow` in `render.yaml`, TypeScript on `runtime: node` | SDK and CLI **PASS**. Deploy and credits **BLOCKED**, owner action 4 | Local task server **PASS** (ran): submit, wait, read result, failed status. On Render **BLOCKED** | Credit expiry unknown until claimed (read). Billed by usage, no free allowance listed | `RENDER_API_KEY` in Render only, no repo impact |
-| APIMatic Context Plugin | `context-plugins` 0.12.0 installs plugin `paypal` 0.1.0 from `paypaldev/server-sdk-context-plugin-preview` | One `npx` command per developer, no credentials | **PASS** | Install **PASS** into an isolated editor config (ran). Use while writing PayPal code **INCONCLUSIVE**, not started | No trial. The repo calls itself an experimental preview that may be removed (read) | Editor assistance only, nothing in the repo or at runtime |
+| APIMatic Context Plugin | `context-plugins` 0.12.0 installs plugin `paypal` 0.1.0 from `paypaldev/server-sdk-context-plugin-preview` | One `npx` command per developer, no credentials, or the [project-level skills](paypal-agent-setup.md) from the same source | **PASS** | Install **PASS** into an isolated editor config (ran). Use while writing PayPal code **PASS**, [recorded below](#apimatic-context-plugin). It says nothing about how PayPal behaves, which is [#2](https://github.com/ever-guild/AgentShelf/issues/2) | No trial. The repo calls itself an experimental preview that may be removed (read) | Editor assistance only, nothing in the repo or at runtime |
 
 All partner packages added to this repo's current dependencies: `npm install` and `npm ci --include=dev` **PASS** with one copy of React and no peer conflicts (ran, macOS only). Partner packages add no audit findings.
 
@@ -144,8 +144,14 @@ task(
 - **Install, per developer:** `npx context-plugins install https://github.com/paypaldev/server-sdk-context-plugin-preview --targets claude`, then restart the editor. `--targets` also takes `cursor`, `vscode`, `codex` or `all`. The installer's README also offers `npx context-plugins install paypal` (not run).
 - **The `claude` target:** needs `claude` on `PATH`, and the plugin installs at user scope, so it changes editor config rather than this repo (ran). The other targets were not tested.
 - **Runtime:** none. Set `DO_NOT_TRACK=1` to turn off installer telemetry.
-- **Mismatch to resolve:** the plugin covers only `@paypal/paypal-server-sdk` 2.5.0, with no mention of `@paypal/agent-toolkit` or the JS SDK v6 (ran, searched its files), and the stack in `AGENTS.md` lists those two rather than the Server SDK. The SDK's `PurchaseUnitRequest` does expose `payee` (ran, read its types).
-- **Evidence:** the APIMatic claim form asks for a project or repo link showing plugin usage and a short description, and is manually reviewed (read). Note in the README which PayPal code was written with it.
+- **Scope:** the plugin covers only `@paypal/paypal-server-sdk` 2.5.0, with no mention of `@paypal/agent-toolkit` or the JS SDK v6 (ran, searched its files). Orders code uses that SDK, whose `PurchaseUnitRequest` exposes `payee` (ran, read its types), so the guidance applies there. Work on the other two needs other sources.
+- **Actual use:** the [sandbox proof](paypal-sandbox-proof.md#other-paypal-capabilities) and the [checkout service](../src/server/paypal/orders.ts) were written with the skills. In the checkout service they led to these decisions:
+  - An explicit 12-second timeout, because the SDK's generated default is no limit at all.
+  - Explicit retry settings, because retrying takes two fields together and a repeated `POST` has to be idempotent.
+  - Reading failures by status code, `debug_id` and issue name, because `OAuthProviderError` is shadowed by an enum of the same name at the package root, so `instanceof` cannot use it, and because error payloads keep PayPal's own field names.
+  - Tests through the transport adapter, so that they run the real SDK.
+  - One long-lived client per seller app, to reuse its token. Reading the runtime behind that advice showed that one failed token exchange would then stop every later call, so the provider replaces a client after a failure.
+- **Evidence:** the APIMatic claim form asks for a project or repo link showing plugin usage and a short description, and is manually reviewed (read). The list above is that description. The claim has not been filed.
 
 ## Environment variables
 
@@ -162,21 +168,21 @@ task(
 
 ## Owner actions
 
-1. **Today, Devpost representative ([#7](https://github.com/ever-guild/AgentShelf/issues/7)):** submit for the early eligibility check. The cutoff is Nov 5 with no time of day published.
+1. **Devpost representative ([#7](https://github.com/ever-guild/AgentShelf/issues/7)):** submitted for the early eligibility check on Nov 5, according to the representative. The confirmation on Devpost was not checked.
 2. **Nov 7 to Nov 10, AG Studio owner:** request the trial key with the form (email, first name, last name). Check with the validator that it covers AI. Set `AG_STUDIO` in Render and `.env.local`, and record the expiry date here, never the key. Ask AG Grid via the PayPal Discord if the key does not cover AI.
 3. **Team captain:** choose the Bryntum track, a scope decision. Community has no expiry or watermark, but needs Riga wall-clock strings and lacks Business features. If Business is chosen, request a key from Nov 7 to Nov 10 at bryntum.com/download.
-4. **Render account owner:** sign in to the [credits portal](https://credits-portal-mmdm.onrender.com/claim/paypal-ai-hackathon) with GitHub and apply the code under Billing, Credit Balance in the right workspace. Credits do not transfer between workspaces. Record the credit expiry here. Connect the Blueprint, run `render blueprints validate`, create `RENDER_API_KEY`, and deploy one task to confirm the slug, retries and idempotency.
+4. **Render account owner:** sign in to the [credits portal](https://credits-portal-mmdm.onrender.com/claim/paypal-ai-hackathon) with GitHub and apply the code under Billing, Credit Balance in the right workspace. Credits do not transfer between workspaces. Record the credit expiry here. The web service and database already exist outside a Blueprint, as [deployment.md](deployment.md#existing-deployment) explains, so do not create a second stack. Run `render blueprints validate`, create `RENDER_API_KEY`, and deploy one task to confirm the slug, retries and idempotency.
 5. **Owner of [#4](https://github.com/ever-guild/AgentShelf/issues/4):** decide on the paid plans before Nov 12, as [deployment.md](deployment.md) explains. Licence keys cannot meet the "no secret in client bundles" check, so that check should exclude them.
 6. **Team captain:** choose the AI provider. For the Agent Framework, OpenAI has a copyable example adapter and any other provider needs its own.
-7. **PayPal Discord, AG Grid and Bryntum teams:** the bundled licences limit a trial to "internal evaluation and review purposes" (clause 13), while the Devpost pages invite teams to build on the trial and the rules require authorised use. Ask for written confirmation that a public repo and hosted demo on a trial are fine, and that 8.0 Community qualifies for the Bryntum prize.
-8. **PayPal owner:** install the plugin, decide whether Orders code uses `@paypal/paypal-server-sdk`, record actual use, then file the claim form.
+7. **PayPal Discord, AG Grid and Bryntum teams:** the bundled licences limit a trial to "internal evaluation and review purposes" (clause 13), while the Devpost pages invite teams to build on the trial and the rules require authorised use. AG Grid's [enterprise licence page](https://www.ag-grid.com/studio/react/enterprise-licence/) does allow a trial in a production environment, which does not settle the bundled clause. Ask for written confirmation that a public repo and hosted demo on a trial are fine, and that 8.0 Community qualifies for the Bryntum prize.
+8. **APIMatic claim owner:** file the claim form with the repository link and the description under [APIMatic Context Plugin](#apimatic-context-plugin).
 
 ## Not verified
 
 - AG Studio and Bryntum behaviour with a real key, and AG Studio behaviour with an expired key.
 - A real model run through the Agent Framework.
-- Anything on Render: deploy, Blueprint validation, hosted task runs, retries, idempotency, credit terms, whether a payment method is required.
-- Builds on Linux.
+- On Render: Blueprint validation, hosted task runs, retries, idempotency, credit terms, whether a payment method is required. The deployment itself is verified in [#31](https://github.com/ever-guild/AgentShelf/issues/31).
+- Builds on Linux with the partner packages. The repository's own build runs on Linux in CI.
 - The Devpost submission form and the PayPal Discord, both of which need a login.
 
 ## Sources
