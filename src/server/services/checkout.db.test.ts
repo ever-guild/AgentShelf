@@ -11,7 +11,7 @@ import { createFakePayPal } from "../../../test/paypal-fake";
 import { verifyOrderStatusToken } from "../auth/order-status-token";
 import { orderLines, orders, products } from "../db/schema";
 import { ServiceError, type ServiceErrorCode } from "../errors";
-import { createPayPalOrdersProvider } from "../paypal/orders";
+import { createPayPalProvider } from "../paypal/orders";
 import { createCheckout, type CheckoutDeps } from "./checkout";
 
 const getDb = setupMigratedDatabase();
@@ -30,7 +30,7 @@ beforeEach(() => {
   consoleError = vi.spyOn(console, "error").mockImplementation(() => {});
   paypal = createFakePayPal();
   deps = {
-    paypalOrdersFor: createPayPalOrdersProvider(
+    paypalFor: createPayPalProvider(
       {
         PAYPAL_CLIENT_ID_TEST_SHOP: "test-client-id",
         PAYPAL_CLIENT_SECRET_TEST_SHOP: CLIENT_SECRET,
@@ -135,9 +135,10 @@ describe("createCheckout", () => {
   it("sends PayPal the stored amount and recipient and same-origin return pages", async () => {
     const { product } = await createSellableProduct(990);
 
-    await createCheckout(getDb(), cart(product.id, 2), deps);
+    const { statusToken } = await createCheckout(getDb(), cart(product.id, 2), deps);
 
     const order = await onlyOrder();
+    const capability = new URLSearchParams({ order: order.id, status: statusToken });
     const [request] = paypal.createRequests();
     expect(paypal.bodyOf(request)).toEqual({
       intent: "CAPTURE",
@@ -163,8 +164,8 @@ describe("createCheckout", () => {
       payment_source: {
         paypal: {
           experience_context: {
-            return_url: "https://shop.example/checkout/return",
-            cancel_url: "https://shop.example/checkout/cancel",
+            return_url: `https://shop.example/checkout/return?${capability}`,
+            cancel_url: `https://shop.example/checkout/cancel?${capability}`,
             user_action: "PAY_NOW",
           },
         },

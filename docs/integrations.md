@@ -151,6 +151,7 @@ task(
   - Reading failures by status code, `debug_id` and issue name, because `OAuthProviderError` is shadowed by an enum of the same name at the package root, so `instanceof` cannot use it, and because error payloads keep PayPal's own field names.
   - Tests through the transport adapter, so that they run the real SDK.
   - One long-lived client per seller app, to reuse its token. Reading the runtime behind that advice showed that one failed token exchange would then stop every later call, so the provider replaces a client after a failure.
+  - Verifying webhooks through the client's public request builder, because the SDK has no webhook API, so that call shares the same token, timeout and test adapter.
 - **Evidence:** the APIMatic claim form asks for a project or repo link showing plugin usage and a short description, and is manually reviewed (read). The list above is that description. The claim has not been filed.
 
 ## Environment variables

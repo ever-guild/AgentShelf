@@ -1,8 +1,10 @@
 // Creates one real PayPal sandbox order through a running MCP endpoint, then checks the order the
-// way a buyer's assistant would meet it. Usage: npm run smoke:checkout -- https://HOST/mcp
+// way a buyer's assistant would meet it. Usage: npm run smoke:checkout -- https://HOST/mcp [--wait]
 //
 // Unlike smoke:mcp, this leaves an unpaid sandbox order behind. Nothing is charged: the order
-// waits for a person to approve it in PayPal, and this script never asks for a capture.
+// waits for a person to approve it in PayPal, and this script never asks for a capture. With
+// --wait it then waits up to ten minutes for that person, and passes only once the service
+// reports the order as paid.
 //
 // The recipient is read back from PayPal with the seller's own credentials from .env.local. Without
 // them that check is BLOCKED rather than passed. The output holds a private approval link, so do
@@ -34,6 +36,8 @@ type Inspect = {
   read?: (paypalOrderId: string) => Promise<PayPalView>;
 };
 
+type WaitForPayment = { attempts: number; sleep: () => Promise<void> };
+
 type CheckoutResult = {
   orderId: string;
   totalMinor: number;
@@ -50,6 +54,7 @@ export async function runCheckoutSmoke(
   client: Pick<Client, "callTool">,
   inspect: Inspect,
   log: (line: string) => void = console.log,
+  waitForPayment?: WaitForPayment,
 ): Promise<number> {
   let exitCode = 0;
   const check = (name: string, passed: boolean) => {
@@ -117,8 +122,32 @@ export async function runCheckoutSmoke(
     exitCode = exitCode || 2;
   }
 
+  const statusOf = async () => {
+    const result = await client.callTool({
+      name: "get_order_status",
+      arguments: { orderId: order.orderId, statusToken: order.statusToken },
+    });
+    return (result.structuredContent as { paymentStatus?: string } | undefined)
+      ?.paymentStatus;
+  };
+  check("the order is not reported as paid before approval", (await statusOf()) === "pending");
+
   log(`Approval link, private: ${order.approvalUrl}`);
   log("Open it signed in as the sandbox buyer and approve in PayPal.");
+  if (!waitForPayment) {
+    return exitCode;
+  }
+
+  let status = await statusOf();
+  for (
+    let attempt = 0;
+    attempt < waitForPayment.attempts && (status === "pending" || status === "approved");
+    attempt += 1
+  ) {
+    await waitForPayment.sleep();
+    status = await statusOf();
+  }
+  check(`the approved order becomes paid (last status: ${status})`, status === "paid");
   return exitCode;
 }
 
@@ -132,23 +161,33 @@ async function main(): Promise<void> {
   const client = new Client({ name: "agentshelf-checkout-smoke", version: "0.1.0" });
   await client.connect(new StreamableHTTPClientTransport(url));
   try {
-    process.exitCode = await runCheckoutSmoke(client, {
-      expectedMerchantId: env.DEMO_PHONE_WORKSHOP_PAYPAL_MERCHANT_ID?.trim(),
-      read:
-        clientId && clientSecret
-          ? async (id) => {
-              const orders = createOrdersApi(clientId, clientSecret);
-              const { result } = await orders.getOrder({ id });
-              const unit = result.purchaseUnits?.[0];
-              return {
-                status: result.status,
-                merchantId: unit?.payee?.merchantId,
-                amount: unit?.amount?.value,
-                currency: unit?.amount?.currencyCode,
-              };
-            }
-          : undefined,
-    });
+    process.exitCode = await runCheckoutSmoke(
+      client,
+      {
+        expectedMerchantId: env.DEMO_PHONE_WORKSHOP_PAYPAL_MERCHANT_ID?.trim(),
+        read:
+          clientId && clientSecret
+            ? async (id) => {
+                const orders = createOrdersApi(clientId, clientSecret);
+                const { result } = await orders.getOrder({ id });
+                const unit = result.purchaseUnits?.[0];
+                return {
+                  status: result.status,
+                  merchantId: unit?.payee?.merchantId,
+                  amount: unit?.amount?.value,
+                  currency: unit?.amount?.currencyCode,
+                };
+              }
+            : undefined,
+      },
+      console.log,
+      process.argv.includes("--wait")
+        ? {
+            attempts: 120,
+            sleep: () => new Promise((done) => setTimeout(done, 5000)),
+          }
+        : undefined,
+    );
   } finally {
     await client.close();
   }

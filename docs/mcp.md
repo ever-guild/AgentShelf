@@ -21,7 +21,7 @@ The schemas are in [`src/server/contracts/commerce.ts`](../src/server/contracts/
 | --- | --- | --- |
 | `search_products` | Read-only | Works, with deterministic text matching. Every meaningful word of the query must appear in the product or shop text. [#10](https://github.com/ever-guild/AgentShelf/issues/10) adds semantic matching and demand events |
 | `create_checkout` | Write | Creates a PayPal sandbox order from the stored cart and returns its approval link, which is not payment. It returns `PAYMENT_NOT_CONFIGURED` for a shop without sandbox credentials, which is every shop until [#33](https://github.com/ever-guild/AgentShelf/issues/33) provides them. [architecture.md](architecture.md#checkout) lists its errors and when to retry |
-| `get_order_status` | Read-only | Not offered yet, belongs to [#11](https://github.com/ever-guild/AgentShelf/issues/11) |
+| `get_order_status` | Read-only | Reads one order's stored payment status with the `statusToken` from `create_checkout`. It never asks PayPal and never changes anything. [architecture.md](architecture.md#payment-reconciliation) explains how an order gets to each status |
 | `get_slots`, `book_slot` | Read-only, write | Not offered yet, belong to [#12](https://github.com/ever-guild/AgentShelf/issues/12) |
 
 A result carries `structuredContent` and the same JSON as text. A failure has `isError: true` and text with a JSON object holding a stable `code`, a `message` that is safe to show, and optional `details`. An input rejected by the schema has `isError: true` and text naming the field. A search with no match is an empty list, not an error.
@@ -32,6 +32,7 @@ The connector has no sign-in, because everything it offers is public:
 
 - It only reads published catalog data, and it returns no merchant identifiers or credentials.
 - A checkout only returns an approval link, and the buyer still confirms the payment in PayPal.
+- An order's status needs the capability returned with that order, so an order identifier alone reveals nothing.
 - Seller data is not reachable through it. Seller routes use their own [demo session](architecture.md#seller-demo-session).
 
 ## Origin handling
@@ -77,6 +78,8 @@ Each line reports `PASS` or `FAIL`, and the command exits with an error if any c
 
 To check the checkout itself once a shop has sandbox credentials, run the following. It leaves one unpaid sandbox order behind and prints its private approval link. It checks that repeating the key returns the same order, and reads the recipient and amount back from PayPal using the seller's credentials in `.env.local`. It reports `BLOCKED` and exits with 2 rather than passing a check it could not run.
 
+With `--wait`, it then waits up to ten minutes for a person to approve in PayPal as the sandbox buyer, and passes only once `get_order_status` reports `paid`. That is one complete real purchase through the connector.
+
 ```bash
-npm run smoke:checkout -- https://YOUR-SERVICE.onrender.com/mcp
+npm run smoke:checkout -- https://YOUR-SERVICE.onrender.com/mcp --wait
 ```

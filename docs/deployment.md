@@ -89,7 +89,7 @@ Either way, the seed uses the internal `DATABASE_URL` and these demo values from
 
 Seeding again resets only the seed's own rows.
 
-To finish [#4](https://github.com/ever-guild/AgentShelf/issues/4), run the [MCP smoke check](#smoke-check) so that it finds the product, restart the service, and run it again. That shows a record surviving a restart. Record both results in the issue.
+After seeding, run the [MCP smoke check](#smoke-check) so that it finds the product, restart the service, and run it again. That shows a record surviving a restart, and the result belongs in [#17](https://github.com/ever-guild/AgentShelf/issues/17).
 
 ## Environment variables
 
@@ -131,7 +131,7 @@ Then check the MCP endpoint, which needs the demo data seeded:
 npm run smoke:mcp -- https://YOUR-SERVICE.onrender.com/mcp
 ```
 
-Once a shop has sandbox credentials, `npm run smoke:checkout` checks the payment route as well, as [mcp.md](mcp.md#smoke-check) explains.
+Once a shop has sandbox credentials, `npm run smoke:checkout -- URL --wait` checks a complete payment as well, as [mcp.md](mcp.md#smoke-check) explains.
 
 ## Logs and restarts
 

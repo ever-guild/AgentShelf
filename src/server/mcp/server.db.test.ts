@@ -8,7 +8,7 @@ import { createProduct, createService, createShop } from "../../../test/fixtures
 import { createFakePayPal } from "../../../test/paypal-fake";
 import { orders } from "../db/schema";
 import { DEMO_PRODUCT_ID, DEMO_SHOP_ID, seedDemoData } from "../db/seed";
-import { createPayPalOrdersProvider } from "../paypal/orders";
+import { createPayPalProvider } from "../paypal/orders";
 import { createMcpServer } from "./server";
 
 const getDb = setupMigratedDatabase();
@@ -20,7 +20,7 @@ let paypal: ReturnType<typeof createFakePayPal>;
 beforeEach(async () => {
   vi.stubEnv("APP_ORIGIN", "https://shop.example");
   paypal = createFakePayPal();
-  const paypalOrdersFor = createPayPalOrdersProvider(
+  const paypalFor = createPayPalProvider(
     {
       PAYPAL_CLIENT_ID_DEMO_PHONE_WORKSHOP: "test-client-id",
       PAYPAL_CLIENT_SECRET_DEMO_PHONE_WORKSHOP: "test-client-secret",
@@ -28,7 +28,7 @@ beforeEach(async () => {
     paypal.adapter,
   );
   const [clientSide, serverSide] = InMemoryTransport.createLinkedPair();
-  await createMcpServer(getDb(), { paypalOrdersFor }).connect(serverSide);
+  await createMcpServer(getDb(), { paypalFor }).connect(serverSide);
   client = new Client({ name: "test", version: "0.0.0" });
   await client.connect(clientSide);
 });
@@ -59,9 +59,13 @@ describe("tools/list", () => {
 
     expect(Object.keys(byName).sort()).toEqual([
       "create_checkout",
+      "get_order_status",
       "search_products",
     ]);
     expect(byName.search_products.annotations).toMatchObject({
+      readOnlyHint: true,
+    });
+    expect(byName.get_order_status.annotations).toMatchObject({
       readOnlyHint: true,
     });
     expect(byName.create_checkout.annotations).toMatchObject({
@@ -267,5 +271,57 @@ describe("create_checkout", () => {
     const result = await call("create_checkout", args);
     expect(result.isError).toBe(true);
     expect(textOf(result)).toContain(field);
+  });
+});
+
+describe("get_order_status", () => {
+  const seededCart = {
+    items: [{ productId: DEMO_PRODUCT_ID, quantity: 1 }],
+    idempotencyKey,
+  };
+
+  it("reads an order with the capability create_checkout returned", async () => {
+    await seedDemoData(getDb(), {
+      DEMO_PHONE_WORKSHOP_PAYPAL_MERCHANT_ID: "SANDBOXMERCHANT",
+    });
+    const created = await call("create_checkout", seededCart);
+    const { orderId, statusToken } = created.structuredContent as {
+      orderId: string;
+      statusToken: string;
+    };
+
+    const result = await call("get_order_status", { orderId, statusToken });
+
+    expect(result.isError).toBeFalsy();
+    expect(result.structuredContent).toEqual({
+      orderId,
+      paymentStatus: "pending",
+      totalMinor: 990,
+      currency: "EUR",
+      booking: null,
+      updatedAt: expect.any(String),
+    });
+    expect(JSON.parse(textOf(result))).toEqual(result.structuredContent);
+    expect(JSON.stringify(result)).not.toMatch(/SANDBOXMERCHANT|paypal\.com/);
+  });
+
+  it("refuses an order identifier without its capability", async () => {
+    await seedDemoData(getDb(), {
+      DEMO_PHONE_WORKSHOP_PAYPAL_MERCHANT_ID: "SANDBOXMERCHANT",
+    });
+    const created = await call("create_checkout", seededCart);
+    const { orderId } = created.structuredContent as { orderId: string };
+
+    const wrong = await call("get_order_status", {
+      orderId,
+      statusToken: "x".repeat(43),
+    });
+    const missing = await call("get_order_status", { orderId });
+
+    expect(errorCode(wrong)).toBe("ORDER_STATUS_UNAVAILABLE");
+    expect(textOf(wrong)).not.toContain(orderId);
+    expect(wrong.structuredContent).toBeUndefined();
+    expect(missing.isError).toBe(true);
+    expect(textOf(missing)).toContain("statusToken");
   });
 });

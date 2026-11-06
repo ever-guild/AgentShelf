@@ -18,9 +18,9 @@ import {
   buildOrderRequest,
   describePayPalFailure,
   findOrderMismatch,
-  paypalOrdersFor,
+  paypalFor,
   sandboxApprovalUrl,
-  type PayPalOrdersProvider,
+  type PayPalProvider,
 } from "../paypal/orders";
 import { publicOrigin } from "../public-origin";
 import { quoteCheckout, type CheckoutQuote } from "./checkout-quote";
@@ -29,7 +29,7 @@ import { quoteCheckout, type CheckoutQuote } from "./checkout-quote";
 // order instead of returning the first.
 const PROVIDER_REPLAY_WINDOW_MS = 6 * 60 * 60 * 1000;
 
-export type CheckoutDeps = { paypalOrdersFor: PayPalOrdersProvider };
+export type CheckoutDeps = { paypalFor: PayPalProvider };
 
 type CheckoutInput = z.output<typeof createCheckoutInput>;
 type CheckoutResult = z.infer<typeof createCheckoutResult>;
@@ -42,7 +42,7 @@ const notConfigured = () =>
 const declined = () =>
   new ServiceError(
     "PAYMENT_DECLINED",
-    "PayPal refused to create this order, so nothing was charged. Repeating this idempotencyKey will not help.",
+    "PayPal did not accept this order, so nothing was charged. Repeating this idempotencyKey will not help.",
   );
 
 const needsReview = () =>
@@ -165,9 +165,10 @@ async function requestPayPalOrder(
   db: Db,
   order: OrderRow,
   credentialRef: string,
+  statusToken: string,
   deps: CheckoutDeps,
 ): Promise<OrderRow> {
-  const paypal = deps.paypalOrdersFor(credentialRef);
+  const paypal = deps.paypalFor(credentialRef);
   if (!paypal) {
     throw notConfigured();
   }
@@ -176,7 +177,14 @@ async function requestPayPalOrder(
     .from(orderLines)
     .where(eq(orderLines.orderId, order.id))
     .orderBy(asc(orderLines.productId));
-  const body = buildOrderRequest(order, lines, publicOrigin());
+  // The capability is in these links so that a person coming back from PayPal can see their own
+  // order, and nobody else can by knowing an identifier.
+  const origin = publicOrigin();
+  const capability = new URLSearchParams({ order: order.id, status: statusToken });
+  const body = buildOrderRequest(order, lines, {
+    returnUrl: `${origin}/checkout/return?${capability}`,
+    cancelUrl: `${origin}/checkout/cancel?${capability}`,
+  });
 
   let created: Order;
   try {
@@ -228,7 +236,7 @@ async function requestPayPalOrder(
 export async function createCheckout(
   db: Db,
   rawInput: unknown,
-  deps: CheckoutDeps = { paypalOrdersFor },
+  deps: CheckoutDeps = { paypalFor },
 ): Promise<CheckoutResult> {
   const input = parseInput(createCheckoutInput, rawInput);
   const fingerprint = fingerprintOf(input.items);
@@ -237,7 +245,7 @@ export async function createCheckout(
   let stored = await findByKey(db, input.idempotencyKey);
   if (!stored) {
     const quote = await quoteCheckout(db, input);
-    if (!deps.paypalOrdersFor(quote.paypalCredentialRef)) {
+    if (!deps.paypalFor(quote.paypalCredentialRef)) {
       throw notConfigured();
     }
     stored = await insertOrder(db, input, fingerprint, quote);
@@ -285,5 +293,7 @@ export async function createCheckout(
     throw needsReview();
   }
 
-  return toResult(await requestPayPalOrder(db, order, credentialRef, deps));
+  return toResult(
+    await requestPayPalOrder(db, order, credentialRef, statusToken, deps),
+  );
 }

@@ -42,13 +42,15 @@ This is an early entry, submitted for the eligibility check. The sections above 
 - Server-side checkout pricing that takes amounts and the recipient only from stored data, and refuses carts that mix shops.
 - A minimal demo seller session and shared, validated service contracts for the MCP tools.
 - An MCP server over Streamable HTTP with product search across shops, tested with an MCP client against a local build and, except for finding a product, against the deployed service.
-- A checkout service that stores an order, asks PayPal to create it with the shop as recipient and can be retried safely. It returns PayPal's approval link only if the recipient and amount in PayPal's answer match. This has been tested against a stand-in for PayPal, not against a real order.
+- A checkout service that stores an order, asks PayPal to create it with the shop as recipient and can be retried safely. It returns PayPal's approval link only if the recipient and amount in PayPal's answer match.
+- Payment reconciliation: the buyer's return, verified webhooks and a periodic sweep all converge on one service that reads the order from PayPal, captures only what PayPal reports as approved, and marks an order paid only after a verified capture of the stored amount.
+- Both of these have been tested against a stand-in for PayPal, not against a real order or payment.
 - Automated tests against a real Postgres database. All demo data is synthetic.
 - Deployment to Render, where every change is published only after lint, tests and a build pass.
 
 **In progress, not working yet:**
 
-- PayPal: sandbox credentials and merchant routing are being verified. No order has been created yet, and the capture after approval is not built.
+- PayPal: sandbox credentials and merchant routing are being verified. No real order or payment has gone through the service yet.
 - Seeding the deployed service and connecting it to Claude and ChatGPT, neither of which has been tested.
 - AI catalog extraction, semantic search and insights.
 - The Bryntum booking schedule and the AG Studio seller dashboard.

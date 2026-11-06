@@ -1,6 +1,6 @@
 # Order status contract proposal for [MCP issue #5](https://github.com/ever-guild/AgentShelf/issues/5)
 
-Status: proposal for the `get_order_status` handoff between [MCP issue #5](https://github.com/ever-guild/AgentShelf/issues/5), assigned to `ppmarkek`, and [payment reconciliation issue #11](https://github.com/ever-guild/AgentShelf/issues/11)
+Status: implemented as proposed, in [`order-status.ts`](../src/server/services/order-status.ts) and the `get_order_status` tool in [`server.ts`](../src/server/mcp/server.ts), under [payment reconciliation issue #11](https://github.com/ever-guild/AgentShelf/issues/11). The text below is the original proposal and describes the code as it was at the snapshot
 
 Snapshot: 6 November 2026, public repository commit [`50d5ef09f700417ec9e17e5ff80f2c90343c72e3`](https://github.com/ever-guild/AgentShelf/commit/50d5ef09f700417ec9e17e5ff80f2c90343c72e3)
 

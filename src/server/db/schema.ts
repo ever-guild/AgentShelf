@@ -204,6 +204,8 @@ export const orders = pgTable(
     paypalOrderId: text("paypal_order_id").unique(),
     paypalCaptureId: text("paypal_capture_id").unique(),
     approvalUrl: text("approval_url"),
+    // When the sweep last asked PayPal about this order, so it can back off. Not order state.
+    lastCheckedAt: timestamp("last_checked_at", { withTimezone: true }),
     createdAt: createdAt(),
     updatedAt: updatedAt(),
   },
@@ -307,7 +309,7 @@ export const bookings = pgTable(
   ],
 );
 
-// Only verified events belong here. The payload may hold payer data, so it stays server-side.
+// Only verified events belong here. The payload keeps identifiers and statuses, never payer data.
 export const webhookReceipts = pgTable(
   "webhook_receipts",
   {

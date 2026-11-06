@@ -1,11 +1,17 @@
-import { OrderStatus, type Order } from "@paypal/paypal-server-sdk";
+import {
+  CaptureStatus,
+  CheckoutPaymentIntent,
+  OrderStatus,
+  type Order,
+} from "@paypal/paypal-server-sdk";
 import { describe, expect, it } from "vitest";
 
 import { createFakePayPal } from "../../../test/paypal-fake";
 import {
   buildOrderRequest,
-  createPayPalOrdersProvider,
+  createPayPalProvider,
   describePayPalFailure,
+  readPayPalOrder,
   sandboxApprovalUrl,
 } from "./orders";
 
@@ -22,17 +28,21 @@ const snapshot = {
   payeeMerchantId: "MERCHANT1",
 };
 const lines = [{ title: "Cable", unitPriceMinor: 625, quantity: 2 }];
+const pages = {
+  returnUrl: "https://shop.example/checkout/return",
+  cancelUrl: "https://shop.example/checkout/cancel",
+};
 const orderCall = () => ({
-  body: buildOrderRequest(snapshot, lines, "https://shop.example"),
+  body: buildOrderRequest(snapshot, lines, pages),
   paypalRequestId: REQUEST_ID,
   prefer: "return=representation",
 });
 
 function ordersFor(paypal: ReturnType<typeof createFakePayPal>, env = ENV) {
-  return createPayPalOrdersProvider(env, paypal.adapter)("SHOP_A");
+  return createPayPalProvider(env, paypal.adapter)("SHOP_A");
 }
 
-describe("createPayPalOrdersProvider", () => {
+describe("createPayPalProvider", () => {
   it("talks only to the sandbox, with a time limit and no redirects", async () => {
     const paypal = createFakePayPal();
 
@@ -54,14 +64,14 @@ describe("createPayPalOrdersProvider", () => {
       { PAYPAL_CLIENT_ID_SHOP_A: " ", PAYPAL_CLIENT_SECRET_SHOP_A: " " },
     ];
     for (const env of incomplete) {
-      expect(createPayPalOrdersProvider(env, paypal.adapter)("SHOP_A")).toBeUndefined();
+      expect(createPayPalProvider(env, paypal.adapter)("SHOP_A")).toBeUndefined();
     }
     expect(paypal.requests).toHaveLength(0);
   });
 
   it("keeps each seller's credentials to its own requests", async () => {
     const paypal = createFakePayPal();
-    const provider = createPayPalOrdersProvider(
+    const provider = createPayPalProvider(
       {
         ...ENV,
         PAYPAL_CLIENT_ID_SHOP_B: "client-id-b",
@@ -89,7 +99,7 @@ describe("createPayPalOrdersProvider", () => {
 
   it("reuses the token between orders", async () => {
     const paypal = createFakePayPal();
-    const provider = createPayPalOrdersProvider(ENV, paypal.adapter);
+    const provider = createPayPalProvider(ENV, paypal.adapter);
 
     await provider("SHOP_A")?.createOrder(orderCall());
     await provider("SHOP_A")?.createOrder({
@@ -114,7 +124,7 @@ describe("createPayPalOrdersProvider", () => {
 
   it("gets a new token after a failed exchange instead of repeating the failure", async () => {
     const paypal = createFakePayPal();
-    const provider = createPayPalOrdersProvider(ENV, paypal.adapter);
+    const provider = createPayPalProvider(ENV, paypal.adapter);
     paypal.nextToken({ type: "timeout" });
 
     await expect(provider("SHOP_A")?.createOrder(orderCall())).rejects.toMatchObject({
@@ -133,7 +143,7 @@ describe("buildOrderRequest", () => {
     const body = buildOrderRequest(
       { ...snapshot, totalMinor: 5 },
       [{ title: "Sticker", unitPriceMinor: 5, quantity: 1 }],
-      "https://shop.example",
+      pages,
     );
     const [unit] = body.purchaseUnits;
     expect(unit.amount.value).toBe("0.05");
@@ -144,7 +154,7 @@ describe("buildOrderRequest", () => {
     const body = buildOrderRequest(
       snapshot,
       [{ title: "📱".repeat(200), unitPriceMinor: 625, quantity: 2 }],
-      "https://shop.example",
+      pages,
     );
     expect(body.purchaseUnits[0].items?.[0].name).toBe("📱".repeat(127));
   });
@@ -280,5 +290,159 @@ describe("describePayPalFailure", () => {
       name: "UNPROCESSABLE_ENTITY",
       issues: ["AMOUNT_MISMATCH"],
     });
+  });
+});
+
+describe("readPayPalOrder", () => {
+  const CAPTURE_ID = "3Y662965014333303";
+  const captured = (
+    status: CaptureStatus,
+    amount = { currencyCode: "EUR", value: "12.50" },
+  ): Order => ({
+    id: "ORDER1",
+    intent: CheckoutPaymentIntent.Capture,
+    status: OrderStatus.Completed,
+    purchaseUnits: [
+      {
+        referenceId: REQUEST_ID,
+        payee: { merchantId: "MERCHANT1" },
+        amount: { currencyCode: "EUR", value: "12.50" },
+        payments: { captures: [{ id: CAPTURE_ID, status, amount }] },
+      },
+    ],
+  });
+  const withStatus = (status: OrderStatus): Order => ({
+    ...captured(CaptureStatus.Completed),
+    status,
+  });
+
+  it.each([
+    [OrderStatus.Created, "awaiting_buyer"],
+    [OrderStatus.Saved, "awaiting_buyer"],
+    [OrderStatus.PayerActionRequired, "awaiting_buyer"],
+    [OrderStatus.Approved, "ready_to_capture"],
+    [OrderStatus.Voided, "voided"],
+  ])("reads an order in status %s as %s", (status, outcome) => {
+    expect(readPayPalOrder(withStatus(status), snapshot)).toEqual({ outcome });
+  });
+
+  it.each([
+    [CaptureStatus.Completed, "paid"],
+    [CaptureStatus.Pending, "capture_pending"],
+    [CaptureStatus.Declined, "capture_refused"],
+    [CaptureStatus.Failed, "capture_refused"],
+  ])("reads a completed order with a %s capture as %s", (status, outcome) => {
+    expect(readPayPalOrder(captured(status), snapshot)).toEqual({
+      outcome,
+      captureId: CAPTURE_ID,
+    });
+  });
+
+  it.each([CaptureStatus.Refunded, CaptureStatus.PartiallyRefunded])(
+    "sends a %s capture to review",
+    (status) => {
+      expect(readPayPalOrder(captured(status), snapshot)).toEqual({
+        outcome: "needs_review",
+        reason: "capture status",
+        captureId: CAPTURE_ID,
+      });
+    },
+  );
+
+  it("does not call an order paid for a capture of another amount", () => {
+    expect(
+      readPayPalOrder(
+        captured(CaptureStatus.Completed, { currencyCode: "EUR", value: "0.01" }),
+        snapshot,
+      ),
+    ).toEqual({
+      outcome: "needs_review",
+      reason: "capture amount",
+      captureId: CAPTURE_ID,
+    });
+  });
+
+  it("does not call an order paid for a capture in another currency", () => {
+    expect(
+      readPayPalOrder(
+        captured(CaptureStatus.Completed, { currencyCode: "USD", value: "12.50" }),
+        snapshot,
+      ),
+    ).toEqual({
+      outcome: "needs_review",
+      reason: "capture amount",
+      captureId: CAPTURE_ID,
+    });
+  });
+
+  it("sends an order status it does not know to review", () => {
+    expect(
+      readPayPalOrder(withStatus("SOMETHING_NEW" as OrderStatus), snapshot),
+    ).toEqual({ outcome: "needs_review", reason: "order status" });
+  });
+});
+
+describe("verifyWebhookSignature", () => {
+  const raw = '{ "id": "WH-1",\n  "event_type": "X" }';
+  const signature = {
+    authAlgo: "SHA256withRSA",
+    certUrl: "https://api.sandbox.paypal.com/certs/1",
+    transmissionId: "transmission",
+    transmissionSig: "signature",
+    transmissionTime: "2026-11-06T10:00:00Z",
+  };
+
+  it("sends the event's exact bytes as JSON, using the seller's token", async () => {
+    const paypal = createFakePayPal();
+
+    await ordersFor(paypal)?.verifyWebhookSignature("WH-A", signature, raw);
+
+    const [request] = paypal.verifyRequests();
+    expect(request.data).toBe(
+      `{"auth_algo":"SHA256withRSA","cert_url":"https://api.sandbox.paypal.com/certs/1","transmission_id":"transmission","transmission_sig":"signature","transmission_time":"2026-11-06T10:00:00Z","webhook_id":"WH-A","webhook_event":${raw}}`,
+    );
+    expect(new URL(request.url).origin).toBe("https://api-m.sandbox.paypal.com");
+    expect(JSON.stringify(request.headers)).toContain("Bearer fake-access-token");
+    expect(request).toMatchObject({ timeout: 12_000, maxRedirects: 0 });
+  });
+
+  it("trusts only an explicit SUCCESS", async () => {
+    const paypal = createFakePayPal();
+    const api = ordersFor(paypal);
+    for (const [body, expected] of [
+      [{ verification_status: "SUCCESS" }, true],
+      [{ verification_status: "FAILURE" }, false],
+      [{}, false],
+    ] as const) {
+      paypal.nextVerify({ type: "respond", status: 200, body });
+      expect(await api?.verifyWebhookSignature("WH-A", signature, raw)).toBe(expected);
+    }
+  });
+
+  it("throws rather than answering when PayPal cannot say", async () => {
+    const paypal = createFakePayPal();
+    paypal.nextVerify({ type: "respond", status: 500, body: {} });
+
+    await expect(
+      ordersFor(paypal)?.verifyWebhookSignature("WH-A", signature, raw),
+    ).rejects.toMatchObject({ statusCode: 500 });
+  });
+});
+
+describe("webhookId", () => {
+  it("is each seller's own subscription, and absent until registered", () => {
+    const paypal = createFakePayPal();
+    const provider = createPayPalProvider(
+      {
+        ...ENV,
+        PAYPAL_WEBHOOK_ID_SHOP_A: " WH-A ",
+        PAYPAL_CLIENT_ID_SHOP_B: "client-id-b",
+        PAYPAL_CLIENT_SECRET_SHOP_B: "client-secret-b",
+      },
+      paypal.adapter,
+    );
+
+    expect(provider("SHOP_A")?.webhookId).toBe("WH-A");
+    expect(provider("SHOP_B")?.webhookId).toBeUndefined();
   });
 });

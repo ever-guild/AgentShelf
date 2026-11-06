@@ -6,7 +6,7 @@ Early development. PayPal runs in sandbox only.
 
 As of 6 November 2026, the controlled Orders proof is blocked for both seller accounts because their separate Sandbox app credentials are not configured, see the [PayPal sandbox proof runbook](docs/paypal-sandbox-proof.md) for the approval and capture gates
 
-The `create_checkout` tool creates sandbox orders through the [shared checkout service](docs/architecture.md#checkout), but for the same reason no real PayPal order has been created yet
+The `create_checkout` tool creates sandbox orders through the [shared checkout service](docs/architecture.md#checkout), and [approval, capture and webhooks](docs/architecture.md#payment-reconciliation) settle them, but for the same reason no real PayPal order or payment has gone through this code yet
 
 ## Run locally
 
@@ -40,7 +40,7 @@ For PayPal development, follow the [project-scoped agent setup](docs/paypal-agen
 
 The diagnostic Orders proof uses APIMatic PayPal Context Plugin skills while writing client and controller setup, request models, and mocked transport checks for `@paypal/paypal-server-sdk` 2.5.0; the [runbook](docs/paypal-sandbox-proof.md) records this work without claiming a real Sandbox payment
 
-The [checkout service](src/server/paypal/orders.ts) was written with the same skills, [integrations.md](docs/integrations.md#apimatic-context-plugin) records what they changed in that code
+The [checkout and reconciliation services](src/server/paypal/orders.ts) were written with the same skills, [integrations.md](docs/integrations.md#apimatic-context-plugin) records what they changed in that code
 
 ## Deploy
 

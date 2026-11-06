@@ -35,7 +35,8 @@ async function main() {
   check(
     "tools/list",
     hints.get("search_products") === true &&
-      hints.get("create_checkout") === false,
+      hints.get("create_checkout") === false &&
+      hints.get("get_order_status") === true,
     tools.map((tool) => tool.name).join(", "),
   );
 

@@ -1,6 +1,7 @@
 import "server-only";
 
 import {
+  CaptureStatus,
   CheckoutPaymentIntent,
   Client,
   Environment,
@@ -13,8 +14,8 @@ import {
 
 import { minorToDecimal } from "../domain/money";
 
-// Everything the checkout service needs to know about PayPal Orders v2. The environment is
-// fixed to sandbox here, and no setting can change it.
+// Everything the payment services need to know about PayPal. The environment is fixed to sandbox
+// here, and no setting can change it.
 
 // Applies to each request, including the token exchange. The SDK's own default is no limit.
 const REQUEST_TIMEOUT_MS = 12_000;
@@ -22,21 +23,42 @@ const TOKEN_CLOCK_SKEW_SECONDS = 60;
 const MAX_ITEM_NAME_LENGTH = 127;
 const SANDBOX_CHECKOUT_ORIGIN = "https://www.sandbox.paypal.com";
 const TOKEN_PATH = "/v1/oauth2/token";
+const VERIFY_WEBHOOK_PATH = "/v1/notifications/verify-webhook-signature";
 const TIMEOUT_CODES = new Set(["ECONNABORTED", "ETIMEDOUT"]);
 
-export type PayPalOrdersApi = Pick<OrdersController, "createOrder">;
+export type WebhookSignature = {
+  authAlgo: string;
+  certUrl: string;
+  transmissionId: string;
+  transmissionSig: string;
+  transmissionTime: string;
+};
+
+// What one seller's REST app can do. `webhookId` is the subscription registered on that app, and
+// it is undefined until then.
+export type PayPalSellerApi = Pick<
+  OrdersController,
+  "createOrder" | "getOrder" | "captureOrder"
+> & {
+  webhookId?: string;
+  verifyWebhookSignature: (
+    webhookId: string,
+    signature: WebhookSignature,
+    rawBody: string,
+  ) => Promise<boolean>;
+};
 
 // Resolves a shop's `paypal_credential_ref` to its seller's own REST app. This is the merchant
 // model under test in docs/paypal-sandbox-proof.md, and the only code that depends on it.
-export type PayPalOrdersProvider = (
-  credentialRef: string,
-) => PayPalOrdersApi | undefined;
+export type PayPalProvider = (credentialRef: string) => PayPalSellerApi | undefined;
 
-function createOrdersController(
+type SellerClient = { client: Client; orders: OrdersController };
+
+function createSellerClient(
   oAuthClientId: string,
   oAuthClientSecret: string,
   testAdapter: unknown,
-): OrdersController {
+): SellerClient {
   const client = new Client({
     environment: Environment.Sandbox,
     clientCredentialsAuthCredentials: {
@@ -58,15 +80,41 @@ function createOrdersController(
       ...(testAdapter ? { adapter: testAdapter } : {}),
     },
   });
-  return new OrdersController(client);
+  return { client, orders: new OrdersController(client) };
 }
 
-export function createPayPalOrdersProvider(
+// The SDK has no webhook API, so this goes through its request builder, which brings the same
+// token, timeout and transport as every other call.
+async function verifySignature(
+  client: Client,
+  webhookId: string,
+  signature: WebhookSignature,
+  rawBody: string,
+): Promise<boolean> {
+  const request = client.getRequestBuilderFactory()("POST", VERIFY_WEBHOOK_PATH);
+  request.header("Content-Type", "application/json");
+  const fields = JSON.stringify({
+    auth_algo: signature.authAlgo,
+    cert_url: signature.certUrl,
+    transmission_id: signature.transmissionId,
+    transmission_sig: signature.transmissionSig,
+    transmission_time: signature.transmissionTime,
+    webhook_id: webhookId,
+  });
+  // PayPal signed the exact bytes it sent, and serializing them again can fail verification, so
+  // the event is spliced in as received. The caller has already checked that it is valid JSON.
+  request.text(`${fields.slice(0, -1)},"webhook_event":${rawBody}}`);
+  request.authenticate([{ oauth2: true }]);
+  const { result } = await request.callAsText();
+  return asRecord(JSON.parse(result)).verification_status === "SUCCESS";
+}
+
+export function createPayPalProvider(
   env: Record<string, string | undefined> = process.env,
   testAdapter?: unknown,
-): PayPalOrdersProvider {
-  // One client per seller app, so its cached token is reused between orders.
-  const controllers = new Map<string, OrdersController>();
+): PayPalProvider {
+  // One client per seller app, so its cached token is reused between calls.
+  const sellers = new Map<string, SellerClient>();
 
   return (credentialRef) => {
     const clientId = env[`PAYPAL_CLIENT_ID_${credentialRef}`]?.trim();
@@ -75,27 +123,39 @@ export function createPayPalOrdersProvider(
       return undefined;
     }
 
+    const withClient = async <T>(call: (seller: SellerClient) => Promise<T>) => {
+      const seller =
+        sellers.get(credentialRef) ??
+        createSellerClient(clientId, clientSecret, testAdapter);
+      sellers.set(credentialRef, seller);
+      try {
+        return await call(seller);
+      } catch (error) {
+        // The SDK keeps a failed token exchange as a rejected promise and rethrows it on every
+        // later call without sending a request, so one network failure would otherwise stop
+        // this seller's payments until a restart. The next call starts with a new client.
+        sellers.delete(credentialRef);
+        throw error;
+      }
+    };
+
     return {
-      createOrder: async (request, requestOptions) => {
-        const controller =
-          controllers.get(credentialRef) ??
-          createOrdersController(clientId, clientSecret, testAdapter);
-        controllers.set(credentialRef, controller);
-        try {
-          return await controller.createOrder(request, requestOptions);
-        } catch (error) {
-          // The SDK keeps a failed token exchange as a rejected promise and rethrows it on every
-          // later call without sending a request, so one network failure would otherwise stop
-          // this seller's payments until a restart. The next call starts with a new client.
-          controllers.delete(credentialRef);
-          throw error;
-        }
-      },
+      webhookId: env[`PAYPAL_WEBHOOK_ID_${credentialRef}`]?.trim() || undefined,
+      createOrder: (request, options) =>
+        withClient(({ orders }) => orders.createOrder(request, options)),
+      getOrder: (request, options) =>
+        withClient(({ orders }) => orders.getOrder(request, options)),
+      captureOrder: (request, options) =>
+        withClient(({ orders }) => orders.captureOrder(request, options)),
+      verifyWebhookSignature: (webhookId, signature, rawBody) =>
+        withClient(({ client }) =>
+          verifySignature(client, webhookId, signature, rawBody),
+        ),
     };
   };
 }
 
-export const paypalOrdersFor = createPayPalOrdersProvider();
+export const paypalFor = createPayPalProvider();
 
 export type OrderSnapshot = {
   id: string;
@@ -114,7 +174,7 @@ export type OrderLineSnapshot = {
 export function buildOrderRequest(
   order: OrderSnapshot,
   lines: readonly OrderLineSnapshot[],
-  origin: string,
+  buyerPages: { returnUrl: string; cancelUrl: string },
 ): OrderRequest {
   const money = (minor: number) => ({
     currencyCode: order.currency,
@@ -143,8 +203,7 @@ export function buildOrderRequest(
     paymentSource: {
       paypal: {
         experienceContext: {
-          returnUrl: `${origin}/checkout/return`,
-          cancelUrl: `${origin}/checkout/cancel`,
+          ...buyerPages,
           userAction: PaypalExperienceUserAction.PayNow,
         },
       },
@@ -154,12 +213,12 @@ export function buildOrderRequest(
 
 // Names the first way a PayPal response differs from the order that was requested.
 export function findOrderMismatch(
-  created: Order,
+  seen: Order,
   expected: OrderSnapshot,
 ): string | undefined {
-  const [unit, ...otherUnits] = created.purchaseUnits ?? [];
-  if (!created.id) return "order id";
-  if (created.intent !== CheckoutPaymentIntent.Capture) return "intent";
+  const [unit, ...otherUnits] = seen.purchaseUnits ?? [];
+  if (!seen.id) return "order id";
+  if (seen.intent !== CheckoutPaymentIntent.Capture) return "intent";
   if (!unit || otherUnits.length > 0) return "purchase units";
   if (unit.referenceId !== expected.id) return "reference";
   if (unit.payee?.merchantId !== expected.payeeMerchantId) return "recipient";
@@ -196,10 +255,72 @@ export function sandboxApprovalUrl(created: Order): string | undefined {
     : undefined;
 }
 
+export type PayPalOrderReading =
+  | { outcome: "awaiting_buyer" }
+  | { outcome: "ready_to_capture" }
+  | { outcome: "capture_pending"; captureId: string }
+  | { outcome: "paid"; captureId: string }
+  | { outcome: "capture_refused"; captureId?: string }
+  | { outcome: "voided" }
+  | { outcome: "needs_review"; reason: string; captureId?: string };
+
+// What a full order from PayPal means for the stored one. An approved order is not a paid one,
+// and neither is a completed order: only a completed capture of the stored amount is.
+export function readPayPalOrder(
+  seen: Order,
+  expected: OrderSnapshot,
+): PayPalOrderReading {
+  const mismatch = findOrderMismatch(seen, expected);
+  if (mismatch) {
+    return { outcome: "needs_review", reason: mismatch };
+  }
+
+  switch (seen.status) {
+    case OrderStatus.Created:
+    case OrderStatus.Saved:
+    case OrderStatus.PayerActionRequired:
+      return { outcome: "awaiting_buyer" };
+    case OrderStatus.Approved:
+      return { outcome: "ready_to_capture" };
+    case OrderStatus.Voided:
+      return { outcome: "voided" };
+    case OrderStatus.Completed:
+      break;
+    default:
+      return { outcome: "needs_review", reason: "order status" };
+  }
+
+  const [capture, ...otherCaptures] =
+    seen.purchaseUnits?.[0]?.payments?.captures ?? [];
+  if (!capture?.id || otherCaptures.length > 0) {
+    return { outcome: "needs_review", reason: "captures" };
+  }
+  const captureId = capture.id;
+  if (
+    capture.amount?.currencyCode !== expected.currency ||
+    capture.amount?.value !== minorToDecimal(expected.totalMinor, expected.currency)
+  ) {
+    return { outcome: "needs_review", reason: "capture amount", captureId };
+  }
+
+  switch (capture.status) {
+    case CaptureStatus.Completed:
+      return { outcome: "paid", captureId };
+    case CaptureStatus.Pending:
+      return { outcome: "capture_pending", captureId };
+    case CaptureStatus.Declined:
+    case CaptureStatus.Failed:
+      return { outcome: "capture_refused", captureId };
+    default:
+      // Refunded in full or in part. The money has moved again, so a person should look.
+      return { outcome: "needs_review", reason: "capture status", captureId };
+  }
+}
+
 export type PayPalFailure = {
   // timeout, unavailable: the outcome is unknown, so only a retry with the same key is safe.
   // not_authorized: PayPal refused this seller's credentials or permissions.
-  // rejected: PayPal refused this order, and repeating it cannot help.
+  // rejected: PayPal refused this request, and repeating it cannot help.
   kind: "timeout" | "unavailable" | "not_authorized" | "rejected";
   status?: number;
   code?: string;

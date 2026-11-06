@@ -1,6 +1,6 @@
 # PayPal sandbox setup
 
-This guide prepares credentials for the current demo configuration; the application creates Orders once a shop has these credentials and a merchant ID, and does not yet process captures; the preflight only checks configuration and, with `--online`, sandbox OAuth credentials
+This guide prepares credentials for the current demo configuration; the application creates and captures Orders once a shop has these credentials and a merchant ID; the preflight only checks configuration and, with `--online`, sandbox OAuth credentials
 
 ## Accounts and apps
 
@@ -57,13 +57,37 @@ Add the two seller credential groups, seller merchant IDs, and `APP_ORIGIN` to t
 
 The script reads the current process environment and the optional local file loaded by the documented Node command; it does not read Render settings or fetch service variables; to check values held in Render, an operator must provide the required variables to the process through an approved secure mechanism
 
-Checkout reads a shop's merchant ID from the database rather than from the environment, so run `npm run db:seed` again wherever you set or change `DEMO_PHONE_WORKSHOP_PAYPAL_MERCHANT_ID`, [deployment.md](deployment.md#seed-the-demo-data) explains how on Render, then run `npm run smoke:checkout` as described in [mcp.md](mcp.md#smoke-check)
+Checkout reads a shop's merchant ID from the database rather than from the environment, so run `npm run db:seed` again wherever you set or change `DEMO_PHONE_WORKSHOP_PAYPAL_MERCHANT_ID`, [deployment.md](deployment.md#seed-the-demo-data) explains how on Render, then run `npm run smoke:checkout -- URL --wait` as described in [mcp.md](mcp.md#smoke-check)
 
-## Webhooks and payment implementation
+## Webhooks
 
-Do not register webhooks until the real HTTPS webhook route exists and is deployed under [issue #11](https://github.com/ever-guild/AgentShelf/issues/11); register each seller app's webhook separately and keep its webhook ID with that app's settings; the endpoint must verify signatures and be ready to handle events before registration
+The webhook route is deployed, so each seller app's webhook can be registered; register it separately for each app, under that app's settings in the Developer Dashboard, with a Sandbox HTTPS URL that names the shop by its slug
 
-The buyer must manually approve on PayPal's sandbox page; a server-side capture may run only after verified PayPal approval, including when triggered by an authorized agent; an agent must never approve for the buyer or capture before approval; checkout creation and approval URL belong to [issue #6](https://github.com/ever-guild/AgentShelf/issues/6), capture and webhook handling belong to [issue #11](https://github.com/ever-guild/AgentShelf/issues/11), and payment proof operations belong to [issue #2](https://github.com/ever-guild/AgentShelf/issues/2)
+| Shop credential ref | Webhook URL | Webhook ID variable |
+| --- | --- | --- |
+| `DEMO_PHONE_WORKSHOP` | `https://agentshelf-e5bk.onrender.com/api/paypal/webhooks/demo-phone-workshop` | `PAYPAL_WEBHOOK_ID_DEMO_PHONE_WORKSHOP` |
+| `DEMO_SECOND_SHOP` | The same path with that shop's slug, once [issue #17](https://github.com/ever-guild/AgentShelf/issues/17) has seeded it | `PAYPAL_WEBHOOK_ID_DEMO_SECOND_SHOP` |
+
+Subscribe to these events by name rather than to all events:
+
+- `CHECKOUT.ORDER.APPROVED`
+- `CHECKOUT.PAYMENT-APPROVAL.REVERSED`
+- `PAYMENT.CAPTURE.COMPLETED`
+- `PAYMENT.CAPTURE.DECLINED`
+- `PAYMENT.CAPTURE.DENIED`
+- `PAYMENT.CAPTURE.PENDING`
+- `PAYMENT.CAPTURE.REFUNDED`
+- `PAYMENT.CAPTURE.REVERSED`
+
+Copy the Webhook ID that PayPal shows into the variable above, in the Render environment and in `.env.local`; a shop whose variable is unset answers `503`, and PayPal repeats those deliveries for up to 3 days
+
+Test with a real sandbox payment, because PayPal's Webhooks Simulator produces events that cannot pass signature verification; the simulator can only show that the URL is reachable
+
+Payments still settle without a webhook, more slowly, because the sweep described in [architecture.md](architecture.md#payment-reconciliation) checks open orders every few minutes
+
+## Payment implementation
+
+The buyer must manually approve on PayPal's sandbox page; a server-side capture runs only after PayPal reports the order as approved; an agent must never approve for the buyer; checkout creation and approval URL belong to [issue #6](https://github.com/ever-guild/AgentShelf/issues/6), capture and webhook handling belong to [issue #11](https://github.com/ever-guild/AgentShelf/issues/11), and payment proof operations belong to [issue #2](https://github.com/ever-guild/AgentShelf/issues/2)
 
 The second demo shop's catalog and seed data remain pending [issue #17](https://github.com/ever-guild/AgentShelf/issues/17); the preflight's `DEMO_SECOND_SHOP` group prepares its future credential names only and does not implement that shop
 
@@ -71,5 +95,5 @@ The second demo shop's catalog and seed data remain pending [issue #17](https://
 
 - [Issue #2](https://github.com/ever-guild/AgentShelf/issues/2): payment proof operations
 - [Issue #6](https://github.com/ever-guild/AgentShelf/issues/6): sandbox Orders creation and approval URL
-- [Issue #11](https://github.com/ever-guild/AgentShelf/issues/11): webhook endpoint, signature verification, event handling, and only then webhook registration
+- [Issue #11](https://github.com/ever-guild/AgentShelf/issues/11): webhook endpoint, signature verification and event handling
 - [Issue #17](https://github.com/ever-guild/AgentShelf/issues/17): second shop and its seed/configuration support
