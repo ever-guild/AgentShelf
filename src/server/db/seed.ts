@@ -7,6 +7,8 @@ import {
   shops,
   technicians,
   technicianWindows,
+  inventoryAudit,
+  inventoryStock,
 } from "./schema";
 
 // Synthetic demo data, written for this repository. No real shop, person or customer is behind any
@@ -21,6 +23,10 @@ export const DEMO_SERVICE_ID = "20000000-0000-4000-8000-000000000002";
 export const DEMO_CHARGER_ID = "20000000-0000-4000-8000-000000000003";
 export const DEMO_CABLE_ID = "20000000-0000-4000-8000-000000000004";
 export const DEMO_CANDLE_ID = "20000000-0000-4000-8000-000000000101";
+export const DEMO_CEDAR_CANDLE_ID = "20000000-0000-4000-8000-000000000102";
+export const DEMO_CANDLE_GIFT_SET_ID = "20000000-0000-4000-8000-000000000103";
+export const DEMO_WICK_TRIMMER_ID = "20000000-0000-4000-8000-000000000104";
+const DEMO_INVENTORY_ACTOR_ID = "00000000-0000-0000-0000-000000000000";
 export const DEMO_TECHNICIAN_IDS = [
   "30000000-0000-4000-8000-000000000001",
   "30000000-0000-4000-8000-000000000002",
@@ -91,7 +97,7 @@ const candleProducts: DemoProduct[] = [
     availability: "available",
   },
   {
-    id: "20000000-0000-4000-8000-000000000102",
+    id: DEMO_CEDAR_CANDLE_ID,
     shopId: DEMO_SECOND_SHOP_ID,
     kind: "product",
     status: "published",
@@ -101,7 +107,7 @@ const candleProducts: DemoProduct[] = [
     availability: "available",
   },
   {
-    id: "20000000-0000-4000-8000-000000000103",
+    id: DEMO_CANDLE_GIFT_SET_ID,
     shopId: DEMO_SECOND_SHOP_ID,
     kind: "product",
     status: "published",
@@ -111,7 +117,7 @@ const candleProducts: DemoProduct[] = [
     availability: "available",
   },
   {
-    id: "20000000-0000-4000-8000-000000000104",
+    id: DEMO_WICK_TRIMMER_ID,
     shopId: DEMO_SECOND_SHOP_ID,
     kind: "product",
     status: "published",
@@ -184,8 +190,20 @@ const fixtures: Fixture[] = [
   { n: 5, daysAgo: 4, query: "beeswax candle", shopId: DEMO_SECOND_SHOP_ID, words: ["candle"], basis: [DEMO_CANDLE_ID] },
   { n: 6, daysAgo: 1, query: "horse saddle" },
   { n: 7, daysAgo: 2, query: "iphone 13 screen protector", matched: [DEMO_PRODUCT_ID] },
-  { n: 8, daysAgo: 3, query: "soy candle", matched: [DEMO_CANDLE_ID, "20000000-0000-4000-8000-000000000102"] },
+  { n: 8, daysAgo: 3, query: "soy candle", matched: [DEMO_CANDLE_ID, DEMO_CEDAR_CANDLE_ID] },
 ];
+
+// Synthetic quantities exist only to make the fixed demo catalog purchasable. Conflicts are
+// ignored so a later seed never resets inventory changed by an operator or checkout.
+const demoInventory = [
+  { productId: DEMO_PRODUCT_ID, shopId: DEMO_SHOP_ID, onHand: 10 },
+  { productId: DEMO_CHARGER_ID, shopId: DEMO_SHOP_ID, onHand: 4 },
+  { productId: DEMO_CABLE_ID, shopId: DEMO_SHOP_ID, onHand: 12 },
+  { productId: DEMO_CANDLE_ID, shopId: DEMO_SECOND_SHOP_ID, onHand: 8 },
+  { productId: DEMO_CEDAR_CANDLE_ID, shopId: DEMO_SECOND_SHOP_ID, onHand: 6 },
+  { productId: DEMO_CANDLE_GIFT_SET_ID, shopId: DEMO_SECOND_SHOP_ID, onHand: 3 },
+  { productId: DEMO_WICK_TRIMMER_ID, shopId: DEMO_SECOND_SHOP_ID, onHand: 5 },
+] as const;
 
 export const DEMO_FIXTURE_EVENT_IDS = fixtures.map(
   ({ n }) => `50000000-0000-4000-8000-${String(n).padStart(12, "0")}`,
@@ -266,6 +284,24 @@ export async function seedDemoData(
         .insert(products)
         .values({ id, ...product })
         .onConflictDoUpdate({ target: products.id, set: product });
+    }
+    for (const stock of demoInventory) {
+      const inserted = await tx
+        .insert(inventoryStock)
+        .values({ ...stock, mode: "tracked", reserved: 0, version: 0 })
+        .onConflictDoNothing({ target: [inventoryStock.shopId, inventoryStock.productId] })
+        .returning({ productId: inventoryStock.productId });
+      if (inserted.length) {
+        await tx.insert(inventoryAudit).values({
+          shopId: stock.shopId,
+          productId: stock.productId,
+          actorId: DEMO_INVENTORY_ACTOR_ID,
+          eventType: "mode_set",
+          reason: "Synthetic demo fixture quantity; this is not seller-reported stock.",
+          idempotencyKey: `demo-seed:stock:v1:${stock.productId}`,
+          versionAfter: 0,
+        });
+      }
     }
     for (const person of staff) {
       await tx

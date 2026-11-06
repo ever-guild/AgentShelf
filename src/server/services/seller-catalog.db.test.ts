@@ -4,11 +4,20 @@ import { and, eq, sql } from "drizzle-orm";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { setupMigratedDatabase } from "../../../test/database";
-import { createProduct, createShop, violatedConstraint } from "../../../test/fixtures";
+import { createProduct, createShop, setTestTrackedStock, violatedConstraint } from "../../../test/fixtures";
 import { createImportHarness, rowsOf } from "../../../test/imports";
 import { CLIENT_SECRET, MERCHANT_ID, readOrder } from "../../../test/payments";
 import { createFakePayPal, type FakePayPal } from "../../../test/paypal-fake";
-import { importJobs, importRows, orderLines, products, shops } from "../db/schema";
+import {
+  importJobs,
+  importRows,
+  orderLines,
+  paypalMerchantConnections,
+  products,
+  sellerOwners,
+  shopMemberships,
+  shops,
+} from "../db/schema";
 import { buildCatalogRecord, catalogRecordId } from "../paypal/catalog";
 import { createPayPalProvider } from "../paypal/orders";
 import { getPublishedProduct, listPublishedProducts, searchProducts } from "./catalog";
@@ -346,6 +355,70 @@ describe("publishing a finished import", () => {
 });
 
 describe("the PayPal Catalog record", () => {
+  it("publishes Catalog records only through the shop's verified platform merchant context", async () => {
+    const shop = await createShop(getDb(), {
+      paypalCredentialRef: "PAYPAL_PLATFORM",
+      paypalMerchantId: "STALE_LEGACY_SELLER",
+    });
+    const ownerId = randomUUID();
+    const trackingId = "verified-tracking-id-1234567890-abcdefghijklmno";
+    const sellerMerchantId = "CONNECTEDSELLER123";
+    const now = new Date("2026-11-06T12:00:00Z");
+    await getDb().insert(sellerOwners).values({
+      id: ownerId,
+      username: `owner-${randomUUID().slice(0, 8)}`,
+      passwordHash: `scrypt$16384$8$1$${"A".repeat(22)}$${"B".repeat(43)}`,
+    });
+    await getDb().insert(shopMemberships).values({ ownerId, shopId: shop.id });
+    await getDb().insert(paypalMerchantConnections).values({
+      shopId: shop.id,
+      consentedByOwnerId: ownerId,
+      shareDataConsentAt: now,
+      status: "ready",
+      trackingId,
+      requestKeyHash: "1".repeat(64),
+      sellerMerchantId,
+      statusEvidence: {
+        merchantId: sellerMerchantId,
+        trackingId,
+        paymentsReceivable: true,
+        primaryEmailConfirmed: true,
+        consentGranted: true,
+        activeProducts: ["EXPRESS_CHECKOUT"],
+        grantedScopes: ["https://uri.paypal.com/services/payments/payment/authcapture"],
+      },
+      createdAt: now,
+      updatedAt: now,
+    });
+
+    const platformPayPal = createFakePayPal();
+    const platformDeps: CatalogDeps = {
+      ...deps,
+      paypalFor: createPayPalProvider({
+        PAYPAL_PLATFORM_CLIENT_ID: "sandbox-platform-client-id",
+        PAYPAL_PLATFORM_CLIENT_SECRET: "sandbox-platform-client-secret",
+        PAYPAL_PARTNER_ATTRIBUTION_ID: "AGENT_SHELF_BN_CODE",
+      }, platformPayPal.adapter),
+    };
+    const { jobId } = await finishedImport(CSV, shop);
+    await publishImport(getDb(), shop, jobId, platformDeps);
+    expect((await productNamed(shop.id, "Tempered glass")).paypalSyncStatus).toBe("pending");
+
+    const answer = await syncCatalog(getDb(), shop, {}, platformDeps);
+    expect(answer).toMatchObject({ remaining: 0, stopped: false });
+    const requests = platformPayPal.catalogCreateRequests();
+    expect(requests).toHaveLength(3);
+    const expectedAssertion = `${Buffer.from(JSON.stringify({ alg: "none" })).toString("base64")}.${Buffer.from(JSON.stringify({ iss: "sandbox-platform-client-id", payer_id: sellerMerchantId })).toString("base64")}.`;
+    for (const request of requests) {
+      expect(request.headers).toMatchObject({
+        "PayPal-Auth-Assertion": expectedAssertion,
+        "PayPal-Partner-Attribution-Id": "AGENT_SHELF_BN_CODE",
+      });
+    }
+    expect(platformPayPal.tokenRequests()[0].headers).not.toHaveProperty("PayPal-Auth-Assertion");
+    expect(platformPayPal.tokenRequests()[0].headers).not.toHaveProperty("PayPal-Partner-Attribution-Id");
+  });
+
   it("sends only what a record holds, with a fixed key and ID per product", async () => {
     const { shop } = await publishedShop();
     const answer = await syncAll(shop);
@@ -741,6 +814,7 @@ describe("editing a published product", () => {
   it("changes future checkouts and leaves existing orders as they were", async () => {
     const { shop } = await publishedShop();
     const glass = await productNamed(shop.id, "Tempered glass");
+    await setTestTrackedStock(getDb(), shop.id, glass.id);
     const key = randomUUID();
     const before = await checkoutFor(glass.id, key);
     expect(before.totalMinor).toBe(990);
@@ -769,6 +843,7 @@ describe("editing a published product", () => {
   it("keeps an existing order as it was when the product is unpublished", async () => {
     const { shop } = await publishedShop();
     const glass = await productNamed(shop.id, "Tempered glass");
+    await setTestTrackedStock(getDb(), shop.id, glass.id);
     const key = randomUUID();
     const order = await checkoutFor(glass.id, key);
 

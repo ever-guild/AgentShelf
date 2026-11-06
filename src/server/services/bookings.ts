@@ -2,7 +2,7 @@ import "server-only";
 
 import { createHash } from "node:crypto";
 
-import { and, eq, gt, lte, lt, or } from "drizzle-orm";
+import { and, eq, gt, lte, lt, or, sql } from "drizzle-orm";
 import type { z } from "zod";
 
 import { issueOrderStatusToken } from "../auth/order-status-token";
@@ -27,6 +27,11 @@ import { isSupportedCurrency } from "../domain/money";
 import { decodeSlotId, encodeSlotId, generateSlots } from "../domain/slots";
 import { ServiceError, parseInput } from "../errors";
 import { paypalFor } from "../paypal/orders";
+import {
+  isReadyConnectedMerchant,
+  merchantEligibilityPool,
+  resolveShopPayPalRoute,
+} from "../paypal/merchant-eligibility";
 import { isHoldLive } from "./booking-schedule";
 import {
   ensureApprovalLink,
@@ -244,7 +249,11 @@ async function findByKey(
   idempotencyKey: string,
 ): Promise<StoredBooking | undefined> {
   const [row] = await db
-    .select({ order: orders, credentialRef: shops.paypalCredentialRef, booking: bookings })
+    .select({
+      order: orders,
+      credentialRef: sql<string>`coalesce(${orders.paypalCredentialRef}, ${shops.paypalCredentialRef})`,
+      booking: bookings,
+    })
     .from(orders)
     .innerJoin(shops, eq(orders.shopId, shops.id))
     .leftJoin(bookings, eq(bookings.orderId, orders.id))
@@ -312,7 +321,7 @@ async function placeHold(
   idempotencyKey: string,
   fingerprint: string,
   { service, technicianId, startsAt, endsAt }: Awaited<ReturnType<typeof resolveSlot>>,
-  payeeMerchantId: string,
+  paymentRoute: { credentialRef: string; payeeMerchantId: string },
   now: Date,
 ): Promise<StoredBooking | undefined> {
   return db.transaction(async (tx) => {
@@ -334,7 +343,8 @@ async function placeHold(
         totalMinor: service.depositMinor,
         idempotencyKey,
         requestFingerprint: fingerprint,
-        payeeMerchantId,
+        payeeMerchantId: paymentRoute.payeeMerchantId,
+        paypalCredentialRef: paymentRoute.credentialRef,
       })
       .onConflictDoNothing({ target: orders.idempotencyKey })
       .returning();
@@ -367,7 +377,7 @@ async function placeHold(
           servicePriceMinor: service.priceMinor,
         })
         .returning();
-      return { order, credentialRef: service.credentialRef, booking };
+      return { order, credentialRef: paymentRoute.credentialRef, booking };
     } catch (error) {
       if (isOverlap(error)) {
         throw slotUnavailable();
@@ -394,8 +404,12 @@ export async function bookSlot(
   let stored = await findByKey(db, idempotencyKey);
   if (!stored) {
     const resolved = await resolveSlot(db, input.slotId, input.serviceId, now);
-    const { merchantId, credentialRef } = resolved.service;
-    if (!merchantId || !deps.paypalFor(credentialRef)) {
+    const paymentRoute = await resolveShopPayPalRoute(merchantEligibilityPool(db), {
+      shopId: resolved.service.shopId,
+      credentialRef: resolved.service.credentialRef,
+      legacyMerchantId: resolved.service.merchantId,
+    });
+    if (!paymentRoute || !deps.paypalFor(paymentRoute.credentialRef, paymentRoute.payeeMerchantId)) {
       throw notConfigured();
     }
     if (deps.allowNewHold && !deps.allowNewHold()) {
@@ -405,7 +419,7 @@ export async function bookSlot(
       );
     }
     stored =
-      (await placeHold(db, idempotencyKey, fingerprint, resolved, merchantId, now)) ??
+      (await placeHold(db, idempotencyKey, fingerprint, resolved, paymentRoute, now)) ??
       // A concurrent request with this key committed first, and its booking is the one to continue.
       (await findByKey(db, idempotencyKey));
   }
@@ -429,7 +443,18 @@ export async function bookSlot(
   // Signed before PayPal is called, so a misconfigured server does not reach PayPal at all. The
   // hold is released again if PayPal refuses the order, by the trigger on orders.
   const statusToken = issueOrderStatusToken(order.id);
-  const row = await ensureApprovalLink(db, stored, statusToken, deps);
+  if (
+    !order.approvalUrl &&
+    stored.credentialRef === "PAYPAL_PLATFORM" &&
+    !(await isReadyConnectedMerchant(merchantEligibilityPool(db), order.shopId, order.payeeMerchantId))
+  ) {
+    throw notConfigured();
+  }
+  const routedDeps: BookingDeps = {
+    ...deps,
+    paypalFor: (credentialRef) => deps.paypalFor(credentialRef, order.payeeMerchantId),
+  };
+  const row = await ensureApprovalLink(db, stored, statusToken, routedDeps);
   return bookSlotResult.parse({
     bookingId: booking.id,
     orderId: row.id,

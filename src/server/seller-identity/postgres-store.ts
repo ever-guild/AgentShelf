@@ -325,6 +325,7 @@ export class PostgresIdentityStore implements IdentityStore {
       scopes: row.scopes,
       expiresAt: row.expires_at,
       shareDataConsent: row.share_data_consent_at !== null,
+      shareDataConsentAt: row.share_data_consent_at,
     } : null;
   }
 

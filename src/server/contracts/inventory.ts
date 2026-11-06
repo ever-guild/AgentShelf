@@ -25,5 +25,28 @@ export const adjustInventoryInput = z.strictObject({
   reason: z.string().trim().min(3).max(500),
 });
 
+export const adjustInventoryBody = z.strictObject({
+  delta: z.int().min(-1_000_000).max(1_000_000).refine((value) => value !== 0),
+  expectedVersion: z.int().min(0),
+  idempotencyKey: inventoryIdempotencyKey,
+  reason: z.string().trim().min(3).max(500),
+});
+
+export const setInventoryModeBody = z.discriminatedUnion("mode", [
+  z.strictObject({
+    mode: z.literal("tracked"),
+    onHand: z.int().min(0).max(1_000_000),
+    idempotencyKey: inventoryIdempotencyKey,
+    reason: z.string().trim().min(3).max(500),
+  }),
+  z.strictObject({
+    mode: z.literal("untracked"),
+    idempotencyKey: inventoryIdempotencyKey,
+    reason: z.string().trim().min(3).max(500),
+  }),
+]);
+
 export type InventoryLine = z.infer<typeof inventoryLine>;
 export type AdjustInventoryInput = z.infer<typeof adjustInventoryInput>;
+export type AdjustInventoryBody = z.infer<typeof adjustInventoryBody>;
+export type SetInventoryModeBody = z.infer<typeof setInventoryModeBody>;

@@ -25,7 +25,12 @@ import {
   type SellerAgentStockInput,
 } from "../contracts/seller-agent";
 
-export type SellerAgentGrant = { shopId: string; actorId: string };
+export type SellerAgentGrant = {
+  shopId: string;
+  actorId: string;
+  shareDataConsent?: true;
+  shareDataConsentAt?: Date;
+};
 export type SellerAgentScope = "read_shop" | "manage_catalog" | "manage_inventory" | "connect_paypal";
 
 // This is the integration seam for Identity, Catalog/Import and Inventory. Implementations must
@@ -53,6 +58,7 @@ export type SellerAgentServices = {
   stock?: {
     read: (principal: SellerAgentGrant, productId: string) => Promise<z.infer<typeof sellerAgentStockResult>>;
     adjust: (principal: SellerAgentGrant, input: SellerAgentStockInput & { delta: number; expectedVersion: number; idempotencyKey: string; reason: string }) => Promise<z.infer<typeof sellerAgentStockResult>>;
+    setMode: (principal: SellerAgentGrant, input: SellerAgentStockInput & { mode: "tracked" | "untracked"; onHand?: number; idempotencyKey: string; reason: string }) => Promise<z.infer<typeof sellerAgentStockResult>>;
   };
   paypalConnection?: {
     start: (principal: SellerAgentGrant, input: { shopId: string; idempotencyKey: string }) => Promise<{
@@ -73,7 +79,7 @@ export function availableSellerAgentTools(services: SellerAgentServices): Seller
   if (services.identity) tools.push("createShop");
   if (services.authorizeShop && services.shopIdFromRequest && services.imports) tools.push("importPriceList", "reviewImport");
   if (services.authorizeShop && services.shopIdFromRequest && services.catalog?.supportedActions.length) tools.push("manageCatalog");
-  if (services.authorizeShop && services.shopIdFromRequest && services.stock) tools.push("manageStock");
+  if (services.authorizeShop && services.shopIdFromRequest && services.stock?.setMode) tools.push("manageStock");
   if (services.authorizeShop && services.shopIdFromRequest && services.paypalConnection) tools.push("connectPayPal");
   return tools;
 }
@@ -131,10 +137,10 @@ export function createSellerMcpServer(services: SellerAgentServices): McpServer 
   if (services.authorizeShop && services.shopIdFromRequest && services.imports) {
     server.registerTool(SELLER_AGENT_TOOL_NAMES.importPriceList, {
       title: "Import a price list",
-      description: "Upload a seller-owned CSV or price-list photo for extraction into a reviewable draft. This does not publish products.",
+      description: "Upload a seller-owned CSV or price-list photo for extraction into a reviewable draft. This creates a new import each time, so a retry after a lost response can create a duplicate draft. This does not publish products.",
       inputSchema: sellerAgentImportInput,
       outputSchema: sellerAgentImportResult,
-      annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+      annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
     }, (input, extra) => result(async () => {
       const principal = await toolContext(extra, services, "manage_catalog");
       return services.imports!.start(principal, input);
@@ -167,7 +173,7 @@ export function createSellerMcpServer(services: SellerAgentServices): McpServer 
     }));
   }
 
-  if (services.authorizeShop && services.shopIdFromRequest && services.stock) {
+  if (services.authorizeShop && services.shopIdFromRequest && services.stock?.setMode) {
     server.registerTool(SELLER_AGENT_TOOL_NAMES.manageStock, {
       title: "Read or adjust stock",
       description: "Read the authorized shop's quantity, or make an idempotent signed adjustment. The shop and actor are taken from the seller grant.",
@@ -176,9 +182,11 @@ export function createSellerMcpServer(services: SellerAgentServices): McpServer 
       annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
     }, (input, extra) => result(async () => {
       const principal = await toolContext(extra, services, input.action === "read" ? "read_shop" : "manage_inventory");
-      return input.action === "read"
-        ? services.stock!.read(principal, input.productId)
-        : services.stock!.adjust(principal, input as SellerAgentStockInput & { delta: number; expectedVersion: number; idempotencyKey: string; reason: string });
+      if (input.action === "read") return services.stock!.read(principal, input.productId);
+      if (input.action === "adjust") {
+        return services.stock!.adjust(principal, input as SellerAgentStockInput & { delta: number; expectedVersion: number; idempotencyKey: string; reason: string });
+      }
+      return services.stock!.setMode(principal, input as SellerAgentStockInput & { mode: "tracked" | "untracked"; onHand?: number; idempotencyKey: string; reason: string });
     }));
   }
 
@@ -191,6 +199,9 @@ export function createSellerMcpServer(services: SellerAgentServices): McpServer 
       annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: true },
     }, (input: SellerAgentPayPalConnectInput, extra) => result(async () => {
       const principal = await toolContext(extra, services, "connect_paypal");
+      if (principal.shareDataConsent !== true || !(principal.shareDataConsentAt instanceof Date) || Number.isNaN(principal.shareDataConsentAt.getTime())) {
+        throw Object.assign(new Error("Seller data sharing consent is required."), { code: "UNAUTHORIZED" });
+      }
       const started = await services.paypalConnection!.start(principal, {
         shopId: principal.shopId,
         idempotencyKey: input.idempotencyKey,

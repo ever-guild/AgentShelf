@@ -29,7 +29,7 @@ class TestStore implements IdentityStore {
   shops = new Map<string, ShopRecord>();
   memberships = new Map<string, string>();
   sessions = new Map<string, { ownerId: string; expiresAt: Date; revokedAt?: Date }>();
-  grants = new Map<string, { ownerId: string; shopId: string | null; scopes: import("../contracts/seller-identity").SellerAgentScope[]; expiresAt: Date; shareDataConsent: boolean; revokedAt?: Date; usedKey?: string }>();
+  grants = new Map<string, { ownerId: string; shopId: string | null; scopes: import("../contracts/seller-identity").SellerAgentScope[]; expiresAt: Date; shareDataConsent: boolean; shareDataConsentAt: Date | null; revokedAt?: Date; usedKey?: string }>();
   registrationKeys = new Map<string, { registration: OwnerShopRegistration; requestKey: string }>();
   ownerRegistrationKeys = new Map<string, { ownerId: string; username: string }>();
   shopKeys = new Map<string, ShopRecord>();
@@ -103,11 +103,25 @@ class TestStore implements IdentityStore {
   }
   async createAgentGrant(input: { ownerId: string; shopId: string | null; scopes: import("../contracts/seller-identity").SellerAgentScope[]; tokenHash: string; expiresAt: Date; shareDataConsentAt: Date | null }) {
     if (input.shopId && !this.memberships.has(`${input.ownerId}:${input.shopId}`)) throw new Error("not a member");
-    this.grants.set(input.tokenHash, { ownerId: input.ownerId, shopId: input.shopId, scopes: input.scopes, expiresAt: input.expiresAt, shareDataConsent: input.shareDataConsentAt !== null });
+    this.grants.set(input.tokenHash, {
+      ownerId: input.ownerId,
+      shopId: input.shopId,
+      scopes: input.scopes,
+      expiresAt: input.expiresAt,
+      shareDataConsent: input.shareDataConsentAt !== null,
+      shareDataConsentAt: input.shareDataConsentAt,
+    });
   }
   async findActiveAgentGrant(key: string, now: Date) {
     const row = this.grants.get(key);
-    return row && !row.revokedAt && row.expiresAt > now ? { actorId: row.ownerId, shopId: row.shopId, scopes: row.scopes, expiresAt: row.expiresAt, shareDataConsent: row.shareDataConsent } : null;
+    return row && !row.revokedAt && row.expiresAt > now ? {
+      actorId: row.ownerId,
+      shopId: row.shopId,
+      scopes: row.scopes,
+      expiresAt: row.expiresAt,
+      shareDataConsent: row.shareDataConsent,
+      shareDataConsentAt: row.shareDataConsentAt,
+    } : null;
   }
   async revokeAgentGrant(key: string, ownerId: string, now: Date) {
     const row = this.grants.get(key);
@@ -242,6 +256,11 @@ describe("seller identity service", () => {
     await expect(resolveAuthorizedSellerAgent(store, grant.grantToken, "read_shop", owner.shop.id, grant.expiresAt)).rejects.toMatchObject({ code: "UNAUTHORIZED" });
     await expect(authorizeSellerAgent(store, authOwner, owner.shop.id, ["connect_paypal"])).rejects.toMatchObject({ code: "INVALID_INPUT" });
     const paypalGrant = await authorizeSellerAgent(store, authOwner, owner.shop.id, ["connect_paypal"], new Date("2026-11-06T12:03:00Z"), true);
-    await expect(resolveAuthorizedSellerAgent(store, paypalGrant.grantToken, "connect_paypal", owner.shop.id, new Date("2026-11-06T12:04:00Z"))).resolves.toMatchObject({ actorId: owner.owner.id, shopId: owner.shop.id, shareDataConsent: true });
+    await expect(resolveAuthorizedSellerAgent(store, paypalGrant.grantToken, "connect_paypal", owner.shop.id, new Date("2026-11-06T12:04:00Z"))).resolves.toMatchObject({
+      actorId: owner.owner.id,
+      shopId: owner.shop.id,
+      shareDataConsent: true,
+      shareDataConsentAt: new Date("2026-11-06T12:03:00Z"),
+    });
   });
 });

@@ -138,6 +138,39 @@ describe("PayPal Partner Referrals adapter", () => {
     expect(verifier).toHaveBeenCalledTimes(2);
   });
 
+  it("verifies the raw revocation event through PayPal's fixed Sandbox verification endpoint", async () => {
+    const fetchImpl = vi.fn()
+      .mockResolvedValueOnce(token())
+      .mockResolvedValueOnce(new Response(JSON.stringify({ verification_status: "SUCCESS" }), { status: 200 }));
+    const adapter = createPartnerReferralsAdapter({ ...env, PAYPAL_PLATFORM_WEBHOOK_ID: "sandbox-webhook-123" }, fetchImpl);
+    const headers = new Headers({
+      "paypal-auth-algo": "SHA256withRSA",
+      "paypal-cert-url": "https://api-m.sandbox.paypal.com/v1/notifications/certs/CERT-123",
+      "paypal-transmission-id": "transmission-123",
+      "paypal-transmission-sig": "signature-base64",
+      "paypal-transmission-time": "2026-11-06T12:00:00Z",
+    });
+    const event = {
+      id: "event-123",
+      event_type: "MERCHANT.PARTNER-CONSENT.REVOKED",
+      resource: { merchant_id: "sellerMerchantA123" },
+    };
+    await expect(adapter.verifyRevocationWebhook({ headers, rawBody: JSON.stringify(event) })).resolves.toEqual({
+      eventId: "event-123",
+      eventType: "MERCHANT.PARTNER-CONSENT.REVOKED",
+      sellerMerchantId: "sellerMerchantA123",
+    });
+    expect(fetchImpl).toHaveBeenCalledTimes(2);
+    const [url, request] = fetchImpl.mock.calls[1];
+    expect(url).toBe("https://api-m.sandbox.paypal.com/v1/notifications/verify-webhook-signature");
+    expect(request).toMatchObject({ method: "POST", redirect: "error" });
+    expect(JSON.parse(request.body as string)).toMatchObject({
+      webhook_id: "sandbox-webhook-123",
+      webhook_event: event,
+      auth_algo: "SHA256withRSA",
+    });
+  });
+
   it("sanitizes failed Sandbox OAuth and invalid seller IDs", async () => {
     const oauthFailure = createPartnerReferralsAdapter(env, vi.fn().mockResolvedValue(new Response("sensitive diagnostic", { status: 401 })));
     await expect(oauthFailure.getMerchantStatus("sellerMerchantA123")).rejects.toBeInstanceOf(PayPalAdapterError);

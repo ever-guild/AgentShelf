@@ -4,7 +4,7 @@ import { asc, count, eq } from "drizzle-orm";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { setupMigratedDatabase } from "../../../test/database";
-import { createProduct, createService, createShop, createTechnician, createWindow } from "../../../test/fixtures";
+import { createProduct, createService, createShop, createTrackedProduct, createTechnician, createWindow } from "../../../test/fixtures";
 import { createFakePayPal } from "../../../test/paypal-fake";
 import {
   addDays,
@@ -300,7 +300,7 @@ describe("resetting the demo", () => {
       paypal.adapter,
     );
     // A listing the seed does not know, which a real order refers to, and one nobody ordered.
-    const sold = await createProduct(getDb(), DEMO_SHOP_ID, { title: "Sold extra", priceMinor: 500 });
+    const sold = await createTrackedProduct(getDb(), DEMO_SHOP_ID, { title: "Sold extra", priceMinor: 500 });
     const unsold = await createProduct(getDb(), DEMO_SHOP_ID, { title: "Unsold extra", priceMinor: 500 });
     await createCheckout(
       getDb(),

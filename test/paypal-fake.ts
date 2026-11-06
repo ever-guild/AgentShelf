@@ -237,6 +237,7 @@ export function createFakePayPal() {
           id: `CAP${randomBytes(6).toString("hex").toUpperCase()}`,
           status,
           amount: { currency_code: amount.currency_code, value: amount.value },
+          create_time: "2026-11-06T10:00:00Z",
           custom_id: unit.custom_id,
           final_capture: true,
         },

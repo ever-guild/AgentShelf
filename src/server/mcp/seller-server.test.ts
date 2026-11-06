@@ -43,7 +43,7 @@ describe("seller MCP capability registration", () => {
       identity: { createShopForAuthorizedAgent: vi.fn() },
       authorizeShop: vi.fn(),
       shopIdFromRequest: () => "5f4b2190-f88b-4d19-bef6-cc11e71bb6f1",
-      stock: { read: vi.fn(), adjust: vi.fn() },
+      stock: { read: vi.fn(), adjust: vi.fn(), setMode: vi.fn() },
       catalog: { supportedActions: ["list", "edit"], run: vi.fn() },
     };
     expect(availableSellerAgentTools(services)).toEqual(["createShop", "manageCatalog", "manageStock"]);
@@ -75,6 +75,7 @@ describe("seller MCP capability registration", () => {
           reserved: 1,
           available: 3,
           version: 2,
+          updatedAt: "2026-11-06T10:00:00.000Z",
         }),
         adjust: async (_principal, input) => ({
           productId: input.productId,
@@ -83,6 +84,16 @@ describe("seller MCP capability registration", () => {
           reserved: 1,
           available: 4,
           version: 3,
+          updatedAt: "2026-11-06T10:01:00.000Z",
+        }),
+        setMode: async (_principal, input) => ({
+          productId: input.productId,
+          mode: input.mode,
+          onHand: input.mode === "tracked" ? (input.onHand ?? 0) : null,
+          reserved: input.mode === "tracked" ? 0 : null,
+          available: input.mode === "tracked" ? (input.onHand ?? 0) : null,
+          version: 1,
+          updatedAt: "2026-11-06T10:02:00.000Z",
         }),
       },
       catalog: {
@@ -118,15 +129,84 @@ describe("seller MCP capability registration", () => {
       expect(attemptedTenantOverride.isError).toBe(true);
 
       const result = await client.callTool({ name: "seller_manage_stock", arguments: { action: "read", productId } });
-      expect(result.structuredContent).toEqual({ productId, mode: "tracked", onHand: 4, reserved: 1, available: 3, version: 2 });
+      expect(result.structuredContent).toEqual({ productId, mode: "tracked", onHand: 4, reserved: 1, available: 3, version: 2, updatedAt: "2026-11-06T10:00:00.000Z" });
       expect(authorizeShop).toHaveBeenCalledWith("seller-grant-test-only", "read_shop", shopId);
 
       const adjusted = await client.callTool({
         name: "seller_manage_stock",
         arguments: { action: "adjust", productId, delta: 1, expectedVersion: 2, idempotencyKey: "stock-adjust-0001", reason: "Restocked unit" },
       });
-      expect(adjusted.structuredContent).toEqual({ productId, mode: "tracked", onHand: 5, reserved: 1, available: 4, version: 3 });
+      expect(adjusted.structuredContent).toEqual({ productId, mode: "tracked", onHand: 5, reserved: 1, available: 4, version: 3, updatedAt: "2026-11-06T10:01:00.000Z" });
       expect(authorizeShop).toHaveBeenLastCalledWith("seller-grant-test-only", "manage_inventory", shopId);
+    } finally {
+      await client.close();
+      await mcp.close();
+    }
+  });
+
+  it("only forwards PayPal consent after the identity resolver confirms the owner grant", async () => {
+    const shopId = "5f4b2190-f88b-4d19-bef6-cc11e71bb6f1";
+    const shareDataConsentAt = new Date("2026-11-06T11:12:13.000Z");
+    const start = vi.fn(async () => ({ connection: { shopId, status: "pending" as const }, actionUrl: "https://www.sandbox.paypal.com/merchantsignup/partner/onboardingentry?token=action-token" }));
+    const services: SellerAgentServices = {
+      ...minimal,
+      grantTokenFromRequest: () => "seller-grant-test-only",
+      authorizeShop: vi.fn(async () => ({ shopId, actorId: "owner-1", shareDataConsent: true as const, shareDataConsentAt })),
+      shopIdFromRequest: () => shopId,
+      paypalConnection: { start },
+    };
+    const client = new Client({ name: "seller-paypal-consent-test", version: "0.1.0" });
+    const clientTransport = new InMemoryTransport();
+    const serverTransport = new InMemoryTransport();
+    clientTransport.peer = serverTransport;
+    serverTransport.peer = clientTransport;
+    const mcp = createSellerMcpServer(services);
+    try {
+      await mcp.connect(serverTransport);
+      await client.connect(clientTransport);
+      const response = await client.callTool({
+        name: "seller_connect_paypal",
+        arguments: { action: "start", idempotencyKey: "seller-connect-0001" },
+      });
+      expect(response.structuredContent).toEqual({
+        status: "pending",
+        humanActionUrl: "https://www.sandbox.paypal.com/merchantsignup/partner/onboardingentry?token=action-token",
+      });
+      expect(start).toHaveBeenCalledWith(
+        { shopId, actorId: "owner-1", shareDataConsent: true, shareDataConsentAt },
+        { shopId, idempotencyKey: "seller-connect-0001" },
+      );
+    } finally {
+      await client.close();
+      await mcp.close();
+    }
+  });
+
+  it("does not start PayPal when the resolved seller grant lacks owner data-sharing consent", async () => {
+    const shopId = "5f4b2190-f88b-4d19-bef6-cc11e71bb6f1";
+    const start = vi.fn();
+    const services: SellerAgentServices = {
+      ...minimal,
+      grantTokenFromRequest: () => "seller-grant-test-only",
+      authorizeShop: vi.fn(async () => ({ shopId, actorId: "owner-1" })),
+      shopIdFromRequest: () => shopId,
+      paypalConnection: { start },
+    };
+    const client = new Client({ name: "seller-paypal-no-consent-test", version: "0.1.0" });
+    const clientTransport = new InMemoryTransport();
+    const serverTransport = new InMemoryTransport();
+    clientTransport.peer = serverTransport;
+    serverTransport.peer = clientTransport;
+    const mcp = createSellerMcpServer(services);
+    try {
+      await mcp.connect(serverTransport);
+      await client.connect(clientTransport);
+      const response = await client.callTool({
+        name: "seller_connect_paypal",
+        arguments: { action: "start", idempotencyKey: "seller-connect-0001", shareDataConsent: true },
+      });
+      expect(response.isError).toBe(true);
+      expect(start).not.toHaveBeenCalled();
     } finally {
       await client.close();
       await mcp.close();

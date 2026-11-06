@@ -1,6 +1,8 @@
 import { randomBytes } from "node:crypto";
+import type { Pool } from "pg";
 
 import type { Db } from "../src/server/db/client";
+import { createSellerInventoryAdapter } from "../src/server/inventory/seller-adapter";
 import {
   bookings,
   orderLines,
@@ -49,6 +51,37 @@ export async function createProduct(
       ...overrides,
     })
     .returning();
+  return product;
+}
+
+/** Explicit synthetic stock for tests that exercise a physical checkout. */
+export async function setTestTrackedStock(
+  db: Db,
+  shopId: string,
+  productId: string,
+  onHand = 100,
+) {
+  const pool = (db as Db & { $client: Pool }).$client;
+  return createSellerInventoryAdapter(pool).setMode(
+    { actorId: "00000000-0000-4000-8000-000000000099", shopId },
+    {
+      productId,
+      mode: "tracked",
+      onHand,
+      idempotencyKey: `test-stock:${productId}`,
+      reason: "Synthetic tracked quantity for a physical checkout test.",
+    },
+  );
+}
+
+export async function createTrackedProduct(
+  db: Db,
+  shopId: string,
+  overrides: Partial<typeof products.$inferInsert> = {},
+  onHand = 100,
+) {
+  const product = await createProduct(db, shopId, overrides);
+  await setTestTrackedStock(db, shopId, product.id, onHand);
   return product;
 }
 

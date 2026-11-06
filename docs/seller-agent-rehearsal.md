@@ -1,106 +1,80 @@
-# AgentShelf seller-agent rehearsal: acceptance matrix
+# Seller-agent runtime rehearsal
 
-## Purpose
+## Recorded evidence
 
-This document defines a repeatable rehearsal for the current seller and buyer paths and the owner-led seller-agent flow
+The [runtime baseline](https://github.com/ever-guild/AgentShelf/commit/8b6e6d4834c6b94989db575064a1569f30ecedd6) passed 1,496 tests, lint, production build and the complete local HTTP/MCP scenario on a fresh database with PayPal, Anthropic and Render environment settings absent
 
-The target scenario is owner-authorized shop setup, seller-side catalog and stock management, buyer-side discovery and purchase, with a person approving any PayPal payment
+Real Chrome verified owner registration, catalog access, mobile width, seller-header sign-out and legacy sign-in on the [identity candidate](https://github.com/ever-guild/AgentShelf/commit/e0e1004dad7be3465b94dce08486f5c953d17d5a), follow [PR #43](https://github.com/ever-guild/AgentShelf/pull/43) for subsequent review fixes
 
-## Snapshot and status
+Record the exact revision for every later run in [release rehearsal #18](https://github.com/ever-guild/AgentShelf/issues/18), these results do not establish real Sandbox payments, an external assistant session or deployment of the candidate
 
-The current-code baseline is [commit 9c84906](https://github.com/ever-guild/AgentShelf/commit/9c84906620c3ab6729beaa7995bfca45d6e7731a), run this matrix again against the exact candidate commit before reporting release readiness
+## Local setup
 
-Use these results consistently
-
-| Status | Meaning |
-| --- | --- |
-| `PASS` | The named check ran against the candidate build and its expected evidence was recorded |
-| `FAIL` | The check ran and contradicted its expected result |
-| `BLOCKED` | The capability, credential, or approved human action needed to run the check is absent |
-| `NOT RUN` | The capability exists, but this rehearsal did not execute it |
-
-Do not turn an absent feature into a pass by skipping its row, record the owning issue and the missing prerequisite for every blocked row
-
-Report implementation, automated test execution, runtime wiring, and public deployment as separate evidence, a merged code path does not prove its tests ran, an exported service does not prove a route uses it, and a healthy URL does not prove it serves the candidate commit
-
-## Safe current-code baseline
-
-Use a disposable PostgreSQL 17 database for local rehearsal with `RENDER` unset, Render starts seed an empty database automatically while local seeding remains an explicit step, smoke searches add demand events to the database
-
-Set up the app using [architecture local setup](architecture.md#local-setup), then migrate, seed, and start the app
+Use Node.js 24 and PostgreSQL 17, create a new disposable database and leave `RENDER` unset, follow the [local README](../README.md#run-locally) and [architecture](architecture.md)
 
 ```bash
 npm ci
-npm run db:migrate
-npm run db:seed
-npm run dev
+createdb agentshelf_runtime
+if [ ! -e .env.local ]; then cp .env.example .env.local; fi
 ```
 
-With the service running, exercise the current buyer contract
+Configure `DATABASE_URL`, `APP_SIGNING_SECRET` and `APP_ORIGIN=http://localhost:3000` in the ignored local file, the smoke uses deterministic CSV parsing and needs no Anthropic or PayPal credentials
+
+Do not seed the owner-onboarding database, the scenario creates its own synthetic account and shops
 
 ```bash
-npm run smoke:demo -- http://localhost:3000/mcp --date 2026-11-06
-npm run smoke:mcp -- http://localhost:3000/mcp
+npm run db:migrate
+npm run build
+npm run start
 ```
 
-`smoke:demo` searches both seeded shops and checks the repair slot, it does not create an order or booking but its searches are recorded as demand
+In a second terminal, explicitly acknowledge that this application uses a disposable database
 
-`smoke:mcp` initializes the buyer connector, lists the current buyer tools, searches a seeded product, and rejects malformed or tampered checkout input, it never sends a valid checkout
+```bash
+RUNTIME_SMOKE_DISPOSABLE_DB=1 npm run smoke:runtime -- http://localhost:3000
+```
 
-For the current seller UI, sign in at `/seller/sign-in` with the access code for a seeded shop, upload a synthetic CSV such as [`phone-workshop.csv`](../test/fixtures/price-lists/phone-workshop.csv), review the rows, and inspect the published catalog, use a disposable database because this adds catalog rows
+The helper permits local HTTP origins only and creates persistent synthetic owners, shops, an import, catalog items, stock and search demand, discard the temporary database after the rehearsal
 
-This baseline does not exercise new-shop signup, an external seller agent, agent grants, or quantity inventory
+It verifies registration and sign-in, owner-only and shop-scoped grants, onboarding discovery, agent-created shop, cross-shop denial, grant revocation, CSV import/review/publication, stock adjustment from two to one and buyer search
+
+It also requests checkout for the unconnected shop and requires `PAYMENT_NOT_CONFIGURED` without an approval URL or order capability, no provider order or payment is created
+
+For a separate seeded-demo rehearsal, run `npm run db:seed`, then the existing `smoke:demo` and `smoke:mcp` commands, supply the current rehearsal date rather than copying an old date
+
+## Browser checks
+
+- Register a synthetic owner and shop through `/seller/register`, select the shop, open existing catalog and price-list screens
+- At 390px and desktop width, confirm forms and catalog remain usable and the session cookie is HttpOnly
+- Click Sign out in the existing seller header, revisit a protected page and require sign-in
+- Sign in through the seeded-shop access-code form, require the owner API and owner pages to remain inaccessible
+- Create a second owned shop, acknowledge `connect_paypal` sharing for shop A, switch to shop B and require a new acknowledgement before issuing a grant
+- After successful grant issuance, require a fresh acknowledgement for another PayPal grant, never print or retain the raw grant in evidence
+
+Use synthetic data only, API-based fixture creation must be identified separately from a UI action
 
 ## Acceptance matrix
 
-Run the blocked rows after their feature issues merge and the exact contracts are documented, do not invent route or tool names before then
-
-Execution stages separate code-level evidence from browser, agent, and sandbox evidence
-
-| Stage | Evidence type | What it proves |
+| Area | Evidence required | Recorded state |
 | --- | --- | --- |
-| 1 | Unit tests | Input validation, identity and consent state transitions, idempotency and authorization rules in isolation |
-| 2 | PostgreSQL integration tests | Persistence constraints, cross-shop isolation, stock concurrency, webhook deduplication and late-capture transitions |
-| 3 | Browser and MCP rehearsal | The shipped owner UI and seller-agent connector work with separate principals against one candidate deployment |
-| 4 | PayPal Sandbox | Platform consent and status verification work with a human seller, buyer approval and payment checks happen only in a separately authorized rehearsal |
-| 5 | Public deployment verification | Render reports the candidate commit live and the public application responds on the expected URLs |
+| Owner onboarding | Fresh registration, shop persistence, catalog access | Local HTTP and Chrome PASS at the revisions above |
+| Seller MCP | Independent buyer/seller principals, discovery, import/review/publication | Local SDK-to-HTTP PASS at the runtime baseline |
+| Authorization | Wrong tenant, expiry, revoked grant and session | Database tests and local runtime PASS at the runtime baseline |
+| Stock | Explicit policy, atomic allocation, contention and versioned adjustment | PostgreSQL suites and local 2-to-1 adjustment PASS at the runtime baseline |
+| Unconnected checkout | No approval URL or order capability | Local negative-checkout PASS at the runtime baseline |
+| Capture and booking | Timely capture, ambiguity, expiry, paid booking replay and late review | Provider-fixture and PostgreSQL suites PASS at the runtime baseline |
+| Per-shop consent UI | Switching shops and successful grant issuance reset acknowledgement | Chrome PASS at [a7c2f62](https://github.com/ever-guild/AgentShelf/commit/a7c2f62ad07136c39f7871b3c4432ceb3e66fccf), including reset after successful issuance |
+| Platform payment webhook | Signature-first verification, identifier agreement, deduplication and revoked-completed order | Run the platform webhook suite on the final revision, real delivery remains unverified |
+| Sandbox seller/payment flow | Two consents, approval, recipient, capture and both webhook subscriptions | BLOCKED on app configuration and human Sandbox actions |
+| External seller assistant | Real configured-client session performing seller tools | NOT RUN |
+| Public deployment | Exact Render live SHA plus health and functional checks | Pending main integration, a draft PR does not deploy |
 
-| ID | Stage | Scenario | Execution and evidence | Current result |
-| --- | --- | --- | --- | --- |
-| BASE-1 | 3 | Existing two-shop buyer path | Run `smoke:demo`, retain its sanitized output and candidate SHA | `NOT RUN` in this task, helper exists |
-| BASE-2 | 3 | Buyer MCP initialization and invalid input | Run `smoke:mcp`, confirm only buyer tools are listed and tampered totals are rejected | `NOT RUN` in this task, helper exists |
-| BASE-3 | 3 | Existing seller CSV review and publish | Sign in to a seeded shop, upload the synthetic CSV, edit a row, finish review, and confirm the resulting local product is searchable | `NOT RUN` in this task, current UI exists |
-| UI-1 | 3 | Owner registration matches the shared product shell | Complete registration and sign-in on desktop and mobile widths, confirm shared navigation, header, and home styles remain consistent | Shared styles and screens landed in [commit 1a589d7](https://github.com/ever-guild/AgentShelf/commit/1a589d718d19e20f72fac6d68dedcda5372896b1), owner registration remains `BLOCKED` on [seller identity #34](https://github.com/ever-guild/AgentShelf/issues/34), visual rehearsal `NOT RUN` |
-| OWNER-1 | 3 | Owner creates a new shop through UI or starts it through their agent, without seeding | Create a fresh shop in a clean database, restart the app, then confirm its owner can still access it and the seed was not needed | `BLOCKED` on [seller identity #34](https://github.com/ever-guild/AgentShelf/issues/34) |
-| AGENT-1 | 3 | Seller agent acts independently from the buyer agent | Use the owner's authorized seller-agent credential for a catalog change, use the public buyer connector to find the published result, and record the two principals and shop scopes | `BLOCKED` on [seller MCP #37](https://github.com/ever-guild/AgentShelf/issues/37) |
-| AUTH-2 | 2, 3 | Foreign-shop access and revoked seller-agent grant | Attempt a read and a mutation against another shop, revoke the seller-agent grant, then repeat both calls with the old credential | `BLOCKED` on [identity #34](https://github.com/ever-guild/AgentShelf/issues/34) and [seller MCP #37](https://github.com/ever-guild/AgentShelf/issues/37), current per-shop demo sessions have separate tests |
-| STOCK-1 | 2, 3 | Quantity change and checkout quantity | Start with three sellable units, buy two under the defined reservation policy, then verify one remains available and the order snapshot records quantity two | `BLOCKED` on [inventory #36](https://github.com/ever-guild/AgentShelf/issues/36) |
-| STOCK-2 | 2 | Concurrent buyers compete for the last unit | Start with one available unit and submit two distinct checkout requests concurrently, require exactly one successful reservation and no oversell | `BLOCKED` on [inventory #36](https://github.com/ever-guild/AgentShelf/issues/36) |
-| STOCK-3 | 2 | Expired inventory reservation cannot start a new capture | Expire or release a reservation before capture, verify the checkout/payment gate prevents a new PayPal capture request for that reservation | `BLOCKED` on [inventory #36](https://github.com/ever-guild/AgentShelf/issues/36) and [booking hold capture gate #38](https://github.com/ever-guild/AgentShelf/issues/38) |
-| STOCK-4 | 2 | Already captured payment arrives after inventory reservation expires | Reconcile the late verified capture as `review_required`, retain evidence for seller resolution, and do not consume stock or allow a second buyer to double-book it | `BLOCKED` on [inventory #36](https://github.com/ever-guild/AgentShelf/issues/36) and [booking hold capture gate #38](https://github.com/ever-guild/AgentShelf/issues/38) |
-| PAYPAL-1 | 1, 2 | Shop has no PayPal connection | Create a shop without PayPal consent, confirm catalog work succeeds, checkout returns the documented not-connected state, and no provider order or approval link is created | Current checkout has a tested `PAYMENT_NOT_CONFIGURED` boundary, new shop onboarding behavior is `BLOCKED` on [PayPal onboarding #35](https://github.com/ever-guild/AgentShelf/issues/35) |
-| PAYPAL-2 | 4 | Incomplete or revoked PayPal consent | Stop between consent start and return, then revoke consent, confirm both states block new checkout without exposing app secrets | `BLOCKED` on [PayPal onboarding #35](https://github.com/ever-guild/AgentShelf/issues/35) |
-| PAY-1 | 2 | Duplicate webhook delivery | Deliver the same verified fixture twice through the database-backed webhook test harness, require one payment transition and one receipt | Existing behavior is covered by [`paypal-webhook.db.test.ts`](../src/server/services/paypal-webhook.db.test.ts), rerun on the release candidate |
-| PAY-2 | 2 | Do not capture after a booking hold expires or is cancelled | Expire or cancel the hold before capture, verify the payment path makes no PayPal capture call for that hold | Guard implemented with database coverage in [commit db9293c](https://github.com/ever-guild/AgentShelf/commit/db9293c77dc7dd48026276f6cb5efd43a3e240ad), release-candidate test `NOT RUN` |
-| PAY-3 | 2 | PayPal capture was already completed after a booking hold expires | Use a verified late-capture fixture and controlled clock, require `review_required` with capture evidence recorded and the booking not confirmed, do not double-book the slot | Late-capture transition is covered by [`bookings.db.test.ts`](../src/server/services/bookings.db.test.ts) and was extended in [commit db9293c](https://github.com/ever-guild/AgentShelf/commit/db9293c77dc7dd48026276f6cb5efd43a3e240ad), release-candidate test `NOT RUN` |
-| DEPLOY-1 | 5 | Candidate is live at the public demo | Confirm Render reports `live` for the exact candidate SHA, then check homepage and health/readiness URLs and record sanitized results | `NOT RUN` in this task, see [CI deploy workflow](../.github/workflows/ci.yml) for automated commit verification |
-
-`PAY-1` and `PAY-3` are automated stand-in checks, they are not evidence of a real PayPal webhook or transaction
+For an actual Sandbox rehearsal, follow [Sandbox setup](paypal-sandbox-setup.md), [merchant connection](paypal-merchant-connection.md) and [inventory behavior](inventory-contract.md), use separate subscription IDs for consent revocation and platform payment events
 
 ## Evidence record
 
-For each rehearsal record the candidate commit, database type, command or manual path, result, sanitized output, and any issue blocking the check
+Record revision, database type, command or manual action, result and remaining blocker, keep test fixtures, browser actions, real PayPal operations and deployment checks separate
 
-Never record a buyer password, seller credential, access token, PayPal approval URL, payer data, or raw webhook body in the evidence
+Never include passwords, cookies, raw grants, approval URLs, payer data, raw webhook bodies or secret values, do not run order or booking smoke against a shared demo without its explicitly authorized rehearsal scope
 
-Do not run `smoke:checkout`, `smoke:booking`, or the import smoke against a shared demo as part of this safe baseline, those commands create a sandbox order, hold an appointment, or upload data, complete the actual sandbox payment only during the separately approved end-to-end payment rehearsal
-
-## Cross-issue handoff
-
-The owner and seller-agent work should reuse the catalog service and align its changes with [#9](https://github.com/ever-guild/AgentShelf/issues/9), search indexing with [#10](https://github.com/ever-guild/AgentShelf/issues/10), capture and verified webhook transitions with [#11](https://github.com/ever-guild/AgentShelf/issues/11), and booking hold policy with [#12](https://github.com/ever-guild/AgentShelf/issues/12)
-
-The storefront checkout in [#16](https://github.com/ever-guild/AgentShelf/issues/16) must consume the same stock reservation contract as buyer MCP, the two-shop fixtures remain in [#17](https://github.com/ever-guild/AgentShelf/issues/17)
-
-The release gate in [#18](https://github.com/ever-guild/AgentShelf/issues/18) also depends on the booking capture guard in [#38](https://github.com/ever-guild/AgentShelf/issues/38) and shared-screen design pass in [#39](https://github.com/ever-guild/AgentShelf/issues/39), keep the booking rule explicit: no new capture after a hold expires or is cancelled, an already completed late capture stays under review and never confirms or double-books the slot
-
-Do not change another issue's ownership or implementation as part of rehearsal preparation, send contract changes to the issue owner for review
+Feature ownership remains in [registration #34](https://github.com/ever-guild/AgentShelf/issues/34), [merchant connection #35](https://github.com/ever-guild/AgentShelf/issues/35), [inventory #36](https://github.com/ever-guild/AgentShelf/issues/36) and [seller MCP #37](https://github.com/ever-guild/AgentShelf/issues/37), release evidence belongs in [#18](https://github.com/ever-guild/AgentShelf/issues/18) and the reproducible guide in [#19](https://github.com/ever-guild/AgentShelf/issues/19)

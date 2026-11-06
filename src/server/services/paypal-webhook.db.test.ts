@@ -1,28 +1,53 @@
+import { randomUUID } from "node:crypto";
+
 import { eq } from "drizzle-orm";
+import type { Pool } from "pg";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { setupMigratedDatabase } from "../../../test/database";
 import {
   WEBHOOK_ID,
+  MERCHANT_ID,
   createPaymentHarness,
   placeOrder,
   readOrder,
   type PaymentHarness,
 } from "../../../test/payments";
-import { webhookReceipts } from "../db/schema";
+import {
+  orders,
+  paypalMerchantConnections,
+  sellerOwners,
+  shopMemberships,
+  shops,
+  webhookReceipts,
+} from "../db/schema";
+import { PLATFORM_PAYPAL_CREDENTIAL_REF, createPayPalProvider } from "../paypal/orders";
+import { beginPhysicalOrderCapture } from "../inventory/physical-orders";
 import { reconcileForBuyer } from "./payment-reconciliation";
-import { handlePayPalWebhook } from "./paypal-webhook";
+import { handlePayPalWebhook, handlePlatformPayPalWebhook } from "./paypal-webhook";
 
 const getDb = setupMigratedDatabase();
 
 let harness: PaymentHarness;
 let eventNumber = 0;
+const PLATFORM_WEBHOOK_ID = "WH-PLATFORM-PAYMENTS";
+const PLATFORM_ENV = {
+  PAYPAL_PLATFORM_CLIENT_ID: "sandbox-platform-client-id",
+  PAYPAL_PLATFORM_CLIENT_SECRET: "sandbox-platform-client-secret",
+  PAYPAL_PARTNER_ATTRIBUTION_ID: "AGENT_SHELF_BN_CODE",
+};
+let platformDeps: PaymentHarness["deps"];
 
 beforeEach(() => {
   vi.stubEnv("APP_ORIGIN", "https://shop.example");
+  vi.stubEnv("PAYPAL_PLATFORM_PAYMENT_WEBHOOK_ID", PLATFORM_WEBHOOK_ID);
   vi.spyOn(console, "error").mockImplementation(() => {});
   vi.spyOn(console, "warn").mockImplementation(() => {});
   harness = createPaymentHarness();
+  platformDeps = {
+    ...harness.deps,
+    paypalFor: createPayPalProvider(PLATFORM_ENV, harness.paypal.adapter),
+  };
 });
 
 afterEach(() => {
@@ -80,6 +105,47 @@ function deliver(
     },
     harness.deps,
   );
+}
+
+function deliverPlatform(event: Json, headers?: Headers, rawBody = rawOf(event)) {
+  return handlePlatformPayPalWebhook(getDb(), {
+    rawBody,
+    headers: headers ?? harness.paypal.signDelivery(PLATFORM_WEBHOOK_ID, rawBody),
+  }, platformDeps);
+}
+
+async function markPlatformOrder(
+  orderId: string,
+  options: { revoke?: boolean } = {},
+) {
+  const order = await readOrder(getDb(), orderId);
+  await getDb().update(orders)
+    .set({ paypalCredentialRef: PLATFORM_PAYPAL_CREDENTIAL_REF })
+    .where(eq(orders.id, orderId));
+  if (!options.revoke) return;
+
+  const ownerId = randomUUID();
+  const now = new Date("2026-11-06T12:00:00Z");
+  await getDb().update(shops)
+    .set({ paypalCredentialRef: "UNCONFIGURED", paypalMerchantId: null })
+    .where(eq(shops.id, order.shopId));
+  await getDb().insert(sellerOwners).values({
+    id: ownerId,
+    username: `owner-${randomUUID().slice(0, 8)}`,
+    passwordHash: `scrypt$16384$8$1$${"A".repeat(22)}$${"B".repeat(43)}`,
+  });
+  await getDb().insert(shopMemberships).values({ ownerId, shopId: order.shopId });
+  await getDb().insert(paypalMerchantConnections).values({
+    shopId: order.shopId,
+    consentedByOwnerId: ownerId,
+    shareDataConsentAt: new Date(now.getTime() - 60_000),
+    status: "revoked",
+    trackingId: `${randomUUID().replaceAll("-", "")}${randomUUID().slice(0, 8)}`,
+    requestKeyHash: randomUUID().replaceAll("-", "").repeat(2),
+    sellerMerchantId: order.payeeMerchantId,
+    createdAt: now,
+    updatedAt: now,
+  });
 }
 
 const receipts = () => getDb().select().from(webhookReceipts);
@@ -512,5 +578,78 @@ describe("events that are not for us", () => {
 
     expect(await receipts()).toHaveLength(1);
     expect(harness.paypal.readRequests()).toHaveLength(0);
+  });
+});
+
+describe("the platform webhook subscription", () => {
+  it("reconciles a completed order after seller revocation and deduplicates the delivery", async () => {
+    const { shop, orderId, paypalOrderId } = await placeOrder(getDb(), harness);
+    await markPlatformOrder(orderId);
+    const pool = (getDb() as ReturnType<typeof getDb> & { $client: Pool }).$client;
+    expect(await beginPhysicalOrderCapture(pool, orderId)).toMatchObject({ allowed: true });
+    const platformPayPal = platformDeps.paypalFor(
+      PLATFORM_PAYPAL_CREDENTIAL_REF,
+      MERCHANT_ID,
+    );
+    expect(platformPayPal).toBeDefined();
+    harness.paypal.approve(paypalOrderId);
+    await platformPayPal!.captureOrder({
+      id: paypalOrderId,
+      paypalRequestId: `capture-${orderId}`,
+      body: {},
+    });
+    // The allocation and completed capture predate revocation, only delivery is delayed
+    await markPlatformOrder(orderId, { revoke: true });
+    const event = captureEvent(paypalOrderId);
+
+    expect(await deliverPlatform(event)).toBe(200);
+    expect(await readOrder(getDb(), orderId)).toMatchObject({
+      paymentStatus: "paid",
+      paypalCredentialRef: PLATFORM_PAYPAL_CREDENTIAL_REF,
+    });
+    expect(harness.confirmed).toEqual([orderId]);
+    expect(harness.paypal.captureRequests()).toHaveLength(1);
+    expect(await deliverPlatform(event)).toBe(200);
+    expect(harness.confirmed).toEqual([orderId]);
+    expect(harness.paypal.readRequests()).toHaveLength(1);
+    expect(await receipts()).toEqual([
+      expect.objectContaining({
+        providerEventId: event.id,
+        shopId: shop.id,
+        orderId,
+        status: "processed",
+      }),
+    ]);
+  });
+
+  it("does not write a receipt or reconcile before the platform signature verifies", async () => {
+    const { orderId, paypalOrderId } = await placeOrder(getDb(), harness);
+    await markPlatformOrder(orderId);
+    const event = captureEvent(paypalOrderId);
+    const raw = rawOf(event);
+    const headers = harness.paypal.signDelivery(PLATFORM_WEBHOOK_ID, raw);
+    headers.set("paypal-transmission-sig", "invalid-signature");
+
+    expect(await deliverPlatform(event, headers, raw)).toBe(400);
+    expect(await receipts()).toEqual([]);
+    expect(harness.paypal.readRequests()).toHaveLength(0);
+    expect((await readOrder(getDb(), orderId)).paymentStatus).toBe("pending");
+  });
+
+  it("ignores a signed event whose PayPal order ID and local custom ID name different orders", async () => {
+    const first = await placeOrder(getDb(), harness);
+    const second = await placeOrder(getDb(), harness, { paypalMerchantId: "PLATFORMSELLER2" });
+    await markPlatformOrder(first.orderId);
+    await markPlatformOrder(second.orderId);
+    const event = captureEvent(first.paypalOrderId);
+    (event.resource as Json).custom_id = second.orderId;
+
+    expect(await deliverPlatform(event)).toBe(200);
+    expect((await readOrder(getDb(), first.orderId)).paymentStatus).toBe("pending");
+    expect((await readOrder(getDb(), second.orderId)).paymentStatus).toBe("pending");
+    expect(harness.paypal.readRequests()).toHaveLength(0);
+    expect(await receipts()).toEqual([
+      expect.objectContaining({ status: "ignored", orderId: null }),
+    ]);
   });
 });

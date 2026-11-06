@@ -1,6 +1,8 @@
 import { createHash, randomBytes } from "node:crypto";
 import { z } from "zod";
 
+import type { SellerPayPalShopPrincipal, SellerShopPrincipal } from "../contracts/seller-identity";
+
 export const MERCHANT_CONNECTION_STATES = [
   "not_connected",
   "pending",
@@ -10,8 +12,9 @@ export const MERCHANT_CONNECTION_STATES = [
 ] as const;
 export type MerchantConnectionState = (typeof MERCHANT_CONNECTION_STATES)[number];
 
-/** Matches SellerShopPrincipal from the owner-identity contract after session/grant resolution. */
-export type MerchantConnectionPrincipal = { actorId: string; shopId: string };
+/** Owner session or a grant-scoped principal carrying persisted PayPal consent evidence. */
+export type MerchantConnectionPrincipal = SellerShopPrincipal &
+  Partial<Pick<SellerPayPalShopPrincipal, "shareDataConsent" | "shareDataConsentAt">>;
 export type MerchantConnectionAction = "connect" | "read";
 
 export type MerchantStatusEvidence = {
@@ -26,6 +29,8 @@ export type MerchantStatusEvidence = {
 
 export type MerchantConnectionRecord = {
   shopId: string;
+  consentedByOwnerId: string;
+  shareDataConsentAt: Date;
   status: Exclude<MerchantConnectionState, "not_connected">;
   trackingId: string;
   requestKeyHash: string;
@@ -44,6 +49,8 @@ export interface MerchantConnectionRepository {
   // error, and creates only after a definite referral rejection or revocation.
   reserveStart(input: {
     shopId: string;
+    consentedByOwnerId: string;
+    shareDataConsentAt: Date;
     requestKeyHash: string;
     trackingId: string;
     now: Date;
@@ -64,6 +71,7 @@ export interface MerchantConnectionRepository {
     sellerMerchantId: string;
     status: "ready" | "pending";
     evidence: MerchantStatusEvidence;
+    observedAt?: Date;
     now: Date;
   }): Promise<MerchantConnectionRecord>;
   markRevoked(input: {
@@ -86,6 +94,7 @@ export interface PartnerReferralsAdapter {
 const startSchema = z.strictObject({
   shopId: z.uuid(),
   idempotencyKey: z.string().trim().min(16).max(128),
+  shareDataConsent: z.literal(true).optional(),
 });
 const shopIdSchema = z.uuid();
 const callbackSchema = z.strictObject({
@@ -98,6 +107,7 @@ export class MerchantConnectionError extends Error {
   constructor(
     readonly code:
       | "UNAUTHORIZED"
+      | "CONSENT_REQUIRED"
       | "CONNECTION_CONFLICT"
       | "CONNECTION_OUTCOME_UNKNOWN"
       | "INVALID_CALLBACK"
@@ -112,7 +122,6 @@ export class MerchantConnectionError extends Error {
 export type MerchantConnectionView = {
   shopId: string;
   status: MerchantConnectionState;
-  sellerMerchantId?: string;
   nextAction?: "continue_paypal" | "retry_status" | "retry_connection" | "contact_support";
   paymentsReceivable?: boolean;
   primaryEmailConfirmed?: boolean;
@@ -131,7 +140,6 @@ function publicView(record: MerchantConnectionRecord | undefined, shopId: string
   return {
     shopId: record.shopId,
     status: record.status,
-    ...(record.sellerMerchantId ? { sellerMerchantId: record.sellerMerchantId } : {}),
     ...(record.status === "pending" && record.referralUrl ? { nextAction: "continue_paypal" as const } : {}),
     ...(record.status === "pending" && record.errorCode === "provider_outcome_unknown" ? { nextAction: "contact_support" as const } : {}),
     ...(record.status === "error" && record.errorCode === "status_unavailable" ? { nextAction: "retry_status" as const } : {}),
@@ -175,18 +183,41 @@ export function createMerchantConnectionService(input: {
   return {
     async start(principal: MerchantConnectionPrincipal, rawInput: unknown) {
       const parsed = startSchema.safeParse(rawInput);
-      if (!parsed.success) throw new MerchantConnectionError("CONNECTION_CONFLICT", "The PayPal connection request is invalid.");
+      if (!parsed.success) {
+        if (!rawInput || typeof rawInput !== "object" || (rawInput as { shareDataConsent?: unknown }).shareDataConsent !== true) {
+          throw new MerchantConnectionError("CONSENT_REQUIRED", "Confirm that this shop may share its account data with PayPal before continuing.");
+        }
+        throw new MerchantConnectionError("CONNECTION_CONFLICT", "The PayPal connection request is invalid.");
+      }
       const { shopId, idempotencyKey } = parsed.data;
       await authorize(principal, shopId, "connect");
-      const stamp = now();
+      if (!z.uuid().safeParse(principal.actorId).success) throw new MerchantConnectionError("UNAUTHORIZED", "You are not authorized to manage PayPal for this shop.");
+      if (
+        principal.shareDataConsentAt !== undefined &&
+        (principal.shareDataConsent !== true ||
+          !(principal.shareDataConsentAt instanceof Date) ||
+          Number.isNaN(principal.shareDataConsentAt.getTime()))
+      ) {
+        throw new MerchantConnectionError("UNAUTHORIZED", "The seller-agent consent evidence is invalid.");
+      }
+      const delegatedConsentAt = principal.shareDataConsent === true
+        ? principal.shareDataConsentAt
+        : undefined;
+      if (!delegatedConsentAt && parsed.data.shareDataConsent !== true) {
+        throw new MerchantConnectionError("CONSENT_REQUIRED", "Confirm that this shop may share its account data with PayPal before continuing.");
+      }
+      const actionAt = now();
+      const consentAt = delegatedConsentAt ?? actionAt;
       const trackingId = createTrackingId();
       if (!/^[A-Za-z0-9_-]{40,64}$/.test(trackingId)) throw new Error("Tracking ID generator returned an invalid value");
       const requestKeyHash = hash(idempotencyKey);
       const reservation = await input.repository.reserveStart({
         shopId,
+        consentedByOwnerId: principal.actorId,
+        shareDataConsentAt: consentAt,
         requestKeyHash,
         trackingId,
-        now: stamp,
+        now: actionAt,
       });
       if (reservation.kind === "conflict") {
         throw new MerchantConnectionError("CONNECTION_CONFLICT", "A PayPal connection flow is already active for this shop.");
@@ -194,12 +225,15 @@ export function createMerchantConnectionService(input: {
       const record = reservation.record;
       if (
         record.shopId !== shopId ||
-        (reservation.kind !== "active" && record.requestKeyHash !== requestKeyHash) ||
+        (reservation.kind !== "active" && (record.requestKeyHash !== requestKeyHash || record.consentedByOwnerId !== principal.actorId)) ||
         (reservation.kind === "created" && (record.trackingId !== trackingId || record.status !== "pending"))
       ) {
         throw new MerchantConnectionError("CONNECTION_CONFLICT", "The PayPal connection reservation could not be matched to this shop.");
       }
       if (reservation.kind !== "created") {
+        if (record.consentedByOwnerId !== principal.actorId) {
+          return { connection: publicView(record, shopId) };
+        }
         if (record.status === "ready" || record.status === "revoked" || record.status === "error") {
           return { connection: publicView(record, shopId) };
         }
@@ -268,6 +302,7 @@ export function createMerchantConnectionService(input: {
         return publicView(record, record.shopId);
       }
       let evidence: MerchantStatusEvidence;
+      const observedAt = now();
       try {
         evidence = await input.paypal.getMerchantStatus(sellerMerchantIdHint);
       } catch {
@@ -292,6 +327,7 @@ export function createMerchantConnectionService(input: {
         sellerMerchantId: evidence.merchantId,
         status: ready ? "ready" : "pending",
         evidence,
+        observedAt,
         now: now(),
       });
       if (
@@ -312,26 +348,38 @@ export function createMerchantConnectionService(input: {
       return publicView(record, shopId);
     },
 
+    async refreshStatus(principal: MerchantConnectionPrincipal, shopId: string) {
+      await authorize(principal, shopId, "connect");
+      const record = await input.repository.getByShop(shopId);
+      if (!record || !record.sellerMerchantId || record.status === "revoked") {
+        return publicView(record, shopId);
+      }
+      return this.complete(principal, {
+        trackingId: record.trackingId,
+        sellerMerchantIdHint: record.sellerMerchantId,
+      });
+    },
+
     async handleRevocationWebhook(rawInput: { headers: Headers; rawBody: string }) {
       const headerResult = webhookHeadersSchema.safeParse(rawInput?.headers);
-      if (!headerResult.success || typeof rawInput?.rawBody !== "string" || rawInput.rawBody.length > 1_000_000) {
-        return { applied: false as const };
+      if (!headerResult.success || typeof rawInput?.rawBody !== "string" || Buffer.byteLength(rawInput.rawBody, "utf8") > 256 * 1024) {
+        return { applied: false as const, outcome: "invalid" as const };
       }
       let verified: Awaited<ReturnType<PartnerReferralsAdapter["verifyRevocationWebhook"]>>;
       try {
         verified = await input.paypal.verifyRevocationWebhook(rawInput);
       } catch {
-        return { applied: false as const };
+        return { applied: false as const, outcome: "unavailable" as const };
       }
       if (!verified || verified.eventType !== "MERCHANT.PARTNER-CONSENT.REVOKED" || !verified.eventId || !verified.sellerMerchantId) {
-        return { applied: false as const };
+        return { applied: false as const, outcome: "invalid" as const };
       }
       const result = await input.repository.markRevoked({
         sellerMerchantId: verified.sellerMerchantId,
         eventId: verified.eventId,
         now: now(),
       });
-      return { applied: result === "revoked", duplicate: result === "duplicate" };
+      return { applied: result === "revoked", duplicate: result === "duplicate", outcome: result };
     },
   };
 }

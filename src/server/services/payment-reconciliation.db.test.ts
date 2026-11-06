@@ -1,4 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { eq } from "drizzle-orm";
+import type { Pool } from "pg";
 
 import { setupMigratedDatabase } from "../../../test/database";
 import { createOrder, createShop } from "../../../test/fixtures";
@@ -10,8 +12,9 @@ import {
   readOrder,
   type PaymentHarness,
 } from "../../../test/payments";
-import { orders } from "../db/schema";
+import { orders, shops } from "../db/schema";
 import { ServiceError } from "../errors";
+import { beginPhysicalOrderCapture } from "../inventory/physical-orders";
 import {
   reconcileForBuyer,
   reconcileOrder,
@@ -65,6 +68,60 @@ describe("reconcileOrder", () => {
     expect(harness.confirmed).toEqual([orderId]);
     const [capture] = harness.paypal.captureRequests();
     expect(harness.paypal.requestIdOf(capture)).toBe(`capture-${orderId}`);
+  });
+
+  it("uses the order's original PayPal credential after the shop mapping changes", async () => {
+    const { orderId, paypalOrderId } = await placeOrder(getDb(), harness);
+    const order = await readOrder(getDb(), orderId);
+    await getDb().update(shops).set({ paypalCredentialRef: "RECONNECTED_SHOP" }).where(eq(shops.id, order.shopId));
+    harness.paypal.approve(paypalOrderId);
+    const provider = vi.fn(harness.deps.paypalFor);
+
+    await reconcileOrder(getDb(), orderId, { ...harness.deps, paypalFor: provider });
+
+    expect(provider).toHaveBeenCalledWith("TEST_SHOP", MERCHANT_ID);
+    expect((await readOrder(getDb(), orderId)).paymentStatus).toBe("paid");
+  });
+
+  it("does not capture a platform order after the seller connection is no longer ready", async () => {
+    const { orderId, paypalOrderId, shop } = await placeOrder(getDb(), harness);
+    await getDb().update(orders).set({ paypalCredentialRef: "PAYPAL_PLATFORM" }).where(eq(orders.id, orderId));
+    harness.paypal.approve(paypalOrderId);
+
+    await reconcileOrder(getDb(), orderId, {
+      ...harness.deps,
+      paypalFor: (_credentialRef, merchantId) => harness.deps.paypalFor("TEST_SHOP", merchantId),
+    });
+
+    expect(harness.paypal.captureRequests()).toHaveLength(0);
+    expect((await readOrder(getDb(), orderId)).paymentStatus).toBe("cancelled");
+    const pool = (getDb() as unknown as { $client: Pool }).$client;
+    const stock = await pool.query<{ reserved: number }>(
+      "SELECT reserved FROM inventory_stock WHERE shop_id=$1 AND product_id=(SELECT product_id FROM order_lines WHERE order_id=$2 LIMIT 1)",
+      [shop.id, orderId],
+    );
+    expect(stock.rows[0]?.reserved).toBe(0);
+  });
+
+  it("keeps an ambiguous capture hold when platform consent is revoked", async () => {
+    const { orderId, paypalOrderId, shop } = await placeOrder(getDb(), harness);
+    await getDb().update(orders).set({ paypalCredentialRef: "PAYPAL_PLATFORM" }).where(eq(orders.id, orderId));
+    const pool = (getDb() as unknown as { $client: Pool }).$client;
+    expect((await beginPhysicalOrderCapture(pool, orderId)).allowed).toBe(true);
+    harness.paypal.approve(paypalOrderId);
+
+    const order = await reconcileOrder(getDb(), orderId, {
+      ...harness.deps,
+      paypalFor: (_credentialRef, merchantId) => harness.deps.paypalFor("TEST_SHOP", merchantId),
+    });
+
+    expect(order?.paymentStatus).toBe("approved");
+    expect(harness.paypal.captureRequests()).toHaveLength(0);
+    const stock = await pool.query<{ reserved: number }>(
+      "SELECT reserved FROM inventory_stock WHERE shop_id=$1 AND product_id=(SELECT product_id FROM order_lines WHERE order_id=$2 LIMIT 1)",
+      [shop.id, orderId],
+    );
+    expect(stock.rows[0]?.reserved).toBe(1);
   });
 
   it("does not capture what PayPal has not reported as approved", async () => {
@@ -157,7 +214,7 @@ describe("an unknown capture outcome", () => {
     expect(harness.paypal.charges()).toBe(1);
   });
 
-  it("is retried with the same request and charges once", async () => {
+  it("keeps a live stock hold when capture outcome is unknown and does not resend capture", async () => {
     const { orderId, paypalOrderId } = await placeOrder(getDb(), harness);
     harness.paypal.approve(paypalOrderId);
     harness.paypal.nextCapture({ type: "timeout", captured: false });
@@ -165,12 +222,9 @@ describe("an unknown capture outcome", () => {
 
     const order = await reconcile(orderId);
 
-    expect(order?.paymentStatus).toBe("paid");
-    expect(harness.paypal.charges()).toBe(1);
-    const [first, second] = harness.paypal.captureRequests();
-    expect(harness.paypal.requestIdOf(second)).toBe(
-      harness.paypal.requestIdOf(first),
-    );
+    expect(order?.paymentStatus).toBe("approved");
+    expect(harness.paypal.charges()).toBe(0);
+    expect(harness.paypal.captureRequests()).toHaveLength(1);
   });
 
   it("stays open when PayPal cannot even be read after the capture", async () => {
@@ -215,7 +269,7 @@ describe("an unknown capture outcome", () => {
 });
 
 describe("a capture PayPal refuses", () => {
-  it("fails the order when PayPal declines the buyer's instrument", async () => {
+  it("keeps the live allocation when the buyer can retry with another instrument", async () => {
     const { orderId, paypalOrderId } = await placeOrder(getDb(), harness);
     harness.paypal.approve(paypalOrderId);
     harness.paypal.nextCapture({
@@ -226,7 +280,7 @@ describe("a capture PayPal refuses", () => {
 
     const order = await reconcile(orderId);
 
-    expect(order?.paymentStatus).toBe("failed");
+    expect(order?.paymentStatus).toBe("approved");
     expect(harness.paypal.charges()).toBe(0);
     expect(harness.confirmed).toEqual([]);
   });
@@ -448,9 +502,9 @@ describe("the payment-confirmed hook", () => {
 
     await reconcileOrder(getDb(), orderId, {
       ...harness.deps,
-      onPaymentConfirmed: async (tx, order) => {
-        const [row] = await tx.select().from(orders);
-        statusSeenByHook.push(row.paymentStatus, order.paymentStatus);
+      onPhysicalPaymentConfirmed: async (client, currentOrderId) => {
+        const row = await client.query<{ payment_status: string }>("SELECT payment_status FROM orders WHERE id=$1", [currentOrderId]);
+        statusSeenByHook.push(row.rows[0].payment_status, "paid");
       },
     });
 
@@ -463,11 +517,11 @@ describe("the payment-confirmed hook", () => {
     let fail = true;
     const deps = {
       ...harness.deps,
-      onPaymentConfirmed: async (...args: Parameters<typeof harness.deps.onPaymentConfirmed>) => {
+      onPhysicalPaymentConfirmed: async (...args: Parameters<NonNullable<typeof harness.deps.onPhysicalPaymentConfirmed>>) => {
         if (fail) {
           throw new Error("booking could not be confirmed");
         }
-        await harness.deps.onPaymentConfirmed(...args);
+        await harness.deps.onPhysicalPaymentConfirmed?.(...args);
       },
     };
 

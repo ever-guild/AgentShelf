@@ -71,7 +71,12 @@ export type SellerAgentCreateShopResult = {
 /** Server-authenticated context; never deserialize this from a request body. */
 export type AuthenticatedOwner = { ownerId: string; expiresAt: Date };
 /** Tenant boundary for seller services after membership has been checked. */
-export type SellerShopPrincipal = { actorId: string; shopId: string; shareDataConsent?: true };
+export type SellerShopPrincipal = { actorId: string; shopId: string };
+/** Shop principal after owner consent to sharing data with PayPal was validated. */
+export type SellerPayPalShopPrincipal = SellerShopPrincipal & {
+  shareDataConsent: true;
+  shareDataConsentAt: Date;
+};
 export const SELLER_AGENT_SCOPES = [
   "create_shop",
   "read_shop",
@@ -86,4 +91,5 @@ export type SellerAgentGrantPrincipal = {
   scopes: SellerAgentScope[];
   expiresAt: Date;
   shareDataConsent: boolean;
+  shareDataConsentAt: Date | null;
 };

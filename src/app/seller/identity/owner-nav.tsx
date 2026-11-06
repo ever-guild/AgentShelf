@@ -22,6 +22,7 @@ export function OwnerNav() {
       <nav aria-label="Owner" className="flex flex-wrap items-center gap-1">
         <Link href="/seller/shops" className="rounded-lg px-3 py-2 text-zinc-600 transition-colors hover:bg-zinc-100 hover:text-foreground dark:text-zinc-400 dark:hover:bg-zinc-800">Shops</Link>
         <Link href="/seller/agent-access" className="rounded-lg px-3 py-2 text-zinc-600 transition-colors hover:bg-zinc-100 hover:text-foreground dark:text-zinc-400 dark:hover:bg-zinc-800">Agent access</Link>
+        <Link href="/seller/paypal-connection" className="rounded-lg px-3 py-2 text-zinc-600 transition-colors hover:bg-zinc-100 hover:text-foreground dark:text-zinc-400 dark:hover:bg-zinc-800">PayPal</Link>
       </nav>
       <button type="button" onClick={signOut} className="rounded-lg px-3 py-2 text-zinc-600 transition-colors hover:bg-zinc-100 hover:text-foreground dark:text-zinc-400 dark:hover:bg-zinc-800">Sign out</button>
     </header>

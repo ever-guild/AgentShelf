@@ -4,6 +4,7 @@ import {
   sellerAgentCatalogInput,
   sellerAgentCatalogResult,
   sellerAgentCreateShopInput,
+  sellerAgentPayPalConnectInput,
   sellerAgentPayPalConnectResult,
   sellerAgentReviewResult,
   sellerAgentStockInput,
@@ -37,6 +38,12 @@ describe("seller agent contracts", () => {
   });
 
   it("accepts only the PayPal sandbox consent link in seller connection output", () => {
+    expect(sellerAgentPayPalConnectInput.safeParse({
+      action: "start",
+      idempotencyKey: "seller-connect-0001",
+      shareDataConsent: true,
+      shareDataConsentAt: "2026-11-06T11:12:13.000Z",
+    }).success).toBe(false);
     expect(sellerAgentPayPalConnectResult.safeParse({
       status: "pending",
       nextAction: "continue_paypal",
@@ -87,7 +94,7 @@ describe("seller agent contracts", () => {
       descriptionLv: null,
       issues: [],
     };
-    expect(sellerAgentReviewResult.safeParse({ importId: row.id, status: "needs_review", rows: [row], publishedProductIds: [], reviewUrl: "https://example.test/review" }).success).toBe(true);
-    expect(sellerAgentReviewResult.safeParse({ importId: row.id, status: "needs_review", rows: [{ ...row, rawSource: "private provider payload" }], publishedProductIds: [], reviewUrl: "https://example.test/review" }).success).toBe(false);
+    expect(sellerAgentReviewResult.safeParse({ importId: row.id, status: "needs_review", rows: [row], publishedCount: 0, reviewUrl: "https://example.test/review" }).success).toBe(true);
+    expect(sellerAgentReviewResult.safeParse({ importId: row.id, status: "needs_review", rows: [{ ...row, rawSource: "private provider payload" }], publishedCount: 0, reviewUrl: "https://example.test/review" }).success).toBe(false);
   });
 });

@@ -13,7 +13,7 @@ const shopA = "5d1a0085-d25e-4d4d-872a-fb5ff80ad9a2";
 const shopB = "e4ca75b9-079d-4a52-aadb-a88442d7dca9";
 const trackingA = "a".repeat(43);
 const sellerA = "sellerMerchantA123";
-const principal = { actorId: "owner-a", shopId: shopA };
+const principal = { actorId: "0a6513a0-60cb-43d0-9d72-c4b98d37a2c0", shopId: shopA };
 const goodEvidence: MerchantStatusEvidence = {
   merchantId: sellerA,
   trackingId: trackingA,
@@ -34,6 +34,8 @@ function createHarness(options: { authorized?: boolean; status?: MerchantStatusE
       if (current && !["error", "revoked"].includes(current.status)) return { kind: "active", record: current };
       const record: MerchantConnectionRecord = {
         shopId: input.shopId,
+        consentedByOwnerId: input.consentedByOwnerId,
+        shareDataConsentAt: input.shareDataConsentAt,
         status: "pending",
         trackingId: input.trackingId,
         requestKeyHash: input.requestKeyHash,
@@ -98,7 +100,7 @@ function createHarness(options: { authorized?: boolean; status?: MerchantStatusE
   const service = createMerchantConnectionService({
     repository,
     paypal,
-    authorizeShop: async (actor, shopId) => options.authorized !== false && actor.actorId === "owner-a" && actor.shopId === shopA && shopId === shopA,
+    authorizeShop: async (actor, shopId) => options.authorized !== false && actor.actorId === principal.actorId && actor.shopId === shopA && shopId === shopA,
     returnUrl: "https://agentshelf.example/seller/paypal/callback",
     now: () => new Date("2026-11-06T12:00:00Z"),
     createTrackingId: () => (++seq === 1 ? trackingA : "b".repeat(43)),
@@ -107,31 +109,62 @@ function createHarness(options: { authorized?: boolean; status?: MerchantStatusE
 }
 
 describe("merchant connection service", () => {
+  it("requires explicit PayPal data-sharing consent before creating a referral", async () => {
+    const { service, paypal, repository } = createHarness();
+    await expect(service.start(principal, { shopId: shopA, idempotencyKey: "client-request-key-0001" }))
+      .rejects.toMatchObject({ code: "CONSENT_REQUIRED" });
+    expect(paypal.createReferral).not.toHaveBeenCalled();
+    expect(await repository.getByShop(shopA)).toBeUndefined();
+  });
+
   it("requires an authorized shop principal before starting a referral", async () => {
     const { service, paypal } = createHarness({ authorized: false });
-    await expect(service.start(principal, { shopId: shopA, idempotencyKey: "client-request-key-0001" }))
+    await expect(service.start(principal, { shopId: shopA, idempotencyKey: "client-request-key-0001", shareDataConsent: true }))
       .rejects.toMatchObject({ code: "UNAUTHORIZED" });
     expect(paypal.createReferral).not.toHaveBeenCalled();
   });
 
   it("binds the generated tracking ID to the authorized shop and replays without another POST", async () => {
     const { service, paypal } = createHarness();
-    const first = await service.start(principal, { shopId: shopA, idempotencyKey: "client-request-key-0001" });
+    const first = await service.start(principal, { shopId: shopA, idempotencyKey: "client-request-key-0001", shareDataConsent: true });
     expect(first.connection).toMatchObject({ shopId: shopA, status: "pending", nextAction: "continue_paypal" });
     expect(first.actionUrl).toContain("www.sandbox.paypal.com");
     expect(paypal.createReferral).toHaveBeenCalledTimes(1);
-    const replay = await service.start(principal, { shopId: shopA, idempotencyKey: "client-request-key-0001" });
+    const replay = await service.start(principal, { shopId: shopA, idempotencyKey: "client-request-key-0001", shareDataConsent: true });
     expect(replay.actionUrl).toContain("token=refreshed");
     expect(paypal.createReferral).toHaveBeenCalledTimes(1);
     expect(paypal.refreshReferral).toHaveBeenCalledTimes(1);
   });
 
+  it("uses persisted owner consent from the trusted seller-agent principal without a tool flag", async () => {
+    const { service, repository, paypal } = createHarness();
+    const consentedAt = new Date("2026-11-06T11:42:13Z");
+    const delegatedPrincipal = {
+      ...principal,
+      shareDataConsent: true as const,
+      shareDataConsentAt: consentedAt,
+    };
+
+    await service.start(delegatedPrincipal, {
+      shopId: shopA,
+      idempotencyKey: "agent-request-key-0001",
+    });
+
+    expect(await repository.getByShop(shopA)).toMatchObject({
+      consentedByOwnerId: principal.actorId,
+      shareDataConsentAt: consentedAt,
+      createdAt: new Date("2026-11-06T12:00:00Z"),
+      updatedAt: new Date("2026-11-06T12:00:00Z"),
+    });
+    expect(paypal.createReferral).toHaveBeenCalledTimes(1);
+  });
+
   it("does not retry a Partner Referrals POST after an ambiguous outcome", async () => {
     const { service, paypal, repository } = createHarness();
     paypal.createReferral.mockRejectedValueOnce(new PartnerReferralsRequestError("unknown"));
-    await expect(service.start(principal, { shopId: shopA, idempotencyKey: "client-request-key-0001" }))
+    await expect(service.start(principal, { shopId: shopA, idempotencyKey: "client-request-key-0001", shareDataConsent: true }))
       .rejects.toMatchObject({ code: "CONNECTION_OUTCOME_UNKNOWN" });
-    await expect(service.start(principal, { shopId: shopA, idempotencyKey: "client-request-key-0001" }))
+    await expect(service.start(principal, { shopId: shopA, idempotencyKey: "client-request-key-0001", shareDataConsent: true }))
       .rejects.toMatchObject({ code: "CONNECTION_OUTCOME_UNKNOWN" });
     expect(paypal.createReferral).toHaveBeenCalledTimes(1);
     expect(await repository.getByShop(shopA)).toMatchObject({ status: "pending", errorCode: "provider_outcome_unknown" });
@@ -139,8 +172,8 @@ describe("merchant connection service", () => {
 
   it("does not accept an unverified seller hint or allow another owner to complete this shop", async () => {
     const { service, paypal, repository } = createHarness();
-    await service.start(principal, { shopId: shopA, idempotencyKey: "client-request-key-0001" });
-    const unowned = { actorId: "owner-b", shopId: shopA };
+    await service.start(principal, { shopId: shopA, idempotencyKey: "client-request-key-0001", shareDataConsent: true });
+    const unowned = { actorId: "6af0c424-3c06-4fc6-9cce-7ea4e082c301", shopId: shopA };
     await expect(service.complete(unowned, { trackingId: trackingA, sellerMerchantIdHint: sellerA }))
       .rejects.toMatchObject({ code: "UNAUTHORIZED" });
     expect(paypal.getMerchantStatus).not.toHaveBeenCalled();
@@ -153,7 +186,7 @@ describe("merchant connection service", () => {
   it("requires PayPal's verified tracking, merchant, consent, product, and scope evidence", async () => {
     const mismatched = { ...goodEvidence, trackingId: "wrong-tracking" };
     const h = createHarness({ status: mismatched });
-    await h.service.start(principal, { shopId: shopA, idempotencyKey: "client-request-key-0001" });
+    await h.service.start(principal, { shopId: shopA, idempotencyKey: "client-request-key-0001", shareDataConsent: true });
     await expect(h.service.complete(principal, { trackingId: trackingA, sellerMerchantIdHint: sellerA }))
       .rejects.toMatchObject({ code: "INVALID_CALLBACK" });
     const unmatched = await h.repository.getByShop(shopA);
@@ -161,7 +194,7 @@ describe("merchant connection service", () => {
     expect(unmatched?.sellerMerchantId).toBeUndefined();
 
     const pending = createHarness({ status: { ...goodEvidence, consentGranted: false } });
-    await pending.service.start(principal, { shopId: shopA, idempotencyKey: "client-request-key-0001" });
+    await pending.service.start(principal, { shopId: shopA, idempotencyKey: "client-request-key-0001", shareDataConsent: true });
     await expect(pending.service.complete(principal, { trackingId: trackingA, sellerMerchantIdHint: sellerA }))
       .resolves.toMatchObject({ status: "pending", paymentsReceivable: true });
 
@@ -173,7 +206,7 @@ describe("merchant connection service", () => {
     ];
     for (const status of incompleteEvidence) {
       const check = createHarness({ status });
-      await check.service.start(principal, { shopId: shopA, idempotencyKey: "client-request-key-0001" });
+      await check.service.start(principal, { shopId: shopA, idempotencyKey: "client-request-key-0001", shareDataConsent: true });
       await expect(check.service.complete(principal, { trackingId: trackingA, sellerMerchantIdHint: sellerA }))
         .resolves.toMatchObject({ status: "pending" });
     }
@@ -181,19 +214,19 @@ describe("merchant connection service", () => {
 
   it("marks ready only after status evidence and revokes only from verifier-approved events", async () => {
     const { service, paypal, repository } = createHarness();
-    await service.start(principal, { shopId: shopA, idempotencyKey: "client-request-key-0001" });
+    await service.start(principal, { shopId: shopA, idempotencyKey: "client-request-key-0001", shareDataConsent: true });
     await expect(service.complete(principal, { trackingId: trackingA, sellerMerchantIdHint: sellerA }))
-      .resolves.toMatchObject({ status: "ready", sellerMerchantId: sellerA });
+      .resolves.toMatchObject({ status: "ready" });
     expect(paypal.getMerchantStatus).toHaveBeenCalledWith(sellerA);
     await expect(service.complete(principal, { trackingId: trackingA, sellerMerchantIdHint: sellerA }))
       .resolves.toMatchObject({ status: "ready" });
     expect(paypal.getMerchantStatus).toHaveBeenCalledTimes(1);
     await expect(service.handleRevocationWebhook({ headers: new Headers(), rawBody: "bad" }))
-      .resolves.toEqual({ applied: false });
+      .resolves.toMatchObject({ applied: false, outcome: "invalid" });
     await expect(service.handleRevocationWebhook({ headers: new Headers(), rawBody: "verified-event" }))
-      .resolves.toEqual({ applied: true, duplicate: false });
+      .resolves.toMatchObject({ applied: true, duplicate: false, outcome: "revoked" });
     await expect(service.handleRevocationWebhook({ headers: new Headers(), rawBody: "verified-event" }))
-      .resolves.toEqual({ applied: false, duplicate: true });
+      .resolves.toMatchObject({ applied: false, duplicate: true, outcome: "duplicate" });
     await expect(service.get(principal, shopA)).resolves.toMatchObject({ status: "revoked" });
     await expect(service.get(principal, shopB)).rejects.toBeInstanceOf(MerchantConnectionError);
     expect(await repository.getByShop(shopA)).toMatchObject({ status: "revoked" });

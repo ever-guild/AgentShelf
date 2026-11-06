@@ -14,6 +14,7 @@ type StockRow = QueryResultRow & {
   on_hand: number | null;
   reserved: number | null;
   version: number;
+  updated_at: Date;
 };
 const MAX_STOCK = 1_000_000;
 
@@ -62,13 +63,14 @@ function rowToLevel(row: StockRow): StockLevel {
     reserved: row.reserved,
     available: row.mode === "tracked" ? Number(row.on_hand) - Number(row.reserved) : null,
     version: Number(row.version),
+    updatedAt: row.updated_at,
   };
 }
 
 export async function readStock(pool: Pool, principal: InventoryPrincipal, productId: string): Promise<StockLevel> {
   assertPrincipal(principal);
   const result = await pool.query<StockRow>(
-    `SELECT product_id, mode, on_hand, reserved, version FROM inventory_stock
+    `SELECT product_id, mode, on_hand, reserved, version, updated_at FROM inventory_stock
      WHERE shop_id = $1 AND product_id = $2`,
     [principal.shopId, productId],
   );
@@ -99,7 +101,7 @@ export async function setInventoryMode(
     );
     if (priorDecision.rowCount) {
       if (priorDecision.rows[0].request_hash !== requestHash) throw new InventoryError("CONFLICT", "Idempotency key was already used for another inventory action.");
-      const current = await client.query<StockRow>("SELECT product_id, mode, on_hand, reserved, version FROM inventory_stock WHERE shop_id=$1 AND product_id=$2", [principal.shopId, productId]);
+      const current = await client.query<StockRow>("SELECT product_id, mode, on_hand, reserved, version, updated_at FROM inventory_stock WHERE shop_id=$1 AND product_id=$2", [principal.shopId, productId]);
       if (!current.rowCount) throw new InventoryError("NOT_FOUND", "Inventory record was not found.");
       return rowToLevel(current.rows[0]);
     }
@@ -109,7 +111,7 @@ export async function setInventoryMode(
     );
     if (!product.rowCount) throw new InventoryError("NOT_FOUND", "Product was not found in this shop.");
     const existing = await client.query<StockRow>(
-      "SELECT product_id, mode, on_hand, reserved, version FROM inventory_stock WHERE shop_id = $1 AND product_id = $2 FOR UPDATE",
+      "SELECT product_id, mode, on_hand, reserved, version, updated_at FROM inventory_stock WHERE shop_id = $1 AND product_id = $2 FOR UPDATE",
       [principal.shopId, productId],
     );
     if (existing.rowCount) throw new InventoryError("CONFLICT", "Inventory policy is already set; change tracked quantities with an adjustment.");
@@ -117,7 +119,7 @@ export async function setInventoryMode(
     const inserted = await client.query<StockRow>(
       `INSERT INTO inventory_stock (shop_id, product_id, mode, on_hand, reserved, version, updated_at)
        VALUES ($1, $2, $3, $4, 0, 0, now())
-       RETURNING product_id, mode, on_hand, reserved, version`,
+       RETURNING product_id, mode, on_hand, reserved, version, updated_at`,
       [principal.shopId, productId, decision.mode, onHand],
     );
     await client.query("INSERT INTO inventory_adjustments (shop_id, idempotency_key, request_hash, result_version) VALUES ($1,$2,$3,0)", [principal.shopId, decision.idempotencyKey, requestHash]);
@@ -138,7 +140,7 @@ export async function adjustInventory(pool: Pool, principal: InventoryPrincipal,
   return transaction(pool, async (client) => {
     await client.query("SELECT pg_advisory_xact_lock(hashtextextended($1 || ':' || $2, 0))", [principal.shopId, input.idempotencyKey]);
     const found = await client.query<StockRow>(
-      `SELECT s.product_id, s.mode, s.on_hand, s.reserved, s.version
+      `SELECT s.product_id, s.mode, s.on_hand, s.reserved, s.version, s.updated_at
        FROM inventory_stock s JOIN products p ON p.id=s.product_id AND p.shop_id=s.shop_id
        WHERE s.shop_id=$1 AND s.product_id=$2 FOR UPDATE OF s`,
       [principal.shopId, input.productId],
@@ -152,7 +154,7 @@ export async function adjustInventory(pool: Pool, principal: InventoryPrincipal,
     const hash = createHash("sha256").update(JSON.stringify({ productId: input.productId, delta: input.delta, expectedVersion: input.expectedVersion, reason: input.reason })).digest("hex");
     if (existing.rowCount) {
       if (existing.rows[0].request_hash !== hash) throw new InventoryError("CONFLICT", "Idempotency key was already used for another adjustment.");
-      const current = await client.query<StockRow>("SELECT product_id, mode, on_hand, reserved, version FROM inventory_stock WHERE shop_id=$1 AND product_id=$2", [principal.shopId, input.productId]);
+      const current = await client.query<StockRow>("SELECT product_id, mode, on_hand, reserved, version, updated_at FROM inventory_stock WHERE shop_id=$1 AND product_id=$2", [principal.shopId, input.productId]);
       return rowToLevel(current.rows[0]);
     }
     if (row.mode !== "tracked" || row.on_hand === null) throw new InventoryError("CONFLICT", "Untracked inventory cannot be adjusted as a quantity.");
@@ -162,7 +164,7 @@ export async function adjustInventory(pool: Pool, principal: InventoryPrincipal,
     if (next > MAX_STOCK) throw new InventoryError("INVALID", "On-hand quantity cannot exceed 1,000,000.");
     const updated = await client.query<StockRow>(
       `UPDATE inventory_stock SET on_hand=$3, version=version+1, updated_at=now()
-       WHERE shop_id=$1 AND product_id=$2 RETURNING product_id, mode, on_hand, reserved, version`,
+       WHERE shop_id=$1 AND product_id=$2 RETURNING product_id, mode, on_hand, reserved, version, updated_at`,
       [principal.shopId, input.productId, next],
     );
     await client.query("INSERT INTO inventory_adjustments (shop_id, idempotency_key, request_hash, result_version) VALUES ($1,$2,$3,$4)", [principal.shopId, input.idempotencyKey, hash, updated.rows[0].version]);
@@ -178,7 +180,7 @@ export async function adjustInventory(pool: Pool, principal: InventoryPrincipal,
 async function lockStock(client: Queryable, shopId: string, lines: readonly InventoryLine[]): Promise<Map<string, StockRow>> {
   const ids = lines.map((line) => line.productId).sort();
   const result = await client.query<StockRow>(
-    `SELECT s.product_id, s.mode, s.on_hand, s.reserved, s.version
+    `SELECT s.product_id, s.mode, s.on_hand, s.reserved, s.version, s.updated_at
      FROM inventory_stock s JOIN products p ON p.id=s.product_id AND p.shop_id=s.shop_id
      WHERE s.shop_id=$1 AND p.kind='product' AND s.product_id = ANY($2::uuid[]) ORDER BY s.product_id FOR UPDATE OF s`,
     [shopId, ids],
@@ -196,7 +198,18 @@ export async function reserveInventory(
 ): Promise<Reservation> {
   const lines = parseLines(rawLines);
   if (!/^[A-Za-z0-9._:-]{16,128}$/.test(key) || Number.isNaN(expiresAt.getTime()) || expiresAt <= new Date()) throw new InventoryError("INVALID", "Reservation key and expiry must be valid and in the future.");
-  return transaction(pool, async (client) => {
+  return transaction(pool, (client) => reserveInventoryInTransaction(client, shopId, key, lines, expiresAt));
+}
+
+export async function reserveInventoryInTransaction(
+  client: Queryable,
+  shopId: string,
+  key: string,
+  rawLines: unknown,
+  expiresAt: Date,
+): Promise<Reservation> {
+  const lines = parseLines(rawLines);
+  if (!/^[A-Za-z0-9._:-]{16,128}$/.test(key) || Number.isNaN(expiresAt.getTime()) || expiresAt <= new Date()) throw new InventoryError("INVALID", "Reservation key and expiry must be valid and in the future.");
     // Serialize retries on a not-yet-existing key before checking the unique ledger row.
     await client.query("SELECT pg_advisory_xact_lock(hashtextextended($1 || ':' || $2, 0))", [shopId, key]);
     const hash = checksum(lines);
@@ -226,7 +239,6 @@ export async function reserveInventory(
       if (stock.mode === "tracked") await client.query("UPDATE inventory_stock SET reserved=reserved+$3, version=version+1, updated_at=now() WHERE shop_id=$1 AND product_id=$2", [shopId, line.productId, line.quantity]);
     }
     return loadReservation(client, shopId, reservationId);
-  });
 }
 
 async function loadReservation(client: Queryable, shopId: string, id: string): Promise<Reservation> {
@@ -237,11 +249,54 @@ async function loadReservation(client: Queryable, shopId: string, id: string): P
   return { id: h.id, shopId, idempotencyKey: h.idempotency_key, state: h.state, expiresAt: h.expires_at, lines: rows.rows.map((line) => ({ productId: line.product_id, quantity: Number(line.quantity) })) };
 }
 
+export type InventoryCapturePermit =
+  | { allowed: true; reason: "started" }
+  | { allowed: false; reason: "already_started" | "expired" | "terminal" };
+
+/**
+ * Atomically claims the single provider capture attempt for a live physical-order allocation.
+ * Reconciliation must call this before sending a new capture request. A retry sees
+ * `already_started` and must read PayPal instead of sending another capture.
+ */
+export async function beginInventoryCapture(
+  pool: Pool,
+  shopId: string,
+  reservationId: string,
+  now = new Date(),
+): Promise<InventoryCapturePermit> {
+  return transaction(pool, (client) => beginInventoryCaptureInTransaction(client, shopId, reservationId, now));
+}
+
+export async function beginInventoryCaptureInTransaction(
+  client: Queryable,
+  shopId: string,
+  reservationId: string,
+  now = new Date(),
+): Promise<InventoryCapturePermit> {
+    const result = await client.query<{ state: Reservation["state"]; expires_at: Date }>(
+      "SELECT state, expires_at FROM inventory_reservations WHERE shop_id=$1 AND id=$2 FOR UPDATE",
+      [shopId, reservationId],
+    );
+    if (!result.rowCount || result.rows[0].state !== "reserved") {
+      return { allowed: false, reason: result.rowCount && result.rows[0].state === "capture_pending" ? "already_started" : "terminal" };
+    }
+    if (result.rows[0].expires_at <= now) return { allowed: false, reason: "expired" };
+    await client.query(
+      "UPDATE inventory_reservations SET state='capture_pending', updated_at=now() WHERE shop_id=$1 AND id=$2 AND state='reserved'",
+      [shopId, reservationId],
+    );
+    return { allowed: true, reason: "started" };
+}
+
 // This records a capture the reconciliation layer has already verified. It never creates or
-// captures a provider order; callers must refuse capture when the reservation has expired.
-export async function commitReservation(pool: Pool, shopId: string, reservationId: string, proof: { captureId: string; providerStatus: "COMPLETED"; verified: true }): Promise<Reservation> {
-  if (!proof.captureId.trim() || proof.captureId.length > 256 || proof.providerStatus !== "COMPLETED" || proof.verified !== true) throw new InventoryError("INVALID", "A verified completed capture is required.");
-  return transaction(pool, async (client) => {
+// captures a provider order. The provider timestamp, not webhook arrival time, defines lateness.
+export async function commitReservation(pool: Pool, shopId: string, reservationId: string, proof: { captureId: string; providerStatus: "COMPLETED"; capturedAt: Date; verified: true }): Promise<Reservation> {
+  if (!proof.captureId.trim() || proof.captureId.length > 256 || proof.providerStatus !== "COMPLETED" || proof.verified !== true || !(proof.capturedAt instanceof Date) || Number.isNaN(proof.capturedAt.getTime())) throw new InventoryError("INVALID", "A verified completed capture with its provider timestamp is required.");
+  return transaction(pool, (client) => commitReservationInTransaction(client, shopId, reservationId, proof));
+}
+
+export async function commitReservationInTransaction(client: Queryable, shopId: string, reservationId: string, proof: { captureId: string; providerStatus: "COMPLETED"; capturedAt: Date; verified: true }): Promise<Reservation> {
+  if (!proof.captureId.trim() || proof.captureId.length > 256 || proof.providerStatus !== "COMPLETED" || proof.verified !== true || !(proof.capturedAt instanceof Date) || Number.isNaN(proof.capturedAt.getTime())) throw new InventoryError("INVALID", "A verified completed capture with its provider timestamp is required.");
     const reservation = await client.query<{ state: Reservation["state"]; expires_at: Date; capture_id: string | null }>("SELECT state, expires_at, capture_id FROM inventory_reservations WHERE shop_id=$1 AND id=$2 FOR UPDATE", [shopId, reservationId]);
     if (!reservation.rowCount) throw new InventoryError("NOT_FOUND", "Reservation was not found.");
     const state = reservation.rows[0].state;
@@ -249,7 +304,7 @@ export async function commitReservation(pool: Pool, shopId: string, reservationI
       if (reservation.rows[0].capture_id !== proof.captureId) throw new InventoryError("REVIEW_REQUIRED", "This reservation already records a different capture.");
       return loadReservation(client, shopId, reservationId);
     }
-    if (state === "released" || reservation.rows[0].expires_at <= new Date()) {
+    if (state !== "capture_pending" || proof.capturedAt >= reservation.rows[0].expires_at) {
       await client.query("UPDATE inventory_reservations SET state='review_required', capture_id=$3, updated_at=now() WHERE shop_id=$1 AND id=$2", [shopId, reservationId, proof.captureId]);
       return loadReservation(client, shopId, reservationId);
     }
@@ -260,12 +315,15 @@ export async function commitReservation(pool: Pool, shopId: string, reservationI
     for (const line of linesResult.rows) if (line.mode === "tracked") await client.query("UPDATE inventory_stock SET reserved=reserved-$3, on_hand=on_hand-$3, version=version+1, updated_at=now() WHERE shop_id=$1 AND product_id=$2", [shopId, line.product_id, line.quantity]);
     await client.query("UPDATE inventory_reservations SET state='committed', capture_id=$3, updated_at=now() WHERE shop_id=$1 AND id=$2", [shopId, reservationId, proof.captureId]);
     return loadReservation(client, shopId, reservationId);
-  });
 }
 
 export async function releaseReservation(pool: Pool, shopId: string, reservationId: string, outcome: "verified_unpaid" | "verified_cancelled" | "verified_expired_unpaid"): Promise<Reservation> {
   if (!["verified_unpaid", "verified_cancelled", "verified_expired_unpaid"].includes(outcome)) throw new InventoryError("INVALID", "A verified unpaid outcome is required before releasing stock.");
-  return transaction(pool, async (client) => {
+  return transaction(pool, (client) => releaseReservationInTransaction(client, shopId, reservationId, outcome));
+}
+
+export async function releaseReservationInTransaction(client: Queryable, shopId: string, reservationId: string, outcome: "verified_unpaid" | "verified_cancelled" | "verified_expired_unpaid"): Promise<Reservation> {
+  if (!["verified_unpaid", "verified_cancelled", "verified_expired_unpaid"].includes(outcome)) throw new InventoryError("INVALID", "A verified unpaid outcome is required before releasing stock.");
     const reservation = await client.query<{ state: Reservation["state"] }>("SELECT state FROM inventory_reservations WHERE shop_id=$1 AND id=$2 FOR UPDATE", [shopId, reservationId]);
     if (!reservation.rowCount) throw new InventoryError("NOT_FOUND", "Reservation was not found.");
     if (reservation.rows[0].state === "released") return loadReservation(client, shopId, reservationId);
@@ -276,5 +334,4 @@ export async function releaseReservation(pool: Pool, shopId: string, reservation
     for (const line of linesResult.rows) if (line.mode === "tracked") await client.query("UPDATE inventory_stock SET reserved=reserved-$3, version=version+1, updated_at=now() WHERE shop_id=$1 AND product_id=$2", [shopId, line.product_id, line.quantity]);
     await client.query("UPDATE inventory_reservations SET state='released', release_reason=$3, updated_at=now() WHERE shop_id=$1 AND id=$2", [shopId, reservationId, outcome]);
     return loadReservation(client, shopId, reservationId);
-  });
 }
