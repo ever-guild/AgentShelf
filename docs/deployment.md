@@ -69,17 +69,27 @@ Migrations run in the start command because `preDeployCommand` is only available
 
 ## Seed the demo data
 
-The production database has external access disabled, so local seeding through its external URL is unavailable. The web service is paid and supports Render SSH, but the attempted SSH connection failed with `Permission denied (publickey)`. Configure the Render SSH public key for the operator before using this command; the demo database is not seeded yet:
+**The demo database is not seeded yet**, so the [smoke check](#smoke-check) finds no product. The production database has external access disabled, so local seeding through its external URL is unavailable, and external access should not be enabled just to seed.
+
+Open the [web service](https://dashboard.render.com/web/srv-dbm8a6e1egvs73bl8d90) in the Render Dashboard and go to its Shell page, which [needs no SSH key on a paid service](https://render.com/docs/ssh). Then run:
+
+```bash
+npm run db:seed
+```
+
+The same command works over SSH once the operator's public key is configured. An attempt without one failed with `Permission denied (publickey)`.
 
 ```bash
 render ssh srv-dbm8a6e1egvs73bl8d90 --output text -- -o BatchMode=yes 'npm run db:seed'
 ```
 
-Do not enable external database access just to seed. Once SSH access is configured, the seed command uses the internal `DATABASE_URL` and demo credentials from the service environment.
+Either way, the seed uses the internal `DATABASE_URL` and these demo values from the service environment. Both are optional, and each is kept as it is if not set.
 
 - `DEMO_PHONE_WORKSHOP_PAYPAL_MERCHANT_ID` and `DEMO_PHONE_WORKSHOP_SELLER_CODE`.
 
-Seeding again resets only the seed's own rows. Confirm the command succeeds and verify seeded records before treating MCP smoke checks as ready.
+Seeding again resets only the seed's own rows.
+
+To finish [#4](https://github.com/ever-guild/AgentShelf/issues/4), run the [MCP smoke check](#smoke-check) so that it finds the product, restart the service, and run it again. That shows a record surviving a restart. Record both results in the issue.
 
 ## Environment variables
 
@@ -92,7 +102,7 @@ Seeding again resets only the seed's own rows. Confirm the command succeeds and 
 | `MCP_ALLOWED_ORIGINS` | Optional, by hand | Extra browser origins for the MCP endpoint, comma separated. See [mcp.md](mcp.md#origin-handling) |
 | `NODE_VERSION`, `NEXT_TELEMETRY_DISABLED` | Service settings mirrored in the Blueprint | Runtime settings |
 
-PayPal, AI and partner variables are listed in [`.env.example`](../.env.example). Add them to the service in the Dashboard when the code that reads them lands. Render ignores `sync: false` entries added to a blueprint after it was created, so the Dashboard is the one place to set them.
+PayPal, AI and partner variables are listed in [`.env.example`](../.env.example). Add them to the service in the Dashboard when the code that reads them lands. The code that reads the PayPal variables has landed, and [paypal-sandbox-setup.md](paypal-sandbox-setup.md) explains how to set them. Render ignores `sync: false` entries added to a blueprint after it was created, so the Dashboard is the one place to set them.
 
 ## Health checks
 
@@ -121,7 +131,7 @@ Then check the MCP endpoint, which needs the demo data seeded:
 npm run smoke:mcp -- https://YOUR-SERVICE.onrender.com/mcp
 ```
 
-Rerun these once the payment routes land.
+Once a shop has sandbox credentials, `npm run smoke:checkout` checks the payment route as well, as [mcp.md](mcp.md#smoke-check) explains.
 
 ## Logs and restarts
 
