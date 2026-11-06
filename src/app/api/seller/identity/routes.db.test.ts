@@ -175,4 +175,26 @@ describe("seller identity HTTP routes with disposable Postgres", () => {
     expect((await me(new Request(`${origin}/api/seller/identity/me`, { headers: { Cookie: priorCookie } }))).status).toBe(401);
     expect((await me(new Request(`${origin}/api/seller/identity/me`, { headers: { Cookie: nextCookie } }))).status).toBe(200);
   });
+
+  it("cancels an oversized chunked registration body before parsing or writing", async () => {
+    let cancelled = false;
+    const body = new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.enqueue(new Uint8Array(16 * 1024 + 1));
+      },
+      cancel() {
+        cancelled = true;
+      },
+    });
+    const request = new Request(`${origin}/api/seller/identity/register`, {
+      method: "POST",
+      headers: { Origin: origin, "Content-Type": "application/json" },
+      body,
+      duplex: "half",
+    } as RequestInit & { duplex: "half" });
+    const response = await register(request);
+    expect(response.status).toBe(400);
+    expect(cancelled).toBe(true);
+    expect((await pool.query("SELECT count(*)::int AS owners FROM seller_owners")).rows[0].owners).toBe(0);
+  });
 });

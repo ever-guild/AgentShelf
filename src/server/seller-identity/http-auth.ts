@@ -3,6 +3,7 @@ import "server-only";
 import { cookies } from "next/headers";
 
 import type { AuthenticatedOwner, SellerShopPrincipal } from "../contracts/seller-identity";
+import { readBodyWithin } from "../http";
 import { publicOrigin } from "../public-origin";
 import {
   IdentityError,
@@ -117,16 +118,12 @@ export function requireSameOriginJson(
 }
 
 export async function parseJsonBody(request: Request): Promise<unknown> {
-  const contentLength = Number(request.headers.get("content-length") ?? "0");
-  if (Number.isFinite(contentLength) && contentLength > 16 * 1024) {
-    throw new IdentityError("INVALID_INPUT", "The request is not valid.");
-  }
-  const raw = await request.text();
-  if (Buffer.byteLength(raw, "utf8") > 16 * 1024) {
+  const body = await readBodyWithin(request, 16 * 1024);
+  if (!body) {
     throw new IdentityError("INVALID_INPUT", "The request is not valid.");
   }
   try {
-    return JSON.parse(raw);
+    return JSON.parse(body.toString("utf8"));
   } catch {
     throw new IdentityError("INVALID_INPUT", "The request is not valid.");
   }
