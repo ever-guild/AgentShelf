@@ -1,76 +1,97 @@
 # Seller-agent runtime integration handoff
 
-## Candidate snapshot
+## Delivery and evidence
 
-This handoff reflects the combined review candidate at [`b31ca1b`](https://github.com/ever-guild/AgentShelf/commit/b31ca1b535b43f4eccdd29582a7bf0dabbb070f8), inspected on 6 November 2026. That worktree is a review candidate, not `main` and not the deployed demo.
+This change connects owner registration, seller-agent management, quantity inventory and PayPal Sandbox merchant connections to the application
 
-The candidate contains ordered migrations [`0011_identity_registration.sql`](../drizzle/0011_identity_registration.sql), [`0012_paypal_merchant_connections.sql`](../drizzle/0012_paypal_merchant_connections.sql), [`0013_inventory_stock_reservations.sql`](../drizzle/0013_inventory_stock_reservations.sql), [`0014_order_paypal_credential_snapshot.sql`](../drizzle/0014_order_paypal_credential_snapshot.sql), and [`0015_legacy_and_demo_inventory.sql`](../drizzle/0015_legacy_and_demo_inventory.sql). They add owner identity and grants, shop PayPal connection state, stock and reservations, immutable PayPal credential selection per order, and safe legacy/demo stock initialization.
+The [runtime baseline](https://github.com/ever-guild/AgentShelf/commit/8b6e6d4834c6b94989db575064a1569f30ecedd6) passed 1,496 tests across 77 files, lint, production build and the complete local HTTP/MCP rehearsal on a fresh PostgreSQL database without PayPal or Anthropic credentials
 
-The independent [identity PR #43](https://github.com/ever-guild/AgentShelf/pull/43) has green CI. The [seller MCP SDK check for #41](https://github.com/ever-guild/AgentShelf/commit/35471cd42364a34bb55588208068fc75370d0144) was run against that exact commit. Final candidate QA for the new negative-checkout path and header/logout compatibility is still pending. Neither result is evidence of a deployed candidate, an external Claude Code session, or a real PayPal operation.
+The [identity candidate](https://github.com/ever-guild/AgentShelf/commit/e0e1004dad7be3465b94dce08486f5c953d17d5a) separately passed real Chrome registration, shop selection, catalog access, the visible seller-header sign-out and subsequent legacy sign-in, see [PR #43](https://github.com/ever-guild/AgentShelf/pull/43)
 
-## Owner account and shop access
+Subsequent review fixes cover the registration limit, per-shop consent acknowledgement and the platform payment webhook, their exact validation and publication state are recorded in [release rehearsal #18](https://github.com/ever-guild/AgentShelf/issues/18), real Sandbox consent/payment and external assistant evidence remain separate gates
 
-The owner UI is present in the candidate:
+## Identity and owner access
 
-- `/seller/register` creates an owner account, with an optional first shop.
-- `/seller/owner-sign-in` signs in the owner.
-- `/seller/shops` lists and selects owned shops; `/seller/shops/new` adds a shop.
-- `/seller/agent-access` issues and revokes seller-agent grants.
-- `/seller/paypal-connection` starts and checks a shop's PayPal Sandbox connection.
-
-Identity HTTP routes live under `/api/seller/identity/*`. The `agentshelf_owner_session` cookie authenticates the owner; `agentshelf_owner_shop` is a selector, not an authorization boundary. Each request checks current owner membership. Owner sessions expire after 12 hours. The old seeded-shop access-code session remains a separate demo path.
-
-Owner grants expire after 15 minutes and are stored by token hash. The raw grant is returned once, is not listable or recoverable, and can be revoked by its owner. An owner-level `create_shop` grant can create one shop; it does not authorize later shop management. The owner issues a separate shop-bound grant for `read_shop`, `manage_catalog`, `manage_inventory`, or `connect_paypal`. `connect_paypal` requires explicit owner consent, persisted with the grant; the MCP tool cannot add or broaden that consent.
-
-## Seller MCP runtime
-
-The buyer connector remains at `POST /mcp`. Seller tools use separate Streamable HTTP routes:
-
-| Route | Grant | Available tool |
-| --- | --- | --- |
-| `POST /mcp/seller/onboarding` | Owner-level `create_shop` | `seller_create_shop` only |
-| `POST /mcp/seller/shop/{shopId}` | Active grant for that exact shop | `seller_import_price_list`, `seller_review_import`, `seller_manage_catalog`, `seller_manage_stock`, `seller_connect_paypal`, subject to scope and configured adapters |
-
-The transport reads the bearer grant from the `Authorization` header. Shop identity is derived from the route and rechecked against the grant; tool arguments cannot set the shop, owner, actor, PayPal recipient, or credentials. The transport checks `Host`, allowed `Origin`, DNS rebinding and request size. The onboarding grant cannot call a shop-management route, and an expired or revoked grant is rejected.
-
-Import creates a reviewable draft; an owner or authorized agent must review it before publication. Current catalog actions are list, edit, publish and unpublish; new products use the import and review flow. `seller_manage_stock` reads stock, records the initial policy, and makes versioned adjustments. `seller_connect_paypal` starts the human consent flow and returns a Sandbox action link only when the grant carries the owner's recorded consent.
-
-See [the seller MCP contract](seller-agent-mcp.md), [identity contract](seller-identity.md), and [owner-led rehearsal](seller-agent-rehearsal.md) for exact schemas and commands.
-
-## Stock and physical checkout
-
-Inventory now reaches the shared buyer checkout service. Both buyer MCP `create_checkout` and the human storefront use that service. For a physical product, it writes the order, immutable line snapshots and stock reservation in one PostgreSQL transaction before creating a PayPal approval link. A cart quantity is an integer; unavailable or undecided stock fails closed.
-
-`tracked` stock has `on_hand`, `reserved`, and `available = on_hand - reserved`. `untracked` means the seller explicitly chose not to track a quantity; it is not zero. No stock row means the seller has not made a policy decision. Initial policy and later adjustments are audited and idempotent; adjustments use a version and reason.
-
-Before capture, reconciliation must atomically claim the live reservation's one capture attempt. An ambiguous provider result keeps the reservation while the existing order is checked. A verified capture is matched to the stored order and its provider timestamp. A completed capture after expiry goes to `review_required`, does not consume stock or fulfill the order, and keeps held quantity reserved for a person to resolve. Release requires a verified unpaid, cancelled or expired-unpaid outcome. Refund does not restock automatically.
-
-The physical-order capture gate is distinct from the repair-booking time hold. The existing booking rule still prevents a new deposit capture after its hold expires; an already completed late deposit remains under review and does not confirm or double-book the appointment.
-
-## PayPal Sandbox connection and consent
-
-Owner HTTP routes are mounted under `/api/seller/paypal/connection`; the seller MCP composition uses the same connection service. The owner selects a shop and checks an explicit data-sharing acknowledgement before the server starts Partner Referrals. The agent cannot self-consent. The seller finishes account consent on PayPal; a callback hint alone is not proof of readiness. The server verifies the returned merchant integration, consent, receiving capability, primary email, product and payment scope before marking the connection `ready`. Checkout uses the verified seller merchant as payee and requires that current ready state. The buyer still approves payment in PayPal.
-
-The platform integration uses one server-only PayPal Sandbox REST app. Safe variable names are listed in [`.env.example`](../.env.example):
-
-| Variable | Use |
+| Page | Purpose |
 | --- | --- |
-| `PAYPAL_PLATFORM_CLIENT_ID` and `PAYPAL_PLATFORM_CLIENT_SECRET` | Platform REST app's server-side Sandbox OAuth |
-| `PAYPAL_PLATFORM_MERCHANT_ID` | Partner Referrals and merchant-status requests |
-| `PAYPAL_PARTNER_ATTRIBUTION_ID` | Partner attribution header |
-| `PAYPAL_PLATFORM_WEBHOOK_ID` | Verification of PayPal seller-consent revocation events |
-| `PAYPAL_CLIENT_ID_<REF>`, `PAYPAL_CLIENT_SECRET_<REF>`, `PAYPAL_WEBHOOK_ID_<REF>` | Existing per-seller Sandbox app and order-webhook configuration for legacy/demo routes |
+| `/seller/register` | Create an owner account, optionally with a first shop |
+| `/seller/owner-sign-in` | Sign in to an existing owner account |
+| `/seller/shops` and `/seller/shops/new` | Select an owned shop or create another |
+| `/seller/agent-access` | Issue and revoke scoped agent grants |
+| `/seller/paypal-connection` | Start human Sandbox consent and inspect verified connection state |
 
-The UI and API expose configuration presence/status only. Keep all values in ignored `.env.local` or the deployment secret store; never put credentials, grant tokens, approval URLs, or payer data in these notes. `PAYPAL_PLATFORM_WEBHOOK_ID` handles platform consent revocation; it is not a substitute for the per-seller order webhook ID. The actual platform app configuration, merchant authorization, referral, webhook delivery, buyer approval, and capture have not been verified against PayPal Sandbox in this candidate.
+HTTP identity operations live under `/api/seller/identity/*`, the owner session expires after 12 hours and the selected-shop cookie is checked against current membership on each request
 
-## Evidence and remaining checks
+An owner cookie takes precedence over the legacy access-code session, an invalid owner session cannot fall back to another shop, both the owner and existing seller-header logout paths revoke owner access, successful legacy sign-in clears the previous owner context
 
-Implementation, automated tests, runtime execution, external clients, Sandbox behavior and deployment are separate claims. At this snapshot:
+Account-only signup supports an agent creating the first shop, passwords are hashed, sessions and grants are stored by token hash, the registration API uses a shared bounded attempt bucket and an additional account bucket
 
-- Owner, seller MCP, inventory and PayPal connection routes are present and wired in the review candidate.
-- Identity PR #43 CI and the exact #41 SDK check at `35471cd` are recorded above; the combined candidate still needs its final negative-checkout and header/logout QA.
-- A local `smoke:runtime` exercises owner signup/sign-in, grant boundaries, seller import/review/catalog/stock tools, buyer search, an expected `PAYMENT_NOT_CONFIGURED` checkout rejection, cross-shop denial, grant revocation and owner sign-out. It creates synthetic persistent rows and requires a disposable database; its run result must be recorded against the exact candidate SHA.
-- Real PayPal Sandbox onboarding/webhook/payment checks and a real external Claude Code MCP session remain unverified.
-- The candidate has not been merged to `main` or confirmed live on Render.
+## Seller MCP contract
 
-Release rehearsal is tracked in [#18](https://github.com/ever-guild/AgentShelf/issues/18) and [#19](https://github.com/ever-guild/AgentShelf/issues/19). Feature context is tracked in [owner identity #34](https://github.com/ever-guild/AgentShelf/issues/34), [PayPal onboarding #35](https://github.com/ever-guild/AgentShelf/issues/35), [inventory #36](https://github.com/ever-guild/AgentShelf/issues/36), and [seller MCP #37](https://github.com/ever-guild/AgentShelf/issues/37). The exact candidate SHA, checks, human approvals and deployment evidence belong in the rehearsal record, not inferred from this integration note.
+| Route | Authorization | Operations |
+| --- | --- | --- |
+| `POST /mcp/seller/onboarding` | Owner-level `create_shop` grant | `seller_create_shop` only |
+| `POST /mcp/seller/shop/{shopId}` | Live grant for the exact shop | Import, review, catalog, stock and PayPal tools according to scope |
+| `POST /mcp` | Existing buyer connector | Search, slots, booking, checkout and order status |
+
+Grants expire after 15 minutes, the raw token is returned once and can be revoked, a `create_shop` grant binds its first successful use to one idempotency key and requires a separate shop-bound grant for subsequent management
+
+Seller authorization comes from the bearer header and persisted grant, tool arguments cannot supply the owner, shop authority, PayPal recipient, credentials or consent evidence, the transport validates Host, Origin, request size and active authorization before discovery
+
+Import produces a draft, publication requires review, new products use the import/review path and existing catalog actions support list, edit, publish and unpublish, stock actions support reading, explicit policy selection and versioned adjustments
+
+The supported configured-client path is documented in [seller MCP](seller-agent-mcp.md), SDK HTTP evidence does not establish an actual Claude Code session or seller OAuth support in ChatGPT
+
+## Migrations and inventory
+
+Apply the normal migration journal, do not separately execute draft SQL
+
+| Migration | Result |
+| --- | --- |
+| [0011](../drizzle/0011_identity_registration.sql) | Owners, memberships, sessions, grants and attempt limits |
+| [0012](../drizzle/0012_paypal_merchant_connections.sql) | Merchant connections, consent evidence and revocation ledger |
+| [0013](../drizzle/0013_inventory_stock_reservations.sql) | Stock, reservations, order links and immutable audit |
+| [0014](../drizzle/0014_order_paypal_credential_snapshot.sql) | Original PayPal credential reference per order, with legacy backfill |
+| [0015](../drizzle/0015_legacy_and_demo_inventory.sql) | Audited untracked policy for legacy manual products |
+
+New products without a stock policy cannot be purchased, `tracked` availability is on-hand minus reserved quantity, `untracked` records an explicit decision to sell without quantity accounting
+
+The seed assigns audited synthetic quantities only to fixed demo product IDs, rerunning it preserves existing stock, versions and reservations, imported products do not acquire an implicit unlimited quantity
+
+A physical checkout writes the order, line snapshots and reservation in one transaction before contacting PayPal, capture requires a live allocation and current platform consent when applicable
+
+An ambiguous capture keeps stock held and is read again without blindly resending capture, a verified completed capture uses the provider timestamp, late or inconsistent evidence requires review, refunds do not automatically restock
+
+The repair booking hold remains separate, its expiry/capture policy and paid-booking replay are preserved, both physical and booking orders retain the original app reference and payee for reconciliation
+
+## PayPal connection and payment events
+
+An owner acknowledges data sharing for the selected shop, or explicitly delegates `connect_paypal` with that acknowledgement, the server preserves the original acknowledgement timestamp separately from connection initiation
+
+The agent can return the human Sandbox consent URL, merchant permission approval stays with the human in PayPal, callback hints alone cannot establish readiness
+
+Checkout and catalog sync resolve a persisted ready connection with verified merchant, tracking, receiving, email, product and scope evidence, platform Orders and Catalog calls include the seller assertion and partner attribution headers
+
+| Configuration | Purpose |
+| --- | --- |
+| `PAYPAL_PLATFORM_CLIENT_ID`, `PAYPAL_PLATFORM_CLIENT_SECRET` | Server-side Sandbox platform app |
+| `PAYPAL_PLATFORM_MERCHANT_ID`, `PAYPAL_PARTNER_ATTRIBUTION_ID` | Partner operations and attribution |
+| `PAYPAL_PLATFORM_WEBHOOK_ID` | Consent-revocation subscription at `/api/seller/paypal/connection/webhook` |
+| `PAYPAL_PLATFORM_PAYMENT_WEBHOOK_ID` | Payment subscription at `/api/paypal/platform-webhooks` |
+| `PAYPAL_CLIENT_ID_<REF>`, `PAYPAL_CLIENT_SECRET_<REF>`, `PAYPAL_WEBHOOK_ID_<REF>` | Existing direct seller app configuration |
+
+Payment events are verified against the fixed platform subscription before a receipt is written, routing requires a stored platform order and consistent identifiers, reconciliation uses the saved payee even after revocation while prohibiting a fresh unauthorized capture
+
+Consent revocation is recorded even when merchant mapping has not arrived yet, stale callback/status responses cannot restore readiness over a newer revocation
+
+Keep values only in ignored local configuration or deployment secrets, follow the [Sandbox setup](paypal-sandbox-setup.md) for the two subscriptions and [merchant connection contract](paypal-merchant-connection.md) for authorization behavior
+
+## Remaining release gates
+
+- Actual platform app permissions, two human seller consents and buyer-approved Sandbox payment with verified recipient and capture in [proof #2](https://github.com/ever-guild/AgentShelf/issues/2)
+- Actual delivery of both webhook subscriptions, including revocation and payment reconciliation
+- An external seller assistant session using the documented connector
+- Shared integration review, exact-SHA CI and Render verification after main integration
+- The complete rehearsal and evidence requested by [#18](https://github.com/ever-guild/AgentShelf/issues/18) and [#19](https://github.com/ever-guild/AgentShelf/issues/19)
+
+Use the [rehearsal guide](seller-agent-rehearsal.md) to reproduce local checks, keep implementation, test fixtures, real provider behavior and deployment evidence distinct
