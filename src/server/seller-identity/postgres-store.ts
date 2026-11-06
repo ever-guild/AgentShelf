@@ -62,7 +62,7 @@ async function inTransaction<T>(pool: Pool, run: (client: PoolClient) => Promise
 
 async function reserveOperation(
   client: PoolClient,
-  input: { idempotencyKey: string; operation: "register_owner_shop" | "create_shop"; requestHash: string },
+  input: { idempotencyKey: string; operation: "register_owner" | "register_owner_shop" | "create_shop"; requestHash: string },
 ) {
   await client.query(
     `INSERT INTO seller_identity_operations (idempotency_key, operation, request_hash)
@@ -115,6 +115,57 @@ export class PostgresIdentityStore implements IdentityStore {
     );
     const row = result.rows[0];
     return row ? { id: row.id, username: row.username, passwordHash: row.password_hash } : null;
+  }
+
+  async findOwnerById(ownerId: string): Promise<Pick<OwnerRecord, "id" | "username"> | null> {
+    const result = await this.pool.query<{ id: string; username: string }>(
+      `SELECT id, username FROM seller_owners WHERE id = $1`,
+      [ownerId],
+    );
+    return result.rows[0] ?? null;
+  }
+
+  async registerOwnerAtomic(input: {
+    username: string;
+    passwordHash: string;
+    idempotencyKey: string;
+  }): Promise<{ owner: Pick<OwnerRecord, "id" | "username">; storedPasswordHash: string; replayed: boolean }> {
+    return inTransaction(this.pool, async (client) => {
+      const operation = await reserveOperation(client, {
+        idempotencyKey: input.idempotencyKey,
+        operation: "register_owner",
+        requestHash: digest(JSON.stringify({ username: input.username })),
+      });
+      if (operation.owner_id && operation.shop_id === null) {
+        const ownerResult = await client.query<OwnerRow>(
+          `SELECT id, username, password_hash FROM seller_owners WHERE id = $1`,
+          [operation.owner_id],
+        );
+        const owner = ownerResult.rows[0];
+        if (!owner) throw new Error("Idempotent owner result is unavailable");
+        return {
+          owner: { id: owner.id, username: owner.username },
+          storedPasswordHash: owner.password_hash,
+          replayed: true,
+        };
+      }
+      if (operation.owner_id || operation.shop_id) throw new IdentityStoreConflict("Owner-only registration key has a different result");
+      const ownerResult = await client.query<OwnerRow>(
+        `INSERT INTO seller_owners (username, password_hash) VALUES ($1, $2)
+         RETURNING id, username, password_hash`,
+        [input.username, input.passwordHash],
+      );
+      const owner = ownerResult.rows[0];
+      await client.query(
+        `UPDATE seller_identity_operations SET owner_id = $2 WHERE idempotency_key = $1`,
+        [input.idempotencyKey, owner.id],
+      );
+      return {
+        owner: { id: owner.id, username: owner.username },
+        storedPasswordHash: owner.password_hash,
+        replayed: false,
+      };
+    });
   }
 
   async registerOwnerAndShopAtomic(input: {
@@ -245,11 +296,12 @@ export class PostgresIdentityStore implements IdentityStore {
     scopes: SellerAgentScope[];
     tokenHash: string;
     expiresAt: Date;
+    shareDataConsentAt: Date | null;
   }): Promise<void> {
     await this.pool.query(
-      `INSERT INTO seller_agent_grants (token_hash, owner_id, shop_id, scopes, expires_at)
-       VALUES ($1, $2, $3, $4, $5)`,
-      [input.tokenHash, input.ownerId, input.shopId, input.scopes, input.expiresAt],
+      `INSERT INTO seller_agent_grants (token_hash, owner_id, shop_id, scopes, expires_at, share_data_consent_at)
+       VALUES ($1, $2, $3, $4, $5, $6)`,
+      [input.tokenHash, input.ownerId, input.shopId, input.scopes, input.expiresAt, input.shareDataConsentAt],
     );
   }
 
@@ -260,13 +312,20 @@ export class PostgresIdentityStore implements IdentityStore {
       scopes: SellerAgentScope[];
       expires_at: Date;
       revoked_at: Date | null;
+      share_data_consent_at: Date | null;
     }>(
-      `SELECT owner_id, shop_id, scopes, expires_at, revoked_at FROM seller_agent_grants
+      `SELECT owner_id, shop_id, scopes, expires_at, revoked_at, share_data_consent_at FROM seller_agent_grants
         WHERE token_hash = $1 AND revoked_at IS NULL AND expires_at > $2`,
       [tokenHash, now],
     );
     const row = result.rows[0];
-    return row ? { actorId: row.owner_id, shopId: row.shop_id, scopes: row.scopes, expiresAt: row.expires_at } : null;
+    return row ? {
+      actorId: row.owner_id,
+      shopId: row.shop_id,
+      scopes: row.scopes,
+      expiresAt: row.expires_at,
+      shareDataConsent: row.share_data_consent_at !== null,
+    } : null;
   }
 
   async revokeAgentGrant(tokenHash: string, ownerId: string, now: Date): Promise<void> {

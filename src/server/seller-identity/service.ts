@@ -10,6 +10,7 @@ import { promisify } from "node:util";
 import { z } from "zod";
 
 import {
+  ownerAccountRegistrationInput,
   ownerCreateShopInput,
   ownerRegistrationInput,
   ownerSignInInput,
@@ -61,6 +62,13 @@ function isStoreConflict(error: unknown): boolean {
 
 export type IdentityStore = {
   findOwnerByUsername(username: string): Promise<OwnerRecord | null>;
+  findOwnerById(ownerId: string): Promise<Pick<OwnerRecord, "id" | "username"> | null>;
+  /** Atomically persist an owner without requiring a shop, and safely replay the same key. */
+  registerOwnerAtomic(input: {
+    username: string;
+    passwordHash: string;
+    idempotencyKey: string;
+  }): Promise<{ owner: Pick<OwnerRecord, "id" | "username">; storedPasswordHash: string; replayed: boolean }>;
   /** Must atomically enforce username/slug uniqueness, persist owner + shop + membership,
    * and replay the same result for an identical owner-registration idempotency key. */
   registerOwnerAndShopAtomic(input: {
@@ -95,6 +103,7 @@ export type IdentityStore = {
     scopes: SellerAgentScope[];
     tokenHash: string;
     expiresAt: Date;
+    shareDataConsentAt: Date | null;
   }): Promise<void>;
   findActiveAgentGrant(tokenHash: string, now: Date): Promise<SellerAgentGrantPrincipal | null>;
   revokeAgentGrant(tokenHash: string, ownerId: string, now: Date): Promise<void>;
@@ -190,8 +199,9 @@ export async function registerOwnerAndShop(
 ) {
   const input = parse(ownerRegistrationInput, rawInput);
   const username = input.username.toLowerCase();
-  const allowed = await limiter.consume(`register:${clientKey}`, 5, 60 * 60_000, now);
-  if (!allowed) throw new IdentityError("RATE_LIMITED", "Please try again later.");
+  const globalAllowed = await limiter.consume(`register:${clientKey}`, 1000, 60 * 60_000, now);
+  const accountAllowed = await limiter.consume(`register-account:${username}`, 5, 60 * 60_000, now);
+  if (!globalAllowed || !accountAllowed) throw new IdentityError("RATE_LIMITED", "Please try again later.");
   validateShop(input.shop);
   const passwordHash = await hashPassword(input.password);
   let result: { registration: OwnerShopRegistration; storedPasswordHash: string; replayed: boolean };
@@ -213,6 +223,34 @@ export async function registerOwnerAndShop(
   }
   const registration = result.registration;
   return { ...registration, ...(await issueSession(store, registration.owner.id, now)) };
+}
+
+export async function registerOwner(
+  store: IdentityStore,
+  limiter: AttemptLimiter,
+  rawInput: unknown,
+  clientKey: string,
+  now = new Date(),
+) {
+  const input = parse(ownerAccountRegistrationInput, rawInput);
+  const username = input.username.toLowerCase();
+  const globalAllowed = await limiter.consume(`register:${clientKey}`, 1000, 60 * 60_000, now);
+  const accountAllowed = await limiter.consume(`register-account:${username}`, 5, 60 * 60_000, now);
+  if (!globalAllowed || !accountAllowed) throw new IdentityError("RATE_LIMITED", "Please try again later.");
+  const passwordHash = await hashPassword(input.password);
+  let result: { owner: Pick<OwnerRecord, "id" | "username">; storedPasswordHash: string; replayed: boolean };
+  try {
+    result = await store.registerOwnerAtomic({ username, passwordHash, idempotencyKey: input.idempotencyKey });
+  } catch (error) {
+    if (isStoreConflict(error)) {
+      throw new IdentityError("REGISTRATION_CONFLICT", "The account could not be registered.");
+    }
+    throw error;
+  }
+  if (result.replayed && !(await verifyPassword(input.password, result.storedPasswordHash))) {
+    throw new IdentityError("UNAUTHORIZED", "The registration request could not be authenticated.");
+  }
+  return { owner: result.owner, ...(await issueSession(store, result.owner.id, now)) };
 }
 
 async function issueSession(store: IdentityStore, ownerId: string, now: Date) {
@@ -322,6 +360,7 @@ export async function authorizeSellerAgent(
   shopId: string | null,
   rawScopes: unknown = ["create_shop"],
   now = new Date(),
+  shareDataConsent = false,
 ) {
   const scopesSchema = z.array(z.enum(["create_shop", "read_shop", "manage_catalog", "manage_inventory", "connect_paypal"])).min(1).max(4);
   const parsed = scopesSchema.safeParse(rawScopes);
@@ -329,6 +368,9 @@ export async function authorizeSellerAgent(
     throw new IdentityError("INVALID_INPUT", "The requested agent permissions are not valid.");
   }
   const scopes = parsed.data;
+  if (scopes.includes("connect_paypal") && !shareDataConsent) {
+    throw new IdentityError("INVALID_INPUT", "PayPal data sharing requires explicit owner consent.");
+  }
   if (shopId === null) {
     if (scopes.length !== 1 || scopes[0] !== "create_shop") {
       throw new IdentityError("INVALID_INPUT", "Shop management permission must name a shop.");
@@ -341,7 +383,14 @@ export async function authorizeSellerAgent(
   }
   const token = makeToken();
   const expiresAt = new Date(now.getTime() + AGENT_GRANT_TTL_MS);
-  await store.createAgentGrant({ ownerId: authenticatedOwner.ownerId, shopId, scopes, tokenHash: tokenHash(token), expiresAt });
+  await store.createAgentGrant({
+    ownerId: authenticatedOwner.ownerId,
+    shopId,
+    scopes,
+    tokenHash: tokenHash(token),
+    expiresAt,
+    shareDataConsentAt: scopes.includes("connect_paypal") ? now : null,
+  });
   return { grantToken: token, shopId, scopes, expiresAt };
 }
 
@@ -354,6 +403,20 @@ export async function revokeSellerAgent(
   await store.revokeAgentGrant(tokenHash(grantToken), authenticatedOwner.ownerId, now);
 }
 
+export function resolveAuthorizedSellerAgent(
+  store: IdentityStore,
+  grantToken: string | undefined,
+  requiredScope: "connect_paypal",
+  requestedShopId?: string,
+  now?: Date,
+): Promise<SellerShopPrincipal & { shareDataConsent: true }>;
+export function resolveAuthorizedSellerAgent(
+  store: IdentityStore,
+  grantToken: string | undefined,
+  requiredScope: SellerAgentScope,
+  requestedShopId?: string,
+  now?: Date,
+): Promise<SellerShopPrincipal | { actorId: string; shopId: null }>;
 export async function resolveAuthorizedSellerAgent(
   store: IdentityStore,
   grantToken: string | undefined,
@@ -368,6 +431,9 @@ export async function resolveAuthorizedSellerAgent(
   if (!grant || !grant.scopes.includes(requiredScope)) {
     throw new IdentityError("UNAUTHORIZED", "The seller-agent authorization is invalid or expired.");
   }
+  if (requiredScope === "connect_paypal" && !grant.shareDataConsent) {
+    throw new IdentityError("UNAUTHORIZED", "The seller-agent authorization is invalid or expired.");
+  }
   if (requiredScope === "create_shop") {
     if (grant.shopId !== null || requestedShopId !== undefined) {
       throw new IdentityError("UNAUTHORIZED", "The seller-agent authorization does not cover this shop.");
@@ -377,7 +443,11 @@ export async function resolveAuthorizedSellerAgent(
   if (!grant.shopId || requestedShopId !== grant.shopId) {
     throw new IdentityError("UNAUTHORIZED", "The seller-agent authorization does not cover this shop.");
   }
-  return { actorId: grant.actorId, shopId: grant.shopId };
+  return {
+    actorId: grant.actorId,
+    shopId: grant.shopId,
+    ...(requiredScope === "connect_paypal" ? { shareDataConsent: true as const } : {}),
+  };
 }
 
 export async function createShopForAuthorizedAgent(
