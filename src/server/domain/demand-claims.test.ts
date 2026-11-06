@@ -80,7 +80,41 @@ describe("checking a model's note against the aggregates", () => {
 describe("an assistant's answer", () => {
   it("never carries a link", () => {
     expect(withoutLinks("See [this](https://evil.test/?d=1) or www.evil.test now")).toBe(
-      "See [this]((link removed) or (link removed) now",
+      "See this (link removed) or (link removed) now",
     );
+  });
+
+  // The chat renders markdown, and every inline link or image it accepts becomes a live anchor,
+  // including one with no scheme at all.
+  it.each([
+    ["[details](//evil.test/?d=magsafe)", "details (link removed)"],
+    ["![x](//evil.test/a)", "x (link removed)"],
+    ["![](//evil.test/a)", " (link removed)"],
+    ["[m](mailto:a@evil.test)", "m (link removed)"],
+    ["[here](evil.test/path)", "here (link removed)"],
+    ["[here](/seller/catalog)", "here (link removed)"],
+    ["[multi\nline](//evil.test/\nx)", "multi\nline (link removed)"],
+  ])("removes %s", (reply, expected) => {
+    expect(withoutLinks(reply)).toBe(expected);
+  });
+
+  it("removes links that are not written as markdown", () => {
+    expect(withoutLinks("mail a@evil.test at mailto:a@evil.test, or //evil.test/a, or ftp://evil.test")).toBe(
+      "mail a@evil.test at (link removed) or (link removed) or (link removed)",
+    );
+  });
+
+  it.each(["[[a](b)](//evil.test)", "[a](b)[c](//evil.test)", "[a]\\[b](//evil.test)", "[a](//evil.test"])(
+    "leaves nothing of %s that the chat could turn into a link",
+    (reply) => {
+      const answer = withoutLinks(reply);
+      expect(answer).not.toMatch(/\]\(/);
+      expect(answer).not.toContain("//evil.test");
+    },
+  );
+
+  it("leaves ordinary text alone", () => {
+    const reply = "Sellers asked 3/5 times (mostly for [iPhone] chargers) and/or cables: 10:30 is busiest.";
+    expect(withoutLinks(reply)).toBe(reply);
   });
 });

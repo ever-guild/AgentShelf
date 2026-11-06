@@ -108,7 +108,16 @@ export function checkDemandExplanation(
   return items.length > 0 ? { ok: true, items } : { ok: false, problem: "empty" };
 }
 
+const MARKDOWN_LINK = /!?\[([^\]]*)\]\([^)]*\)/g;
+const BARE_LINK = /\b(?:[a-z][a-z\d+.-]*:\/\/|mailto:|www\.)\S+|(?<![\w/:])\/\/\S+/gi;
+
 // An assistant's chat answer is free text and a stranger's words can reach it, so a link never does.
+// The chat renders markdown, and its link and image syntax makes a live anchor of almost any target,
+// so that syntax goes whatever it points at. Breaking what is left of "](" means removing one link
+// cannot leave the pieces of another.
 export function withoutLinks(text: string): string {
-  return text.replace(/\b(?:https?:\/\/|www\.)\S+/gi, "(link removed)");
+  return text
+    .replace(MARKDOWN_LINK, "$1 (link removed)")
+    .replaceAll("](", "] (")
+    .replace(BARE_LINK, "(link removed)");
 }
