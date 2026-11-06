@@ -17,7 +17,7 @@ import type { MerchantConnectionService } from "../paypal/merchant-connection";
 import type { Pool } from "pg";
 
 const REVIEW_PATH = "/seller/imports";
-type MerchantRuntimeState = { service: MerchantConnectionService; configured: boolean };
+type MerchantRuntimeState = { service?: MerchantConnectionService; configured: boolean };
 const merchantServices = new WeakMap<Pool, MerchantRuntimeState | null>();
 
 export function createSellerAgentServices(input: {
@@ -121,7 +121,7 @@ export function createSellerAgentServices(input: {
       start: (principal, request) => {
         if (input.paypalConnection) return input.paypalConnection.start(principal, request);
         const runtime = getMerchantRuntime(db, input.identity);
-        if (!runtime?.configured) return Promise.resolve({ connection: { shopId: principal.shopId, status: "error" as const, nextAction: "contact_support" as const } });
+        if (!runtime?.configured || !runtime.service) return Promise.resolve({ connection: { shopId: principal.shopId, status: "error" as const, nextAction: "contact_support" as const } });
         return runtime.service.start(principal, request);
       },
     },
