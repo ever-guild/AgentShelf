@@ -82,6 +82,16 @@ export function localDateOf(instant: Date, timezone: string): LocalDate {
   };
 }
 
+// The shop's wall clock as "YYYY-MM-DDTHH:mm:ss" with no offset, for a component with no timezone
+// support, which reads such a string as the same wall clock in whatever zone the browser is in.
+export function localDateTimeString(instant: Date, timezone: string): string {
+  return new Date(wallClockAt(instant.getTime(), timezone)).toISOString().slice(0, 19);
+}
+
+export function formatLocalDate({ year, month, day }: LocalDate): string {
+  return new Date(Date.UTC(year, month - 1, day)).toISOString().slice(0, 10);
+}
+
 export function nextLocalDate({ year, month, day }: LocalDate): LocalDate {
   const next = new Date(Date.UTC(year, month - 1, day + 1));
   return {

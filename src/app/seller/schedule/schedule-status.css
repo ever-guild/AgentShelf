@@ -1,0 +1,32 @@
+/* The shape of a booking's state, the same in the timeline and the list. Each state differs by its
+   border as well as its color, and always comes with its words. */
+.booking-state {
+  border-radius: 3px;
+  color: var(--foreground);
+}
+
+.booking-state-confirmed {
+  border: 2px solid var(--accepted);
+  background: color-mix(in srgb, var(--accepted) 14%, var(--background));
+}
+
+.booking-state-held {
+  border: 2px dashed var(--doubt);
+}
+
+.booking-state-review_required {
+  border: 4px double var(--blocked);
+}
+
+.booking-state-expired,
+.booking-state-cancelled {
+  border: 1px dotted #71717a;
+  color: #52525b;
+}
+
+@media (prefers-color-scheme: dark) {
+  .booking-state-expired,
+  .booking-state-cancelled {
+    color: #a1a1aa;
+  }
+}

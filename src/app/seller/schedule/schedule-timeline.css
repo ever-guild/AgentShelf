@@ -1,0 +1,68 @@
+@import "@bryntum/core-community/fontawesome/css/fontawesome.css";
+@import "@bryntum/core-community/fontawesome/css/solid.css";
+@import "@bryntum/scheduler-community/scheduler.css";
+/* The light and dark files, not svalbard.css: Next's CSS targets rewrite light-dark(), and the
+   combined theme then renders unstyled. */
+@import "@bryntum/scheduler-community/svalbard-light.css";
+@import "@bryntum/scheduler-community/svalbard-dark.css" (prefers-color-scheme: dark);
+
+.schedule-timeline .b-sch-event-wrap,
+.schedule-timeline .b-sch-event {
+  background: transparent;
+  box-shadow: none;
+  padding: 0;
+}
+
+.schedule-timeline .b-sch-event-content {
+  width: 100%;
+  height: 100%;
+  margin: 0;
+}
+
+/* A long technician name wraps rather than losing the part that tells people apart. */
+.schedule-timeline .b-grid-row .b-grid-cell[data-column="name"] {
+  display: flex !important;
+  align-items: center;
+  white-space: normal;
+  line-height: 1.25 !important;
+}
+
+/* Bryntum leaves this off-screen scroller in the page to measure scrollbars, and Chrome would stop
+   on it when tabbing. It measures just the same while hidden. */
+.b-scrollbar-measure-element {
+  visibility: hidden;
+}
+
+.schedule-timeline .b-sch-event-wrap:focus-visible,
+.schedule-timeline .b-sch-event-wrap.b-active {
+  outline: none;
+}
+
+.schedule-timeline .b-sch-event-wrap:focus-visible .booking-bar,
+.schedule-timeline .b-sch-event-wrap.b-active .booking-bar {
+  outline: 2px solid var(--ink);
+  outline-offset: -5px;
+}
+
+.booking-bar {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  padding: 2px 6px;
+  background: var(--background);
+  color: var(--foreground);
+  font-size: 12px;
+  line-height: 1.25;
+  white-space: nowrap;
+}
+
+.booking-bar > * {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.booking-bar-time {
+  font-variant-numeric: tabular-nums;
+}

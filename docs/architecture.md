@@ -231,6 +231,50 @@ A view of what occupies the calendar filters on `blocksTime`. `depositCaptureId`
 
 **Known limit:** the connector has no sign-in, so an assistant can hold free slots with new keys, each for 15 minutes, and each creates a PayPal order. Nothing limits that yet.
 
+## Schedule
+
+`/seller/schedule` shows one shop's day, for [#13](https://github.com/ever-guild/AgentShelf/issues/13): technicians as rows and bookings as bars in Bryntum Scheduler, with a plain list of the same bookings underneath. It only reads. [`seller-schedule.ts`](../src/server/services/seller-schedule.ts) turns the read model into a page's view, and `GET /api/seller/schedule?date=YYYY-MM-DD` serves it with `Cache-Control: private, no-store`. With no `date` it answers for today in shop time.
+
+**Status:** tested on real Postgres and on a production build in a browser. Confirmations were written to the database by hand or came through the real SDK against the PayPal stand-in. No real deposit has been paid, because the credentials from [#33](https://github.com/ever-guild/AgentShelf/issues/33) do not exist yet.
+
+**Which shop:** only the session's. A request naming a shop gets `INVALID_INPUT`, and no session gets `UNAUTHORIZED`. If someone signs in to another shop in the same browser, an open page sees a different `shopId` on its next refresh and hides the schedule.
+
+**What reaches the browser** is the view, not the read model: no order ID, PayPal order ID or capture ID. Service titles come from a shop's price list, so they are rendered as text nodes only, in both views.
+
+**Refresh is polling.** The page asks 5 seconds after the last answer, one request at a time, and gives up on a request after 4 seconds, so a confirmed deposit shows within 10 seconds. A polling route needs no socket and no extra Render service. A tab coming back from the background asks at once.
+
+| What the seller sees | When |
+| --- | --- |
+| Updated at 14:58:19 | The last answer was fine |
+| Could not refresh, with the time of the last good answer and a button | The last request failed or timed out. Polling carries on, and the old data stays up |
+| This may be out of date | No answer for 15 seconds, without a failure, which is mostly a throttled tab |
+| The shop is no longer signed in here | A 401 or another shop's answer. The schedule is hidden and polling stops |
+
+**States** read the same in both views. Each has its own words and border, so color is never the only signal.
+
+| Booking | Words | Border | Deposit line |
+| --- | --- | --- | --- |
+| `held` | Held | Dashed | Not paid yet, and when the hold ends |
+| `confirmed`, paid | Confirmed | Solid and filled | Paid, and what is due at the shop |
+| `confirmed`, payment not `paid` | Confirmed, check payment | Solid and filled | Check it in PayPal |
+| `expired` | Expired | Dotted | No deposit paid in time, the time is free |
+| `cancelled` | Cancelled | Dotted | The order was cancelled, the time is free |
+| `review_required` | Needs review | Double | The deposit arrived late, refund or rebook |
+
+A hold ends at its exact instant on the page too. The page estimates the server's clock from the last answer, so a hold reads as expired on time during an outage, and a wrong clock on the seller's computer does not end one early.
+
+**Time:** Bryntum Community has no timezone setting, so the server sends shop wall clock with no offset, such as `2026-11-09T12:00:00`, and the browser shows it as written. Days are cut in shop time. Three limits follow:
+
+- On the night the clocks go back, a booking can end at the wall-clock time it starts. Its bar uses its elapsed length, `barEndLocal`, and the words keep the true times.
+- A bar that crosses the hour that is skipped when clocks go forward is an hour longer than the appointment.
+- A browser in a zone with a clock change in the shop's visible hours would misplace bars. Clock changes fall at night, and the timeline shows working hours unless something is booked outside them. The list has no such limit, because it uses the strings as text.
+
+**Keyboard:** the timeline takes Tab, then arrow keys to reach a bar and Tab to move between bars, and every bar has a label with its full state. A link before it skips to the list, which is the simpler way to read the day, and to read it with a screen reader. A change in the bookings is announced through a live region.
+
+**Read-only:** there is no write route, and Bryntum's drag, resize, create, edit and menu features are off. Moving a booking would need its own concurrency rules, so it is out of scope until someone agrees them.
+
+**Known limits:** only one day is shown at a time, and a shop with no technicians gets a message instead of a timeline. Refresh is per open page, so many open pages mean a request each per 5 seconds, which is fine at demo size.
+
 ## Storefront
 
 The public shop link at `/shops/<slug>`, for [#16](https://github.com/ever-guild/AgentShelf/issues/16). It lists a shop's published products with title, description, price and availability, and sells one product at a time. A sandbox notice is on every page.

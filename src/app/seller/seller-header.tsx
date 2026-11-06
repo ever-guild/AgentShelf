@@ -24,6 +24,9 @@ export function SellerHeader({ shopName }: { shopName: string }) {
         <Link href="/seller/catalog" className="underline-offset-4 hover:underline">
           Catalog
         </Link>
+        <Link href="/seller/schedule" className="underline-offset-4 hover:underline">
+          Schedule
+        </Link>
         <button type="button" onClick={signOut} className="underline-offset-4 hover:underline">
           Sign out
         </button>

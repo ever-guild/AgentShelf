@@ -23,6 +23,7 @@
   },
   "dependencies": {
     "@anthropic-ai/sdk": "1.6.0",
+    "@bryntum/scheduler-react-community": "8.0.0",
     "@modelcontextprotocol/sdk": "1.32.2",
     "@paypal/paypal-server-sdk": "2.5.0",
     "@renderinc/sdk": "1.7.0",
