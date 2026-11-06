@@ -3,7 +3,8 @@
  * against a disposable local AgentShelf database
  *
  * This script creates an owner, shops, a draft import, and catalog/inventory rows
- * It does not create a checkout, call PayPal, or print bearer grants or cookies
+ * It attempts one negative checkout against a shop without PayPal configuration
+ * It never calls PayPal or prints bearer grants or cookies
  *
  * Usage: npm run smoke:runtime -- http://localhost:3000
  */
@@ -403,6 +404,7 @@ async function runShopMcp(origin: URL, shop: SmokeShop, token: string, runId: st
     assert(adjusted.onHand === 1 && adjusted.available === 1, "stock adjustment leaves one available unit");
 
     await verifyBuyerSearch(origin, title, publishedProductId!);
+    await verifyUnconfiguredCheckout(origin, publishedProductId!);
   } finally {
     await client.close();
   }
@@ -422,6 +424,29 @@ async function verifyBuyerSearch(origin: URL, title: string, productId: string) 
     }));
     const products = Array.isArray(result.products) ? result.products.map(record) : [];
     assert(products.some((item) => item.productId === productId), "buyer MCP finds the seller-published item");
+  } finally {
+    await client.close();
+  }
+}
+
+async function verifyUnconfiguredCheckout(origin: URL, productId: string) {
+  const client = await connectMcp(new URL("/mcp", origin));
+  try {
+    const listed = await client.listTools();
+    assert(listed.tools.some((tool) => tool.name === "create_checkout"), "buyer MCP exposes checkout");
+    const result = await client.callTool({
+      name: "create_checkout",
+      arguments: { items: [{ productId, quantity: 1 }], idempotencyKey: randomUUID() },
+    });
+    const structured = record(result.structuredContent);
+    const hasApprovalUrl = typeof structured.approvalUrl === "string" ||
+      (result.content as { type: string; text?: string }[]).some((block) =>
+        block.type === "text" && /https?:\/\//i.test(block.text ?? ""),
+      );
+    assert(result.isError === true && toolErrorCode(result) === "PAYMENT_NOT_CONFIGURED",
+      "unconfigured seller checkout is rejected before payment setup");
+    assert(!hasApprovalUrl && typeof structured.orderId !== "string",
+      "unconfigured checkout returns no approval URL or order capability");
   } finally {
     await client.close();
   }

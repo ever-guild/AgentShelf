@@ -51,7 +51,7 @@ For the current seller UI, sign in at `/seller/sign-in` with the access code for
 
 This baseline does not exercise new-shop signup, an external seller agent, agent grants, or quantity inventory
 
-After the owner identity and seller MCP routes are wired, `smoke:runtime` performs a local end-to-end owner and seller-agent path, it creates a synthetic owner, shops, import and catalog row, and stock adjustments before searching the published row through buyer MCP
+After the owner identity and seller MCP routes are wired, `smoke:runtime` performs a local end-to-end owner and seller-agent path, it creates a synthetic owner, shops, import and catalog row, and stock adjustments before searching the published row through buyer MCP, then verifies an unconfigured seller's checkout is rejected without an approval URL or order capability
 
 The runtime smoke is restricted to `localhost` and requires an explicit disposable-database acknowledgement, the app needs `ANTHROPIC_API_KEY` for the import step
 
@@ -59,7 +59,7 @@ The runtime smoke is restricted to `localhost` and requires an explicit disposab
 RUNTIME_SMOKE_DISPOSABLE_DB=1 npm run smoke:runtime -- http://localhost:3000
 ```
 
-This helper does not create a checkout, call PayPal, or prove buyer payment approval, webhook delivery, capture reconciliation, or public-client connector compatibility
+The checkout attempt is expected to fail with `PAYMENT_NOT_CONFIGURED` before any provider order is created, this helper does not call PayPal or prove buyer payment approval, webhook delivery, capture reconciliation, or public-client connector compatibility
 
 ## Acceptance matrix
 
@@ -88,7 +88,7 @@ Execution stages separate code-level evidence from browser, agent, and sandbox e
 | STOCK-2 | 2 | Concurrent buyers compete for the last unit | Start with one available unit and submit two distinct checkout requests concurrently, require exactly one successful reservation and no oversell | `BLOCKED` on [inventory #36](https://github.com/ever-guild/AgentShelf/issues/36) |
 | STOCK-3 | 2 | Expired inventory reservation cannot start a new capture | Expire or release a reservation before capture, verify the checkout/payment gate prevents a new PayPal capture request for that reservation | `BLOCKED` on [inventory #36](https://github.com/ever-guild/AgentShelf/issues/36) and [booking hold capture gate #38](https://github.com/ever-guild/AgentShelf/issues/38) |
 | STOCK-4 | 2 | Already captured payment arrives after inventory reservation expires | Reconcile the late verified capture as `review_required`, retain evidence for seller resolution, and do not consume stock or allow a second buyer to double-book it | `BLOCKED` on [inventory #36](https://github.com/ever-guild/AgentShelf/issues/36) and [booking hold capture gate #38](https://github.com/ever-guild/AgentShelf/issues/38) |
-| PAYPAL-1 | 1, 2 | Shop has no PayPal connection | Create a shop without PayPal consent, confirm catalog work succeeds, checkout returns the documented not-connected state, and no provider order or approval link is created | Current checkout has a tested `PAYMENT_NOT_CONFIGURED` boundary, new shop onboarding behavior is `BLOCKED` on [PayPal onboarding #35](https://github.com/ever-guild/AgentShelf/issues/35) |
+| PAYPAL-1 | 1, 2 | Shop has no PayPal connection | Create a shop without PayPal consent, confirm catalog work succeeds, checkout returns the documented not-connected state, and no provider order or approval link is created | Local runtime smoke exercises catalog work and the negative MCP checkout response, database tests verify no provider request or order row; new shop onboarding behavior is `BLOCKED` on [PayPal onboarding #35](https://github.com/ever-guild/AgentShelf/issues/35) |
 | PAYPAL-2 | 4 | Incomplete or revoked PayPal consent | Stop between consent start and return, then revoke consent, confirm both states block new checkout without exposing app secrets | `BLOCKED` on [PayPal onboarding #35](https://github.com/ever-guild/AgentShelf/issues/35) |
 | PAY-1 | 2 | Duplicate webhook delivery | Deliver the same verified fixture twice through the database-backed webhook test harness, require one payment transition and one receipt | Existing behavior is covered by [`paypal-webhook.db.test.ts`](../src/server/services/paypal-webhook.db.test.ts), rerun on the release candidate |
 | PAY-2 | 2 | Do not capture after a booking hold expires or is cancelled | Expire or cancel the hold before capture, verify the payment path makes no PayPal capture call for that hold | Guard implemented with database coverage in [commit db9293c](https://github.com/ever-guild/AgentShelf/commit/db9293c77dc7dd48026276f6cb5efd43a3e240ad), release-candidate test `NOT RUN` |
