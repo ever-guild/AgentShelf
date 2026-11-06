@@ -1,6 +1,8 @@
 import { createHash, randomBytes } from "node:crypto";
 import { z } from "zod";
 
+import type { SellerPayPalShopPrincipal, SellerShopPrincipal } from "../contracts/seller-identity";
+
 export const MERCHANT_CONNECTION_STATES = [
   "not_connected",
   "pending",
@@ -10,8 +12,9 @@ export const MERCHANT_CONNECTION_STATES = [
 ] as const;
 export type MerchantConnectionState = (typeof MERCHANT_CONNECTION_STATES)[number];
 
-/** Matches SellerShopPrincipal from the owner-identity contract after session/grant resolution. */
-export type MerchantConnectionPrincipal = { actorId: string; shopId: string };
+/** Owner session or a grant-scoped principal carrying persisted PayPal consent evidence. */
+export type MerchantConnectionPrincipal = SellerShopPrincipal &
+  Partial<Pick<SellerPayPalShopPrincipal, "shareDataConsent" | "shareDataConsentAt">>;
 export type MerchantConnectionAction = "connect" | "read";
 
 export type MerchantStatusEvidence = {
@@ -91,7 +94,7 @@ export interface PartnerReferralsAdapter {
 const startSchema = z.strictObject({
   shopId: z.uuid(),
   idempotencyKey: z.string().trim().min(16).max(128),
-  shareDataConsent: z.literal(true),
+  shareDataConsent: z.literal(true).optional(),
 });
 const shopIdSchema = z.uuid();
 const callbackSchema = z.strictObject({
@@ -189,17 +192,32 @@ export function createMerchantConnectionService(input: {
       const { shopId, idempotencyKey } = parsed.data;
       await authorize(principal, shopId, "connect");
       if (!z.uuid().safeParse(principal.actorId).success) throw new MerchantConnectionError("UNAUTHORIZED", "You are not authorized to manage PayPal for this shop.");
-      const stamp = now();
+      if (
+        principal.shareDataConsentAt !== undefined &&
+        (principal.shareDataConsent !== true ||
+          !(principal.shareDataConsentAt instanceof Date) ||
+          Number.isNaN(principal.shareDataConsentAt.getTime()))
+      ) {
+        throw new MerchantConnectionError("UNAUTHORIZED", "The seller-agent consent evidence is invalid.");
+      }
+      const delegatedConsentAt = principal.shareDataConsent === true
+        ? principal.shareDataConsentAt
+        : undefined;
+      if (!delegatedConsentAt && parsed.data.shareDataConsent !== true) {
+        throw new MerchantConnectionError("CONSENT_REQUIRED", "Confirm that this shop may share its account data with PayPal before continuing.");
+      }
+      const actionAt = now();
+      const consentAt = delegatedConsentAt ?? actionAt;
       const trackingId = createTrackingId();
       if (!/^[A-Za-z0-9_-]{40,64}$/.test(trackingId)) throw new Error("Tracking ID generator returned an invalid value");
       const requestKeyHash = hash(idempotencyKey);
       const reservation = await input.repository.reserveStart({
         shopId,
         consentedByOwnerId: principal.actorId,
-        shareDataConsentAt: stamp,
+        shareDataConsentAt: consentAt,
         requestKeyHash,
         trackingId,
-        now: stamp,
+        now: actionAt,
       });
       if (reservation.kind === "conflict") {
         throw new MerchantConnectionError("CONNECTION_CONFLICT", "A PayPal connection flow is already active for this shop.");

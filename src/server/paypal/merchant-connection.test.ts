@@ -136,6 +136,29 @@ describe("merchant connection service", () => {
     expect(paypal.refreshReferral).toHaveBeenCalledTimes(1);
   });
 
+  it("uses persisted owner consent from the trusted seller-agent principal without a tool flag", async () => {
+    const { service, repository, paypal } = createHarness();
+    const consentedAt = new Date("2026-11-06T11:42:13Z");
+    const delegatedPrincipal = {
+      ...principal,
+      shareDataConsent: true as const,
+      shareDataConsentAt: consentedAt,
+    };
+
+    await service.start(delegatedPrincipal, {
+      shopId: shopA,
+      idempotencyKey: "agent-request-key-0001",
+    });
+
+    expect(await repository.getByShop(shopA)).toMatchObject({
+      consentedByOwnerId: principal.actorId,
+      shareDataConsentAt: consentedAt,
+      createdAt: new Date("2026-11-06T12:00:00Z"),
+      updatedAt: new Date("2026-11-06T12:00:00Z"),
+    });
+    expect(paypal.createReferral).toHaveBeenCalledTimes(1);
+  });
+
   it("does not retry a Partner Referrals POST after an ambiguous outcome", async () => {
     const { service, paypal, repository } = createHarness();
     paypal.createReferral.mockRejectedValueOnce(new PartnerReferralsRequestError("unknown"));
