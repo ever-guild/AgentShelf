@@ -57,3 +57,5 @@ After CI passes, GitHub Actions calls the Render Deploy Hook for that exact comm
 ## License
 
 [MIT](LICENSE)
+
+The seller dashboard depends on AG Studio, which is commercial software installed from npm under its own licence and not included in this repository. Portions of this software are copyright 2015-2026 by AG Grid Ltd.

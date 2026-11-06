@@ -1,0 +1,78 @@
+/* The tokens AG Studio's theme reads (dashboard-theme.ts). The zinc ramp and the app's ink, repeated
+   here because Studio takes CSS variables, not Tailwind classes. Series colors follow the meaning
+   they carry in the seller screens, and every series also has words in its legend. */
+:root {
+  --studio-canvas: #fafafa;
+  --studio-surface: #ffffff;
+  --studio-text: #18181b;
+  --studio-muted: #52525b;
+  --studio-line: #e4e4e7;
+  --studio-hover: #f4f4f5;
+  --studio-ink: var(--ink);
+  --studio-series-1: #2438a6;
+  --studio-series-2: #92560a;
+  --studio-series-3: #12704a;
+  --studio-series-4: #71717a;
+  --studio-series-5: #b42318;
+  --studio-series-6: #3f3f46;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --studio-canvas: #0a0a0a;
+    --studio-surface: #18181b;
+    --studio-text: #f4f4f5;
+    --studio-muted: #a1a1aa;
+    --studio-line: #3f3f46;
+    --studio-hover: #27272a;
+    --studio-series-1: #a9b8ff;
+    --studio-series-2: #eebb6a;
+    --studio-series-3: #66d6a6;
+    --studio-series-4: #a1a1aa;
+    --studio-series-5: #ff9c8f;
+    --studio-series-6: #d4d4d8;
+  }
+}
+
+/* A booking's state is its words and its border, the same as on the schedule. */
+.booking-mark {
+  border-inline-start-width: 3px;
+  padding-inline-start: 0.625rem;
+}
+.booking-mark[data-status="held"] {
+  border-inline-start-style: dashed;
+  border-color: var(--doubt);
+}
+.booking-mark[data-status="confirmed"] {
+  border-inline-start-style: solid;
+  border-color: var(--accepted);
+}
+.booking-mark[data-status="review_required"] {
+  border-inline-start-style: double;
+  border-color: var(--blocked);
+}
+.booking-mark[data-status="expired"],
+.booking-mark[data-status="cancelled"] {
+  border-inline-start-style: dotted;
+  border-color: var(--studio-muted);
+}
+
+.widget-summary {
+  cursor: pointer;
+  list-style: none;
+}
+.widget-summary::-webkit-details-marker {
+  display: none;
+}
+.widget-summary:focus-visible,
+.grid-order-link:focus-visible {
+  outline: 2px solid var(--ink);
+  outline-offset: 1px;
+}
+
+.grid-order-link {
+  color: var(--ink);
+  font-variant-numeric: tabular-nums;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}

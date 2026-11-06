@@ -40,6 +40,7 @@ Migrating and seeding are safe to repeat. The seed updates its own fixed rows an
 | `DEMO_SECOND_SHOP_PAYPAL_MERCHANT_ID`, `DEMO_SECOND_SHOP_SELLER_CODE` | `db:seed` | Optional, and the same for the candle studio. The merchant must differ from the workshop's, and the seed refuses two equal ones. Its credentials are `PAYPAL_CLIENT_ID_DEMO_SECOND_SHOP`, `PAYPAL_CLIENT_SECRET_DEMO_SECOND_SHOP` and `PAYPAL_WEBHOOK_ID_DEMO_SECOND_SHOP`, from a second sandbox seller app |
 | `DEMO_DATE` | `db:seed`, `demo:reset` | Optional. The demo's "today" as `YYYY-MM-DD` in Riga. Empty means today |
 | `DEMO_ENVIRONMENT` | `demo:reset` | Must be exactly `true` for the reset to run. Set it only on a demo or sandbox service |
+| `AG_STUDIO` | app | AG Studio licence key, read on the server and passed to `/seller/dashboard`. Studio checks it in the browser, so it reaches the browser. Without it the dashboard works, logs licence errors to the console and shows Studio's trial watermark |
 
 ## Rules the data model enforces
 
@@ -274,6 +275,57 @@ A hold ends at its exact instant on the page too. The page estimates the server'
 **Read-only:** there is no write route, and Bryntum's drag, resize, create, edit and menu features are off. Moving a booking would need its own concurrency rules, so it is out of scope until someone agrees them.
 
 **Known limits:** only one day is shown at a time, and a shop with no technicians gets a message instead of a timeline. Refresh is per open page, so many open pages mean a request each per 5 seconds, which is fine at demo size.
+
+## Seller dashboard
+
+`/seller/dashboard` shows one shop's money, bookings and unmet demand in [AG Studio](integrations.md#ag-studio), for [#14](https://github.com/ever-guild/AgentShelf/issues/14). [`seller-dashboard.ts`](../src/server/services/seller-dashboard.ts) holds the four datasets, and everything Studio is told about AgentShelf is in [`src/app/seller/dashboard`](../src/app/seller/dashboard).
+
+**Status:** tested on real Postgres, with deposits captured through the real SDK against a stand-in for PayPal, and on a production build in a browser with rows written by hand. No real capture has reached it, because the credentials from [#33](https://github.com/ever-guild/AgentShelf/issues/33) do not exist yet. It has run only without a Studio key, so the watermark rule below comes from [integrations.md](integrations.md#ag-studio) and has not been seen with a key.
+
+**Datasets:** `GET /api/seller/dashboard/orders`, `/payments`, `/bookings` and `/demand`, each taking only `days` (`7`, `30` or `60`, by default `30`), counted in shop time and including today. The shop comes from the session. A request naming a shop gets `INVALID_INPUT`, no session gets `UNAUTHORIZED`, and answers carry `Cache-Control: private, no-store`. Each dataset lists its columns, so a merchant ID, approval link, idempotency key or PayPal order ID never reaches the browser. A seller does get their own capture ID, to find a payment in PayPal.
+
+**What counts as money.** `paymentGroupOf` is the one definition, used for rows and totals alike.
+
+| Group | Orders | Counted as |
+| --- | --- | --- |
+| Paid | `paid`, which only [reconciliation](#payment-reconciliation) can set and which needs a capture | Revenue |
+| Awaiting payment | `approved`, or `pending` with an approval link | Not revenue. A buyer who has a link may never use it |
+| Needs review | `review_required` | Not revenue, until a person looks |
+| Closed, no money | `cancelled`, `failed`, or `pending` with no link, since nobody can pay that | Nothing |
+
+Totals are summed by the database by group, type and currency over every order created in the period, so a row limit cannot change them, and amounts in different currencies are never added. A dataset sends at most 1000 rows (2000 search events), and the page says so when it stops short. Reconciliation may later move a paid order to review, and a totals row moves with it.
+
+**A deposit is part of a service's price.** A deposit counts as paid revenue once captured. The rest is paid at the shop and is in no total. The bookings widget and an order's details show the service price, the deposit and what is due at the shop. A deposit that arrived late is paid money, while its booking stays in review for the seller to refund or rebook, using the schedule's words.
+
+**Demand** reads rows with `attributed_shop_id` set to this shop and nothing else, so a global miss and another shop's row never reach it. Each query shows its [attribution basis](#search): the shared words and this shop's closest listings. Labeled fixtures show as demo samples, and `degraded` rows as a possible wording gap. Search text comes from outside, so it is rendered as text only, in the signature ink.
+
+**How Studio is used:**
+
+- The tables are `paymentTotals`, `orders`, `orderLines`, `captures`, `bookings` and `demand`, with order lines related to orders, and go in through `data` as plain rows. A refresh replaces them.
+- Payment status, upcoming bookings and unmet demand are custom widgets in plain React, as the licence asks, reading through `widgetApi.getData`. Studio's filters reach them like any built-in widget, and a payment status box cross-filters the orders grid.
+- The theme reads CSS variables from [`dashboard.css`](../src/app/seller/dashboard/dashboard.css), so dark mode follows without a second theme.
+- The first grid column opens an order's lines, capture and what its amount means. Bookings and demand open in place.
+- Below 760 pixels the canvas becomes one column. Arranging is offered on wider screens only.
+
+Money stays integer minor units in Studio. Charts are the one exception: their axes draw raw numbers, so a chart measure is in whole units, for drawing only.
+
+**Filters do not protect anything.** The server sends only what the session's shop may see, and Studio's filters narrow that on the page. The period is the one filter the server applies, because it decides what is read.
+
+**Refresh is polling.** Every 30 seconds, one round at a time, with a 10 second limit, and at once when a tab comes back. Studio is redrawn only when an answer changed. A hold ends at its exact instant by the server's estimated clock, as on the schedule.
+
+| What the seller sees | When |
+| --- | --- |
+| Loading your numbers | The first round has not answered |
+| Updated at 14:58:19, shop time | The last time all four datasets answered |
+| Could not refresh, naming the datasets, with the time of the last full read and a button | A request failed or timed out. What was read stays up, and a widget with nothing to show says it could not load |
+| The widget's own words, with what to do next | The dataset is empty. A built-in widget says "Nothing here in this period" |
+| The shop is no longer signed in here | A 401 or another shop's answer. The data is dropped and polling stops |
+
+**What the browser keeps:** the period and the arrangement, in `localStorage`, per shop for the arrangement, and never in a URL. An arrangement keeps widgets and their places and no filter or selection, because a selected value can name a search or an order. Anything unreadable falls back to the default, and **Reset layout** clears it. Raise `REPORT_VERSION` when a widget, field or table changes, so nobody restores a report Studio would refuse.
+
+**The assistant's place:** `STUDIO_MODULES` and the `ai` property in [`dashboard-studio.tsx`](../src/app/seller/dashboard/dashboard-studio.tsx), with `"ai"` added to the edit panels. [#15](https://github.com/ever-guild/AgentShelf/issues/15) delivers it. Nothing on this page is an assistant yet.
+
+**Known limits:** Studio's main chunk is about 6.7 MB uncompressed and loads only on this route. The grid and charts format money in the shop's currency, which holds while EUR is the only supported one.
 
 ## Storefront
 

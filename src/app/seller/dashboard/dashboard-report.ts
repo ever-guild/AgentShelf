@@ -1,0 +1,236 @@
+import type { AgReportState, AgWidgetLayoutState } from "ag-studio";
+
+// The dashboard a seller sees first, as AG Studio report state, and how a seller's own arrangement
+// of it is kept. Field IDs are `table.field`, from dashboard-data.ts.
+
+export const PAYMENT_STATUS_WIDGET = "agentshelf-payment-status";
+export const UPCOMING_BOOKINGS_WIDGET = "agentshelf-upcoming-bookings";
+export const UNMET_DEMAND_WIDGET = "agentshelf-unmet-demand";
+
+// Raise this when a widget, field or table changes, so nobody restores a report Studio would refuse.
+const REPORT_VERSION = 1;
+const PAGE_ID = "counter";
+
+const at = (xTrack: number, yTrack: number, xSpan: number, ySpan: number): AgWidgetLayoutState => ({
+  xTrack,
+  yTrack,
+  xSpan,
+  ySpan,
+});
+const title = (text: string) => ({ title: { enabled: true, text } });
+const fields = (table: string, ids: string[]) => ids.map((id) => ({ id: `${table}.${id}` }));
+// A filter's label is its field's name, so it needs no title of its own.
+const FILTER_FORMAT = { title: { enabled: false }, style: { selection: { type: "multiple" }, dimensions: { height: 28, minWidth: 48 } } };
+const WITH_LEGEND = { style: { theme: { common: { legend: { enabled: true } } } } };
+const sum = (id: string) => ({ id, aggregation: "sum" as const });
+
+// A deliberate order for a counter: money first, then who is coming in and what people could not
+// find, then the charts, and the full list of orders at the bottom.
+export function defaultReport(): AgReportState {
+  const report = {
+    selectedPageId: PAGE_ID,
+    panels: { filters: { collapsed: true } },
+    pages: [
+      {
+        id: PAGE_ID,
+        layout: { minWidth: 320, type: "widget" },
+        widgets: {
+          "payment-status": {
+            type: PAYMENT_STATUS_WIDGET,
+            dataMapping: {
+              fields: fields("paymentTotals", ["key", "group", "kind", "currency", "amountMinor", "orderCount"]),
+              orderGroup: [{ id: "orders.groupLabel" }],
+            },
+            format: title("Payment status"),
+          },
+          "booking-state": {
+            type: "button-filter",
+            dataMapping: { value: [{ id: "bookings.statusLabel" }] },
+            format: FILTER_FORMAT,
+          },
+          "booking-technician": {
+            type: "button-filter",
+            dataMapping: { value: [{ id: "bookings.technicianName" }] },
+            format: FILTER_FORMAT,
+          },
+          "demand-source": {
+            type: "button-filter",
+            dataMapping: { value: [{ id: "demand.originLabel" }] },
+            format: FILTER_FORMAT,
+          },
+          "upcoming-bookings": {
+            type: UPCOMING_BOOKINGS_WIDGET,
+            dataMapping: {
+              fields: fields("bookings", [
+                "bookingId",
+                "reference",
+                "status",
+                "reviewReason",
+                "paymentStatus",
+                "serviceTitle",
+                "technicianName",
+                "startsDate",
+                "startsLocal",
+                "endsLocal",
+                "startsAt",
+                "endsAt",
+                "holdExpiresAt",
+                "holdExpiresLocal",
+                "priceMinor",
+                "depositMinor",
+                "remainingMinor",
+                "currency",
+                "captureId",
+              ]),
+            },
+            format: title("Upcoming bookings"),
+          },
+          "unmet-demand": {
+            type: UNMET_DEMAND_WIDGET,
+            dataMapping: {
+              fields: fields("demand", [
+                "query",
+                "originLabel",
+                "searches",
+                "sampleSearches",
+                "degradedSearches",
+                "lastSearchedLocal",
+                "sharedWords",
+                "listings",
+                "askedFor",
+              ]),
+            },
+            format: title("What people could not find"),
+          },
+          "captured-by-day": {
+            type: "column-chart-stacked",
+            dataMapping: {
+              categoryKey: [{ id: "captures.createdDate" }],
+              valueKey: [sum("captures.purchaseAmount"), sum("captures.depositAmount")],
+            },
+            format: { ...title("Captured by the day the order was made"), ...WITH_LEGEND },
+          },
+          "paid-by-item": {
+            type: "bar-chart-grouped",
+            dataMapping: {
+              categoryKey: [{ id: "orderLines.title" }],
+              valueKey: [sum("orderLines.paidAmount")],
+            },
+            format: title("Paid by item"),
+          },
+          "order-kind": {
+            type: "button-filter",
+            dataMapping: { value: [{ id: "orders.kindLabel" }] },
+            format: FILTER_FORMAT,
+          },
+          "order-state": {
+            type: "button-filter",
+            dataMapping: { value: [{ id: "orders.statusLabel" }] },
+            format: FILTER_FORMAT,
+          },
+          orders: {
+            type: "grid",
+            dataMapping: {
+              cols: fields("orders", [
+                "reference",
+                "createdLabel",
+                "kindLabel",
+                "items",
+                "statusLabel",
+                "groupLabel",
+                "totalMinor",
+                "currency",
+              ]),
+            },
+            format: {
+              ...title("Orders"),
+              style: { columnAutoSize: true },
+              subtitle: { enabled: true, text: "Open an order for its lines, capture and what the amount means." },
+            },
+          },
+        },
+        widgetLayout: {
+          "payment-status": at(0, 0, 24, 14),
+          "booking-state": at(0, 14, 8, 6),
+          "booking-technician": at(8, 14, 4, 6),
+          "demand-source": at(12, 14, 12, 6),
+          "upcoming-bookings": at(0, 20, 12, 25),
+          "unmet-demand": at(12, 20, 12, 25),
+          "captured-by-day": at(0, 45, 14, 18),
+          "paid-by-item": at(14, 45, 10, 18),
+          "order-kind": at(0, 63, 8, 6),
+          "order-state": at(8, 63, 16, 6),
+          orders: at(0, 69, 24, 26),
+        },
+      },
+    ],
+  };
+  return report as unknown as AgReportState;
+}
+
+export function layoutStorageKey(shopId: string): string {
+  return `agentshelf.dashboard.layout.v${REPORT_VERSION}.${shopId}`;
+}
+
+type SavedPage = { id?: unknown; widgets?: unknown; widgetLayout?: unknown; layout?: unknown };
+
+// What is worth keeping between visits: which widgets there are and where. A saved report carries
+// no filter or cross filter, because a selected value can name a buyer's search or an order.
+export function layoutOnly(state: AgReportState): AgReportState {
+  return {
+    selectedPageId: state.selectedPageId,
+    panels: state.panels,
+    pages: state.pages.map(({ id, widgets, widgetLayout, layout }) => ({ id, widgets, widgetLayout, layout })),
+  } as AgReportState;
+}
+
+// A stored value is only a hint: anything unexpected falls back to the default dashboard.
+export function parseSavedLayout(stored: string | null): AgReportState | null {
+  if (!stored) {
+    return null;
+  }
+  try {
+    const parsed = JSON.parse(stored) as { selectedPageId?: unknown; pages?: unknown };
+    const pages = parsed?.pages;
+    const valid =
+      typeof parsed?.selectedPageId === "string" &&
+      Array.isArray(pages) &&
+      pages.length > 0 &&
+      pages.every(
+        (page: SavedPage) =>
+          typeof page?.id === "string" &&
+          typeof page.widgets === "object" &&
+          page.widgets !== null &&
+          typeof page.widgetLayout === "object" &&
+          page.widgetLayout !== null,
+      ) &&
+      pages.some((page: SavedPage) => page.id === parsed.selectedPageId);
+    return valid ? layoutOnly(parsed as unknown as AgReportState) : null;
+  } catch {
+    return null;
+  }
+}
+
+export function loadSavedLayout(shopId: string): AgReportState | null {
+  try {
+    return parseSavedLayout(window.localStorage.getItem(layoutStorageKey(shopId)));
+  } catch {
+    return null;
+  }
+}
+
+export function saveLayout(shopId: string, state: AgReportState) {
+  try {
+    window.localStorage.setItem(layoutStorageKey(shopId), JSON.stringify(layoutOnly(state)));
+  } catch {
+    // A browser that keeps nothing still shows the default dashboard next time.
+  }
+}
+
+export function clearSavedLayout(shopId: string) {
+  try {
+    window.localStorage.removeItem(layoutStorageKey(shopId));
+  } catch {
+    // Nothing was kept, so there is nothing to clear.
+  }
+}
