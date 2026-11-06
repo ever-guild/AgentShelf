@@ -4,6 +4,7 @@ import {
   sellerAgentCatalogInput,
   sellerAgentCatalogResult,
   sellerAgentCreateShopInput,
+  sellerAgentPayPalConnectInput,
   sellerAgentPayPalConnectResult,
   sellerAgentReviewResult,
   sellerAgentStockInput,
@@ -37,6 +38,12 @@ describe("seller agent contracts", () => {
   });
 
   it("accepts only the PayPal sandbox consent link in seller connection output", () => {
+    expect(sellerAgentPayPalConnectInput.safeParse({
+      action: "start",
+      idempotencyKey: "seller-connect-0001",
+      shareDataConsent: true,
+      shareDataConsentAt: "2026-11-06T11:12:13.000Z",
+    }).success).toBe(false);
     expect(sellerAgentPayPalConnectResult.safeParse({
       status: "pending",
       nextAction: "continue_paypal",
