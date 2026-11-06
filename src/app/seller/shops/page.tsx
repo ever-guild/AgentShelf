@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { Suspense } from "react";
 
 import { OwnerNav } from "../identity/owner-nav";
 import { paypalLoginErrorMessage } from "../paypal-onboarding/messages";
@@ -11,10 +12,14 @@ export const metadata: Metadata = {
 
 type SearchParams = Promise<{ error?: string | string[] }>;
 
-export default async function ShopsPage({ searchParams }: { searchParams: SearchParams }) {
+async function PayPalLoginNotice({ searchParams }: { searchParams: SearchParams }) {
   const { error } = await searchParams;
   const notice = paypalLoginErrorMessage(error);
+  if (!notice) return null;
+  return <p role="status" className="rounded-lg bg-zinc-100 p-4 text-sm text-zinc-700 dark:bg-zinc-900 dark:text-zinc-300">{notice}</p>;
+}
 
+export default function ShopsPage({ searchParams }: { searchParams: SearchParams }) {
   return (
     <>
       <OwnerNav />
@@ -27,7 +32,7 @@ export default async function ShopsPage({ searchParams }: { searchParams: Search
           </div>
           <a href="/seller/shops/new" className="inline-flex h-11 items-center rounded-lg bg-ink px-4 font-medium text-background transition-[background-color,transform] hover:bg-ink/90 active:scale-[0.98]">Add a shop</a>
         </div>
-        {notice ? <p role="status" className="rounded-lg bg-zinc-100 p-4 text-sm text-zinc-700 dark:bg-zinc-900 dark:text-zinc-300">{notice}</p> : null}
+        <Suspense fallback={null}><PayPalLoginNotice searchParams={searchParams} /></Suspense>
         <ShopSelection />
       </main>
     </>

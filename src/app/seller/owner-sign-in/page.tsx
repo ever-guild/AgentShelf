@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import Link from "next/link";
+import { Suspense } from "react";
 
 import { IdentityForm } from "../identity/identity-form";
 import { paypalLoginErrorMessage } from "../paypal-onboarding/messages";
@@ -11,10 +12,14 @@ export const metadata: Metadata = {
 
 type SearchParams = Promise<{ error?: string | string[] }>;
 
-export default async function OwnerSignInPage({ searchParams }: { searchParams: SearchParams }) {
+async function PayPalLoginNotice({ searchParams }: { searchParams: SearchParams }) {
   const { error } = await searchParams;
   const paypalError = paypalLoginErrorMessage(error);
+  if (!paypalError) return null;
+  return <p role="status" className="rounded-lg bg-zinc-100 p-4 text-sm text-zinc-700 dark:bg-zinc-900 dark:text-zinc-300">{paypalError}</p>;
+}
 
+export default function OwnerSignInPage({ searchParams }: { searchParams: SearchParams }) {
   return (
     <>
       <header className="px-4 pt-6 sm:px-8 lg:px-12">
@@ -26,7 +31,7 @@ export default async function OwnerSignInPage({ searchParams }: { searchParams: 
           <h1 className="text-3xl font-medium tracking-tight">Sign in to AgentShelf</h1>
           <p className="text-pretty text-zinc-600 dark:text-zinc-400">Manage your shop access and the assistants you authorize.</p>
         </div>
-        {paypalError ? <p role="status" className="rounded-lg bg-zinc-100 p-4 text-sm text-zinc-700 dark:bg-zinc-900 dark:text-zinc-300">{paypalError}</p> : null}
+        <Suspense fallback={null}><PayPalLoginNotice searchParams={searchParams} /></Suspense>
         <IdentityForm mode="sign-in" />
         <p className="text-sm text-zinc-600 dark:text-zinc-400">
           Need an owner account? <Link href="/seller/register" className="font-medium text-foreground underline underline-offset-4">Register</Link>
