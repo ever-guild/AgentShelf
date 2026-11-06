@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 
 import { eq } from "drizzle-orm";
+import type { Pool } from "pg";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { setupMigratedDatabase } from "../../../test/database";
@@ -21,6 +22,7 @@ import {
   webhookReceipts,
 } from "../db/schema";
 import { PLATFORM_PAYPAL_CREDENTIAL_REF, createPayPalProvider } from "../paypal/orders";
+import { beginPhysicalOrderCapture } from "../inventory/physical-orders";
 import { reconcileForBuyer } from "./payment-reconciliation";
 import { handlePayPalWebhook, handlePlatformPayPalWebhook } from "./paypal-webhook";
 
@@ -582,7 +584,9 @@ describe("events that are not for us", () => {
 describe("the platform webhook subscription", () => {
   it("reconciles a completed order after seller revocation and deduplicates the delivery", async () => {
     const { shop, orderId, paypalOrderId } = await placeOrder(getDb(), harness);
-    await markPlatformOrder(orderId, { revoke: true });
+    await markPlatformOrder(orderId);
+    const pool = (getDb() as ReturnType<typeof getDb> & { $client: Pool }).$client;
+    expect(await beginPhysicalOrderCapture(pool, orderId)).toMatchObject({ allowed: true });
     const platformPayPal = platformDeps.paypalFor(
       PLATFORM_PAYPAL_CREDENTIAL_REF,
       MERCHANT_ID,
@@ -594,6 +598,8 @@ describe("the platform webhook subscription", () => {
       paypalRequestId: `capture-${orderId}`,
       body: {},
     });
+    // The allocation and completed capture predate revocation, only delivery is delayed
+    await markPlatformOrder(orderId, { revoke: true });
     const event = captureEvent(paypalOrderId);
 
     expect(await deliverPlatform(event)).toBe(200);
