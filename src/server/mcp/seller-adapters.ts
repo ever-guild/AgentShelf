@@ -12,13 +12,12 @@ import { defaultImportDeps } from "../services/import-start";
 import { getSellerCatalog, updateCatalogProduct, publishImport, defaultCatalogDeps } from "../services/seller-catalog";
 import { readStock, adjustInventory, setInventoryMode } from "../inventory/postgres";
 import type { SellerAgentServices } from "./seller-server";
-import { createMerchantConnectionRuntime } from "../paypal/merchant-connection-runtime";
-import type { MerchantConnectionService } from "../paypal/merchant-connection";
 import type { Pool } from "pg";
+import { merchantConnectionRuntime } from "../paypal/merchant-connection-runtime";
 
 const REVIEW_PATH = "/seller/imports";
 type MerchantRuntimeState = { service?: MerchantConnectionService; configured: boolean };
-const merchantServices = new WeakMap<Pool, MerchantRuntimeState | null>();
+type MerchantConnectionService = NonNullable<ReturnType<typeof merchantConnectionRuntime>["service"]>;
 
 export function createSellerAgentServices(input: {
   db: Db;
@@ -120,7 +119,7 @@ export function createSellerAgentServices(input: {
     paypalConnection: {
       start: (principal, request) => {
         if (input.paypalConnection) return input.paypalConnection.start(principal, request);
-        const runtime = getMerchantRuntime(db, input.identity);
+        const runtime = getMerchantRuntime();
         if (!runtime?.configured || !runtime.service) return Promise.resolve({ connection: { shopId: principal.shopId, status: "error" as const, nextAction: "contact_support" as const } });
         return runtime.service.start(principal, request);
       },
@@ -132,22 +131,13 @@ function poolFor(db: Db) {
   return (db as Db & { $client: import("pg").Pool }).$client;
 }
 
-function getMerchantRuntime(db: Db, identity: IdentityStore): MerchantRuntimeState | null {
-  const pool = poolFor(db);
-  if (merchantServices.has(pool)) return merchantServices.get(pool) ?? null;
+function getMerchantRuntime(): MerchantRuntimeState | null {
   try {
-    const runtime = createMerchantConnectionRuntime({
-      pool,
-      identityStore: identity,
-      env: { ...process.env, APP_ORIGIN: publicOrigin() },
-    });
-    const state = { service: runtime.service, configured: runtime.platformConfigured };
-    merchantServices.set(pool, state);
-    return state;
+    const runtime = merchantConnectionRuntime();
+    return { service: runtime.service, configured: runtime.platformConfigured };
   } catch {
     // Local HTTP and incomplete sandbox settings block this capability only. Other seller MCP
     // tools remain available; the connection tool returns an explicit blocked state.
-    merchantServices.set(pool, null);
     return null;
   }
 }
