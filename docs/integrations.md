@@ -2,9 +2,9 @@
 
 Evidence for [#3](https://github.com/ever-guild/AgentShelf/issues/3).
 
-Checked on 2026-11-05 with `next` 16.4.5, `react` 19.3.0, Node 24.15.0 and npm 11.12.1 on macOS arm64. Updated on 2026-11-06 with the deployment, APIMatic and catalog import results.
+Checked on 2026-11-05 with `next` 16.4.5, `react` 19.3.0, Node 24.15.0 and npm 11.12.1 on macOS arm64. Updated on 2026-11-06 with the deployment, APIMatic, catalog import, schedule and dashboard results.
 
-**Render hosts the application, and the APIMatic skills were used while writing PayPal code. Catalog import has a Render Workflows task, run so far on the local server only. No other partner is integrated into the product yet.** This file records access, setup and the smallest check that could run without an account.
+**Render hosts the application, and the APIMatic skills were used while writing PayPal code. In the code but not yet run with a licence key or on Render: the AG Studio dashboard and its Claude assistant, the Bryntum 8.0 Community schedule, and the Render Workflows import task (local server only). Code tested against stand-ins is not a verified integration, so none counts as integrated until the steps in [full-run.md](full-run.md) pass.** This file records access, setup and the smallest check that could run without an account.
 
 - **Ran:** the step was executed. Clean installs used new empty directories, an empty npm config and a fresh cache, so no login was in play. Checks used small throwaway probes outside this repo, with `next build`, `next start` and a real browser.
 - **Read:** taken from vendor docs or shipped package code, not exercised.

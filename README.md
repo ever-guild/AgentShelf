@@ -2,13 +2,13 @@
 
 Make any small shop buyable by AI agents in 5 minutes. A seller photographs their price list, AI builds a catalog, and the shop appears in one MCP connector. The buyer's assistant (Claude, ChatGPT) finds a product or a free slot and creates an order, and the buyer confirms payment in PayPal.
 
-Early development. PayPal runs in sandbox only.
+Early development. PayPal runs in sandbox only. Most features are built and tested against stand-ins, and none has yet run against the real PayPal, a real model or a real assistant, see the [full run guide](docs/full-run.md) for what that needs.
 
 As of 6 November 2026, the controlled Orders proof is blocked for both seller accounts because their separate Sandbox app credentials are not configured, see the [PayPal sandbox proof runbook](docs/paypal-sandbox-proof.md) for the approval and capture gates
 
 The `create_checkout` tool creates sandbox orders through the [shared checkout service](docs/architecture.md#checkout), and [approval, capture and webhooks](docs/architecture.md#payment-reconciliation) settle them, but for the same reason no real PayPal order or payment has gone through this code yet
 
-Sellers can sign in at `/seller/imports`, upload a CSV or a photo of a price list and correct the rows in a table, as [Catalog import](docs/architecture.md#catalog-import) explains. CSV works today. Reading a photo needs `ANTHROPIC_API_KEY`, and no real model has read one yet. Publishing the result is [not built yet](https://github.com/ever-guild/AgentShelf/issues/9).
+Sellers can sign in at `/seller/imports`, upload a CSV or a photo of a price list and correct the rows in a table, as [Catalog import](docs/architecture.md#catalog-import) explains. CSV works today. Reading a photo needs `ANTHROPIC_API_KEY`, and no real model has read one yet. Publishing the reviewed rows, the seller catalog page, repair booking with a deposit, the Bryntum schedule, the AG Studio dashboard with demand insights, the storefront with PayPal buttons and the second demo shop are in the code. Their PayPal parts have not run against real sandbox credentials, and AG Studio has no licence key yet.
 
 ## Run locally
 
