@@ -135,8 +135,9 @@ describe("Postgres seller identity store", () => {
     expect(await store.findActiveAgentGrant(grantHash, new Date("2026-11-30T22:01:00.000Z"))).toBeNull();
 
     await expect(store.createAgentGrant({ ownerId: owner.registration.owner.id, shopId: owner.registration.shop.id, scopes: ["connect_paypal"], tokenHash: "f".repeat(64), expiresAt, shareDataConsentAt: null })).rejects.toMatchObject({ code: "23514" });
-    await store.createAgentGrant({ ownerId: owner.registration.owner.id, shopId: owner.registration.shop.id, scopes: ["connect_paypal"], tokenHash: "1".repeat(64), expiresAt, shareDataConsentAt: new Date("2026-11-30T21:00:00.000Z") });
-    expect(await store.findActiveAgentGrant("1".repeat(64), new Date("2026-11-30T23:00:00.000Z"))).toMatchObject({ shareDataConsent: true });
+    const shareDataConsentAt = new Date("2026-11-30T21:00:00.000Z");
+    await store.createAgentGrant({ ownerId: owner.registration.owner.id, shopId: owner.registration.shop.id, scopes: ["connect_paypal"], tokenHash: "1".repeat(64), expiresAt, shareDataConsentAt });
+    expect(await store.findActiveAgentGrant("1".repeat(64), new Date("2026-11-30T23:00:00.000Z"))).toMatchObject({ shareDataConsent: true, shareDataConsentAt });
   });
 
   it("allows one agent shop operation with same-key replay and rejects a second operation", async () => {

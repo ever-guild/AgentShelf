@@ -15,6 +15,7 @@ import {
   ownerRegistrationInput,
   ownerSignInInput,
   type AuthenticatedOwner,
+  type SellerPayPalShopPrincipal,
   type SellerAgentGrantPrincipal,
   type SellerAgentScope,
   type SellerShopPrincipal,
@@ -409,7 +410,7 @@ export function resolveAuthorizedSellerAgent(
   requiredScope: "connect_paypal",
   requestedShopId?: string,
   now?: Date,
-): Promise<SellerShopPrincipal & { shareDataConsent: true }>;
+): Promise<SellerPayPalShopPrincipal>;
 export function resolveAuthorizedSellerAgent(
   store: IdentityStore,
   grantToken: string | undefined,
@@ -431,7 +432,7 @@ export async function resolveAuthorizedSellerAgent(
   if (!grant || !grant.scopes.includes(requiredScope)) {
     throw new IdentityError("UNAUTHORIZED", "The seller-agent authorization is invalid or expired.");
   }
-  if (requiredScope === "connect_paypal" && !grant.shareDataConsent) {
+  if (requiredScope === "connect_paypal" && (!grant.shareDataConsent || !grant.shareDataConsentAt)) {
     throw new IdentityError("UNAUTHORIZED", "The seller-agent authorization is invalid or expired.");
   }
   if (requiredScope === "create_shop") {
@@ -446,7 +447,9 @@ export async function resolveAuthorizedSellerAgent(
   return {
     actorId: grant.actorId,
     shopId: grant.shopId,
-    ...(requiredScope === "connect_paypal" ? { shareDataConsent: true as const } : {}),
+    ...(requiredScope === "connect_paypal"
+      ? { shareDataConsent: true as const, shareDataConsentAt: grant.shareDataConsentAt! }
+      : {}),
   };
 }
 
