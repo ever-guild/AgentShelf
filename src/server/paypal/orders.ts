@@ -40,6 +40,9 @@ export type PayPalSellerApi = Pick<
   OrdersController,
   "createOrder" | "getOrder" | "captureOrder"
 > & {
+  // The public half of this seller's app. The JS SDK needs it in the browser to approve an order
+  // this app created. The secret never leaves this file.
+  clientId: string;
   webhookId?: string;
   verifyWebhookSignature: (
     webhookId: string,
@@ -140,6 +143,7 @@ export function createPayPalProvider(
     };
 
     return {
+      clientId,
       webhookId: env[`PAYPAL_WEBHOOK_ID_${credentialRef}`]?.trim() || undefined,
       createOrder: (request, options) =>
         withClient(({ orders }) => orders.createOrder(request, options)),

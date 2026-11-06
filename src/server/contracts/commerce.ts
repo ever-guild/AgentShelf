@@ -139,6 +139,23 @@ export const createCheckoutResult = z.strictObject({
   statusToken,
 });
 
+// What a shop page sends to buy one product. The shop comes from the URL and everything else from
+// stored data, so a price, total, merchant or quantity in here is refused. The key comes from a
+// browser, so it has to be a UUID, not just any token.
+export const storefrontCheckoutInput = z.strictObject({
+  productId: id,
+  idempotencyKey: z.uuid(),
+});
+export const storefrontCheckoutResult = z.strictObject({
+  paypalOrderId: z.string().min(1),
+  totalMinor: minorAmount,
+  currency: currencyCode,
+  approvalUrl: z.url(),
+  // Same-origin paths holding the order's status capability, where the buyer goes afterwards.
+  returnPath: z.string().startsWith("/checkout/return?"),
+  cancelPath: z.string().startsWith("/checkout/cancel?"),
+});
+
 // get_order_status: read-only, requires the capability returned when the order was created,
 // so an order cannot be inspected by its identifier alone. Carries no payer data.
 export const getOrderStatusInput = z.strictObject({

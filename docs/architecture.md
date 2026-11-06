@@ -31,7 +31,7 @@ Migrating and seeding are safe to repeat. The seed updates its own fixed rows an
 | `TEST_DATABASE_URL` | `npm test` | Connection string for a server where tests may create and drop databases |
 | `APP_SIGNING_SECRET` | app | At least 32 random characters. Signs seller sessions and order status tokens, and changing it invalidates them |
 | `APP_ORIGIN` | app | The public origin, such as `http://localhost:3000` locally. On Render it falls back to `RENDER_EXTERNAL_URL` |
-| `PAYPAL_CLIENT_ID_<REF>`, `PAYPAL_CLIENT_SECRET_<REF>` | app, from [#6](https://github.com/ever-guild/AgentShelf/issues/6) | Sandbox credentials for the shop whose `paypal_credential_ref` is `<REF>`. [#2](https://github.com/ever-guild/AgentShelf/issues/2) may change this once the merchant model is proven |
+| `PAYPAL_CLIENT_ID_<REF>`, `PAYPAL_CLIENT_SECRET_<REF>` | app, from [#6](https://github.com/ever-guild/AgentShelf/issues/6) | Sandbox credentials for the shop whose `paypal_credential_ref` is `<REF>`. The client ID also reaches the browser on a shop's product page, as the JS SDK requires, and the secret never does. [#2](https://github.com/ever-guild/AgentShelf/issues/2) may change this once the merchant model is proven |
 | `PAYPAL_WEBHOOK_ID_<REF>` | app | The webhook subscription on that seller's app. [paypal-sandbox-setup.md](paypal-sandbox-setup.md#webhooks) explains how to register it. Until it is set, that shop's webhook deliveries get `503` and PayPal repeats them |
 | `ANTHROPIC_API_KEY` | app, workflow | The model key for reading photos and suggesting descriptions. Without it, photo upload says so and CSV upload still works |
 | `RENDER_WORKFLOW_SLUG`, `RENDER_API_KEY` | app | Optional. With both, a photo is read by a Render Workflows task. Without them, it is read inside the web process. [deployment.md](deployment.md#render-workflows-for-photo-import) explains how to set this up |
@@ -75,7 +75,7 @@ Services throw a `ServiceError` with a stable code from [`errors.ts`](../src/ser
 
 These server pieces already exist for the issues above to build on:
 
-- `createCheckout` is the one checkout entry point for MCP and the storefront. See [Checkout](#checkout).
+- `createCheckout` is the one checkout entry point for MCP and the [storefront](#storefront). See [Checkout](#checkout).
 - `reconcileOrder` is the one place that decides what a PayPal order means for a stored one. See [Payment reconciliation](#payment-reconciliation).
 - `createImport` and the review functions around it turn a price list into accepted draft rows. See [Catalog import](#catalog-import).
 - `getOrderStatus` reads an order's stored state for the holder of its capability.
@@ -154,6 +154,30 @@ Each delivery is recorded in `webhook_receipts` once, by its event ID. A receipt
 **The payment-confirmed hook:** `onPaymentConfirmed` in `ReconcileDeps` runs inside the transaction that marks an order paid, exactly once per order. It does nothing yet. [#12](https://github.com/ever-guild/AgentShelf/issues/12) confirms a booking there, and later notifications can start from it. If it throws, the order stays unpaid here and the next reconciliation tries again, so a hook that cannot fulfil an order, such as a booking whose hold has expired, must record that rather than throw. The money has been captured by then, and [#12](https://github.com/ever-guild/AgentShelf/issues/12) owns what happens next.
 
 **The status read:** `getOrderStatus` follows [paypal-order-status-contract.md](paypal-order-status-contract.md). It reads stored state only, and a missing order and a wrong capability get the same `ORDER_STATUS_UNAVAILABLE`.
+
+## Storefront
+
+The public shop link at `/shops/<slug>`, for [#16](https://github.com/ever-guild/AgentShelf/issues/16). It lists a shop's published products with title, description, price and availability, and sells one product at a time. A sandbox notice is on every page.
+
+**Status:** the pages, the order path and every result state have run on a production build, with the real server SDK against a stand-in for PayPal and a stand-in for the browser SDK. No real purchase has gone through it, and the real `<paypal-button>` has not been clicked, because the credentials from [#33](https://github.com/ever-guild/AgentShelf/issues/33) do not exist yet.
+
+**The browser:** [PayPal's JavaScript SDK v6](https://developer.paypal.com/sdk/js/set-up.md), from `https://www.sandbox.paypal.com/web-sdk/v6/core`, started with the shop's client ID. That is the documented choice for one-time payments, and the client ID is public by design. A shop's app creates its orders, so the same app's client ID approves them, and the SDK needs no merchant ID. The `merchantId` in the order is set on the server only.
+
+**The order:** `POST /api/shops/<slug>/checkout` takes only `productId` and a UUID `idempotencyKey`, and always buys one item. Anything else in the request, such as a price, a total, a merchant or a quantity, is refused. It calls [`createCheckout`](#checkout), so totals, recipient and the rules for what can be sold are the same as for MCP. A product of another shop gets the same `PRODUCT_NOT_FOUND` as one that does not exist. The key is stored as `storefront:<uuid>`, so a browser cannot reach an order made through MCP by reusing its key.
+
+**The way back:** approving in PayPal sends the browser to `/checkout/return`, and cancelling to `/checkout/cancel`, the same routes as an approval link. They [reconcile](#payment-reconciliation) and redirect to `/checkout/result`, so success appears only after the server has read a completed capture from PayPal. A delayed capture shows as still confirming, with a link that asks PayPal again. The result page names the shop and links back to it.
+
+**When the SDK cannot be used:** if it does not load, is not eligible for this buyer or fails, the page offers a button to the order's approval link, on PayPal's own page. That path does not need the SDK, and a person still approves in PayPal.
+
+**With no payment set up:** a shop with no merchant or no credentials still lists its products, says that payment is not set up, and loads no PayPal script.
+
+**Services** are not sold here. Their rows and pages point to booking through an assistant, because booking has one flow, in [#12](https://github.com/ever-guild/AgentShelf/issues/12).
+
+**Descriptions:** `chooseDescription` shows the seller's reviewed English or Latvian text, then the source's own words, and translates nothing itself. It reads `description_en` and `description_lv` on `products` if those columns exist. Until publication in [#9](https://github.com/ever-guild/AgentShelf/issues/9) adds them, every shop shows `description` and offers no language choice. Titles are not translated.
+
+**What a page can see:** [`storefront.ts`](../src/server/services/storefront.ts) returns explicit fields, so a new column stays private until someone adds it. A page never receives a merchant ID, a credential reference, a PayPal product ID or a draft.
+
+**A missing shop or product** shows a not-found page with `noindex`, but its HTTP status is `200`, because the page has already started streaming by then.
 
 ## Catalog import
 
