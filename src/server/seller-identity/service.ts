@@ -32,6 +32,8 @@ const HASH_BYTES = 32;
 const SCRYPT = { N: 16_384, r: 8, p: 1, maxmem: 64 * 1024 * 1024 };
 const OWNER_SESSION_TTL_MS = 12 * 60 * 60 * 1000;
 const AGENT_GRANT_TTL_MS = 15 * 60 * 1000;
+// Keep registration traffic below the Postgres limiter's 1000-attempt counter ceiling.
+const OWNER_REGISTRATION_CLIENT_LIMIT = 100;
 const DUMMY_SALT = Buffer.from("AgentShelfPilotDummySalt", "utf8");
 
 export type OwnerRecord = { id: string; username: string; passwordHash: string };
@@ -200,7 +202,7 @@ export async function registerOwnerAndShop(
 ) {
   const input = parse(ownerRegistrationInput, rawInput);
   const username = input.username.toLowerCase();
-  const globalAllowed = await limiter.consume(`register:${clientKey}`, 1000, 60 * 60_000, now);
+  const globalAllowed = await limiter.consume(`register:${clientKey}`, OWNER_REGISTRATION_CLIENT_LIMIT, 60 * 60_000, now);
   const accountAllowed = await limiter.consume(`register-account:${username}`, 5, 60 * 60_000, now);
   if (!globalAllowed || !accountAllowed) throw new IdentityError("RATE_LIMITED", "Please try again later.");
   validateShop(input.shop);
@@ -235,7 +237,7 @@ export async function registerOwner(
 ) {
   const input = parse(ownerAccountRegistrationInput, rawInput);
   const username = input.username.toLowerCase();
-  const globalAllowed = await limiter.consume(`register:${clientKey}`, 1000, 60 * 60_000, now);
+  const globalAllowed = await limiter.consume(`register:${clientKey}`, OWNER_REGISTRATION_CLIENT_LIMIT, 60 * 60_000, now);
   const accountAllowed = await limiter.consume(`register-account:${username}`, 5, 60 * 60_000, now);
   if (!globalAllowed || !accountAllowed) throw new IdentityError("RATE_LIMITED", "Please try again later.");
   const passwordHash = await hashPassword(input.password);
