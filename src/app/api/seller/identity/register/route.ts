@@ -6,6 +6,7 @@ import {
   identityErrorResponse,
   identityJsonResponse,
   ownerSessionCookie,
+  clearLegacySellerSessionCookie,
   OWNER_SELECTED_SHOP_COOKIE,
   ownerCookieValue,
   requireSameOriginJson,
@@ -66,7 +67,7 @@ export async function POST(request: Request): Promise<Response> {
     }
     const ownerContext: AuthenticatedOwner = { ownerId: owner.id, expiresAt };
     const shops = (await listOwnerShops(store, ownerContext)).map(safeShop);
-    const cookies = [ownerSessionCookie(sessionToken, expiresAt)];
+    const cookies = [ownerSessionCookie(sessionToken, expiresAt), clearLegacySellerSessionCookie()];
     if (selectedShopId) {
       cookies.push(selectedOwnerShopCookie(selectedShopId, expiresAt));
     } else {

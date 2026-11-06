@@ -15,6 +15,10 @@ import { POST as issueGrant } from "./agent-grants/route";
 import { POST as revokeGrant } from "./agent-grants/revoke/route";
 import { resolveAuthorizedSellerAgent } from "@/server/seller-identity/service";
 import { ownerIdentityRuntime } from "@/server/seller-identity/runtime";
+import { getDb } from "@/server/db";
+import { currentSeller } from "@/server/auth/current-seller";
+import { SELLER_SESSION_COOKIE, signInSeller } from "@/server/auth/seller-session";
+import { hashAccessCode } from "@/server/auth/access-code";
 
 const origin = "https://identity.test";
 
@@ -91,6 +95,7 @@ describe("seller identity HTTP routes with disposable Postgres", () => {
     }));
     expect(registered.status).toBe(201);
     expect(registered.headers.get("cache-control")).toBe("no-store");
+    expect(registered.headers.getSetCookie().some((value) => value.startsWith("agentshelf_seller_session=") && value.includes("Max-Age=0"))).toBe(true);
     const ownerCookie = cookieFrom(registered, "agentshelf_owner_session");
     expect(registered.headers.getSetCookie().some((value) => value.startsWith("agentshelf_owner_shop="))).toBe(false);
     expect(await registered.json()).toMatchObject({ owner: { username: "routeowner" }, shops: [], selectedShopId: null });
@@ -103,6 +108,22 @@ describe("seller identity HTTP routes with disposable Postgres", () => {
     const shopResult = await created.json() as { shop: { id: string }; paymentStatus: string };
     expect(shopResult.paymentStatus).toBe("not_configured");
     const selectedCookie = cookieFrom(created, "agentshelf_owner_shop");
+    const ownerShop = await currentSeller(new Request(`${origin}/api/seller/catalog`, { headers: { Cookie: `${ownerCookie}; ${selectedCookie}` } }));
+    expect(ownerShop).toMatchObject({ id: shopResult.shop.id, slug: "route-shop", name: "Route Shop" });
+    expect(Object.keys(ownerShop).sort()).toEqual(["currency", "id", "name", "sessionExpiresAt", "slug", "timezone"]);
+
+    await pool.query("UPDATE shops SET seller_access_code_hash=$2 WHERE id=$1", [shopResult.shop.id, await hashAccessCode("demo-code")]);
+    const legacySession = await signInSeller(getDb(), { shopSlug: "route-shop", accessCode: "demo-code" });
+    await expect(currentSeller(new Request(`${origin}/api/seller/catalog`, {
+      headers: { Cookie: `${SELLER_SESSION_COOKIE}=${legacySession.token}` },
+    }))).resolves.toMatchObject({ id: shopResult.shop.id, slug: "route-shop" });
+    await expect(currentSeller(new Request(`${origin}/api/seller/catalog`, {
+      headers: { Cookie: `agentshelf_owner_session=invalid; ${SELLER_SESSION_COOKIE}=${legacySession.token}` },
+    }))).rejects.toMatchObject({ code: "UNAUTHORIZED" });
+    await expect(currentSeller(new Request(`${origin}/api/seller/catalog`, {
+      headers: { Cookie: `agentshelf_owner_session; ${SELLER_SESSION_COOKIE}=${legacySession.token}` },
+    }))).rejects.toMatchObject({ code: "UNAUTHORIZED" });
+
     const meResponse = await me(new Request(`${origin}/api/seller/identity/me`, { headers: { Cookie: `${ownerCookie}; ${selectedCookie}` } }));
     expect(meResponse.status).toBe(200);
     expect(await meResponse.json()).toMatchObject({ owner: { username: "routeowner" }, selectedShopId: shopResult.shop.id });
@@ -111,7 +132,8 @@ describe("seller identity HTTP routes with disposable Postgres", () => {
     expect(selected.status).toBe(200);
     const signOutResponse = await signOut(mutation("/api/seller/identity/sign-out", {}, ownerCookie));
     expect(signOutResponse.status).toBe(204);
-    expect(signOutResponse.headers.getSetCookie()).toHaveLength(2);
+    expect(signOutResponse.headers.getSetCookie()).toHaveLength(3);
+    expect(signOutResponse.headers.getSetCookie().some((value) => value.startsWith(`${SELLER_SESSION_COOKIE}=`) && value.includes("Max-Age=0"))).toBe(true);
     expect((await me(new Request(`${origin}/api/seller/identity/me`, { headers: { Cookie: ownerCookie } }))).status).toBe(401);
     expect((await selectShop(mutation("/api/seller/identity/shops/select", { shopId: shopResult.shop.id }, ownerCookie))).status).toBe(401);
   });

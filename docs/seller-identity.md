@@ -1,6 +1,6 @@
 # Seller identity module: integration contract
 
-This module defines owner credentials, revocable owner sessions, owner-to-shop membership and scoped seller-agent grants. Runtime HTTP handlers now exist at `/api/seller/identity/*` and use the PostgreSQL adapter, but they are not available in a deployed app until the coordinated identity migration is integrated and applied. Existing demo access-code sign-in remains a separate path while the shared seller guard integration is reviewed.
+This module defines owner credentials, revocable owner sessions, owner-to-shop membership and scoped seller-agent grants. Runtime HTTP handlers now exist at `/api/seller/identity/*` and use the PostgreSQL adapter, but they are not available in a deployed app until the coordinated identity migration is integrated and applied. The owner guard is wired into `currentSeller` in this review candidate; the demo access-code path remains available when no owner session cookie is present.
 
 ## Service boundary
 
@@ -59,9 +59,9 @@ Owner registration and shop creation write the operation row, owner, membership 
 ## Integration points awaiting review
 
 - Add identity table definitions to `src/server/db/schema.ts` and register the coordinated numbered migration
-- Integrate the route handlers with the reviewed migration and deploy the migration before enabling owner signup in production
-- Connect the current catalog/import/dashboard routes through the owner-to-shop authorization adapter while preserving the demo access-code path
+- Integrate the identity table definitions into `src/server/db/schema.ts` and register the reviewed numbered migration before enabling owner signup in production
+- Complete the owner registration UI and connect new seller-agent inventory and PayPal routes through `currentOwnerShopPrincipal`
 - Ensure every seller mutation obtains the shop from membership/session server state, not request input
 - Keep unconfigured shops in catalog flows and rely on the current checkout guard for payment rejection
 
-The HTTP route suite exercises registration, sign-in, sign-out, shop selection, grant issuance, PayPal consent evidence and revocation against an isolated temporary PostgreSQL database. No shared migration journal, seller guard, catalog adapter, registration UI or live PayPal connection is included in this slice. The deployed end-to-end onboarding feature remains blocked until those integration steps are completed and reviewed.
+The HTTP route suite exercises registration, sign-in, sign-out, shop selection, grant issuance, PayPal consent evidence and revocation against an isolated temporary PostgreSQL database. This candidate also routes legacy seller calls through the owner guard while preserving legacy access-code sessions; it has not been published to the shared branch. The numbered migration, registration UI and live PayPal connection are still separate integration steps, so deployed end-to-end onboarding remains blocked.

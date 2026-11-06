@@ -1,6 +1,7 @@
 import { ownerSignInInput } from "@/server/contracts/seller-identity";
 import {
   clearSelectedOwnerShopCookie,
+  clearLegacySellerSessionCookie,
   currentOwnerShops,
   identityErrorResponse,
   identityJsonResponse,
@@ -48,7 +49,7 @@ export async function POST(request: Request): Promise<Response> {
     if (!selectedShopId && shops.length === 1) selectedShopId = shops[0].id;
     if (previousSession) await signOutOwner(store, previousSession);
 
-    const cookies = [ownerSessionCookie(result.sessionToken, result.expiresAt)];
+    const cookies = [ownerSessionCookie(result.sessionToken, result.expiresAt), clearLegacySellerSessionCookie()];
     if (selectedShopId) {
       cookies.push(selectedOwnerShopCookie(selectedShopId, result.expiresAt));
     } else if (clearSelection || previousSelection) {
