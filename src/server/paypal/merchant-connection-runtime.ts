@@ -2,7 +2,12 @@ import "server-only";
 
 import type { Pool } from "pg";
 
+import { getDb } from "../db";
+import type { Db } from "../db/client";
+import { currentOwnerShopPrincipal } from "../seller-identity/http-auth";
+import { ownerIdentityRuntime } from "../seller-identity/runtime";
 import type { IdentityStore } from "../seller-identity/service";
+import { createMerchantConnectionHttpHandlers } from "./merchant-connection-http";
 import { createMerchantConnectionService } from "./merchant-connection";
 import { createPartnerReferralsAdapter } from "./partner-referrals";
 import { PostgresMerchantConnectionRepository } from "./postgres-merchant-connection";
@@ -15,6 +20,12 @@ const PLATFORM_KEYS = [
   "PAYPAL_PLATFORM_MERCHANT_ID",
   "PAYPAL_PARTNER_ATTRIBUTION_ID",
 ] as const;
+type MerchantConnectionRuntime = ReturnType<typeof createMerchantConnectionRuntime>;
+type MerchantConnectionHandlers = ReturnType<typeof createMerchantConnectionHttpHandlers>;
+const runtimeGlobal = globalThis as typeof globalThis & {
+  agentshelfMerchantConnectionRuntime?: MerchantConnectionRuntime;
+  agentshelfMerchantConnectionHandlers?: MerchantConnectionHandlers;
+};
 
 /** Creates the persistent Partner Referrals service for the app's existing database pool. */
 export function createMerchantConnectionRuntime(input: {
@@ -54,4 +65,37 @@ export function createMerchantConnectionRuntime(input: {
         now: input.now,
       });
   return { service, repository, paypal, platformConfigured, webhookConfigured };
+}
+
+/** Uses the application's shared pool and owner identity store; keeps one runtime per process. */
+export function merchantConnectionRuntime(): MerchantConnectionRuntime {
+  if (runtimeGlobal.agentshelfMerchantConnectionRuntime) {
+    return runtimeGlobal.agentshelfMerchantConnectionRuntime;
+  }
+  const db = getDb() as Db & { $client: Pool };
+  const { store } = ownerIdentityRuntime();
+  const runtime = createMerchantConnectionRuntime({ pool: db.$client, identityStore: store });
+  runtimeGlobal.agentshelfMerchantConnectionRuntime = runtime;
+  return runtime;
+}
+
+/** Owner-facing HTTP handlers share the same repository, membership checks, and config view. */
+export function merchantConnectionHttpHandlers(): MerchantConnectionHandlers {
+  if (runtimeGlobal.agentshelfMerchantConnectionHandlers) {
+    return runtimeGlobal.agentshelfMerchantConnectionHandlers;
+  }
+  const runtime = merchantConnectionRuntime();
+  const appOrigin = process.env.APP_ORIGIN?.trim();
+  if (!appOrigin) throw new Error("APP_ORIGIN is not configured");
+  const handlers = createMerchantConnectionHttpHandlers({
+    service: runtime.service,
+    repository: runtime.repository,
+    authenticateOwnerShop: async (request, shopId) =>
+      currentOwnerShopPrincipal(request, shopId),
+    appOrigin,
+    platformConfigured: runtime.platformConfigured,
+    webhookConfigured: runtime.webhookConfigured,
+  });
+  runtimeGlobal.agentshelfMerchantConnectionHandlers = handlers;
+  return handlers;
 }
