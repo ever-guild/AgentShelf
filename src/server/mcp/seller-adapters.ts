@@ -44,7 +44,7 @@ export function createSellerAgentServices(input: {
         input.identity,
         token,
         raw,
-        new URL("/seller/identity", publicOrigin()).toString(),
+        new URL("/seller/agent-access", publicOrigin()).toString(),
       ),
     } }),
     authorizeShop: async (token, scope, requestedShopId) => {

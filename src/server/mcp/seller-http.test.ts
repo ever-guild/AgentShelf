@@ -3,11 +3,16 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 vi.mock("server-only", () => ({}));
 vi.mock("../db", () => ({
   getDb: vi.fn(() => {
-    throw new Error("database must not be reached");
+    return { $client: { query: vi.fn() } };
   }),
+}));
+vi.mock("../seller-identity/service", () => ({
+  resolveAuthorizedSellerAgent: vi.fn().mockRejectedValue(new Error("grant is inactive or out of scope")),
+  createShopForAuthorizedAgent: vi.fn(),
 }));
 
 import { handleSellerMcpRequest } from "./seller-http";
+import { resolveAuthorizedSellerAgent } from "../seller-identity/service";
 
 describe("seller MCP HTTP boundary", () => {
   const oldOrigin = process.env.APP_ORIGIN;
@@ -37,7 +42,7 @@ describe("seller MCP HTTP boundary", () => {
     expect(await response.text()).toBe("Forbidden");
   });
 
-  it("requires an out-of-band bearer grant and does not reach the database without one", async () => {
+  it("requires an out-of-band bearer grant before constructing seller identity services", async () => {
     process.env.APP_ORIGIN = "https://seller.example.test";
     const response = await handleSellerMcpRequest(new Request("https://seller.example.test/mcp/seller/onboarding", {
       method: "POST",
@@ -46,5 +51,20 @@ describe("seller MCP HTTP boundary", () => {
     }));
     expect(response.status).toBe(401);
     expect(response.headers.get("www-authenticate")).toBe("Bearer");
+  });
+
+  it("rejects an expired, revoked or wrong-scope grant before serving MCP capabilities", async () => {
+    process.env.APP_ORIGIN = "https://seller.example.test";
+    const shopId = "5f4b2190-f88b-4d19-bef6-cc11e71bb6f1";
+    const response = await handleSellerMcpRequest(new Request(`https://seller.example.test/mcp/seller/shop/${shopId}`, {
+      method: "POST",
+      headers: { host: "seller.example.test", authorization: `Bearer ${"A".repeat(43)}`, "content-type": "application/json" },
+      body: "{}",
+    }), shopId);
+    expect(response.status).toBe(401);
+    expect(resolveAuthorizedSellerAgent).toHaveBeenCalledWith(expect.anything(), "A".repeat(43), "read_shop", shopId);
+    expect(resolveAuthorizedSellerAgent).toHaveBeenCalledWith(expect.anything(), "A".repeat(43), "manage_catalog", shopId);
+    expect(resolveAuthorizedSellerAgent).toHaveBeenCalledWith(expect.anything(), "A".repeat(43), "manage_inventory", shopId);
+    expect(resolveAuthorizedSellerAgent).toHaveBeenCalledWith(expect.anything(), "A".repeat(43), "connect_paypal", shopId);
   });
 });

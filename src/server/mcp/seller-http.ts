@@ -6,10 +6,13 @@ import { getDb } from "../db";
 import { publicOrigin } from "../public-origin";
 import { isAllowedMcpOrigin } from "./origin";
 import { PostgresIdentityStore } from "../seller-identity/postgres-store";
+import { resolveAuthorizedSellerAgent } from "../seller-identity/service";
+import type { SellerAgentScope } from "../contracts/seller-identity";
 import { createSellerAgentServices } from "./seller-adapters";
 import { createSellerMcpServer } from "./seller-server";
 
 const MAX_REQUEST_BYTES = 10 * 1024 * 1024;
+const SHOP_SCOPES: SellerAgentScope[] = ["read_shop", "manage_catalog", "manage_inventory", "connect_paypal"];
 
 function bearerToken(request: Request): string | undefined {
   return bearerValue(request.headers.get("authorization"));
@@ -42,6 +45,8 @@ export async function handleSellerMcpRequest(request: Request, shopId?: string):
 
   const db = getDb();
   const identity = new PostgresIdentityStore((db as typeof db & { $client: import("pg").Pool }).$client);
+  const authorized = await hasActiveRouteGrant(identity, grantToken, shopId);
+  if (!authorized) return new Response("Seller authorization is invalid, expired, revoked, or out of scope", { status: 401, headers: { "WWW-Authenticate": "Bearer" } });
   const services = createSellerAgentServices({
     db,
     identity,
@@ -74,4 +79,24 @@ export async function handleSellerMcpRequest(request: Request, shopId?: string):
   } finally {
     await server.close();
   }
+}
+
+async function hasActiveRouteGrant(identity: PostgresIdentityStore, token: string, shopId?: string): Promise<boolean> {
+  if (shopId === undefined) {
+    try {
+      await resolveAuthorizedSellerAgent(identity, token, "create_shop");
+      return true;
+    } catch {
+      return false;
+    }
+  }
+  for (const scope of SHOP_SCOPES) {
+    try {
+      await resolveAuthorizedSellerAgent(identity, token, scope, shopId);
+      return true;
+    } catch {
+      // Try the next scope; each resolver attempt verifies the same live token and exact tenant.
+    }
+  }
+  return false;
 }
