@@ -38,6 +38,8 @@ npm run test:unit   # needs no database
 
 The connector is an MCP server at `/mcp`. [docs/mcp.md](docs/mcp.md) explains how to add it to Claude and ChatGPT, and what it can do so far.
 
+To try the HTTP and MCP endpoints without a client, import the [Postman smoke collection](docs/postman/README.md) or run it with `npx newman`.
+
 For PayPal development, follow the [project-scoped agent setup](docs/paypal-agent-setup.md) to install the official PayPal and APIMatic guidance, these skills provide development context and do not enable payments
 
 The diagnostic Orders proof uses APIMatic PayPal Context Plugin skills while writing client and controller setup, request models, and mocked transport checks for `@paypal/paypal-server-sdk` 2.5.0; the [runbook](docs/paypal-sandbox-proof.md) records this work without claiming a real Sandbox payment

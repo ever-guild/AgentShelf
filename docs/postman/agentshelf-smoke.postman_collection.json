@@ -1,0 +1,535 @@
+{
+  "info": {
+    "name": "AgentShelf smoke",
+    "description": "Smoke checks for a running AgentShelf. Set baseUrl first, see docs/postman/README.md. Sandbox only: one request creates a sandbox order, and a person must approve payment in PayPal.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    {
+      "key": "baseUrl",
+      "value": "",
+      "description": "Origin of the running app, for example http://localhost:3000, no trailing slash"
+    },
+    {
+      "key": "shopSlug",
+      "value": "demo-phone-workshop"
+    },
+    {
+      "key": "productId",
+      "value": "20000000-0000-4000-8000-000000000001",
+      "description": "Seeded screen protector"
+    },
+    {
+      "key": "statusToken",
+      "value": "",
+      "description": "Private order capability. Filled by request 3.1, or paste one from a connector order. Never share it."
+    },
+    {
+      "key": "orderId",
+      "value": ""
+    }
+  ],
+  "item": [
+    {
+      "name": "1 Health",
+      "item": [
+        {
+          "name": "Liveness",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/health",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "health"
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200', () => pm.response.to.have.status(200));",
+                  "pm.test('status is ok', () => pm.expect(pm.response.json().status).to.eql('ok'));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Readiness",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/health/ready",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "health",
+                "ready"
+              ]
+            },
+            "description": "Needs a migrated database."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200', () => pm.response.to.have.status(200));",
+                  "pm.test('status is ready', () => pm.expect(pm.response.json().status).to.eql('ready'));"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "2 Catalog through MCP",
+      "description": "The catalog has no REST endpoint. It is reached with MCP over Streamable HTTP at POST /mcp. The server is stateless: there are no sessions and no session header, so each request stands alone. A client still sends initialize first, which is request 2.1. Requests must send Accept: application/json, text/event-stream. GET and DELETE answer 405. See docs/mcp.md.",
+      "item": [
+        {
+          "name": "2.1 initialize",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Accept",
+                "value": "application/json, text/event-stream"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/mcp",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "mcp"
+              ]
+            },
+            "description": "The handshake an MCP client sends first.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"jsonrpc\": \"2.0\",\n  \"id\": 1,\n  \"method\": \"initialize\",\n  \"params\": {\n    \"protocolVersion\": \"2025-06-18\",\n    \"capabilities\": {},\n    \"clientInfo\": {\n      \"name\": \"postman-smoke\",\n      \"version\": \"0.1.0\"\n    }\n  }\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "function body() {",
+                  "  const text = pm.response.text();",
+                  "  const data = text.split('\\n').find((l) => l.startsWith('data:'));",
+                  "  return JSON.parse(data ? data.slice(5) : text);",
+                  "}",
+                  "pm.test('200', () => pm.response.to.have.status(200));",
+                  "pm.test('server is agentshelf', () => pm.expect(body().result.serverInfo.name).to.eql('agentshelf'));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "2.2 tools/list",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Accept",
+                "value": "application/json, text/event-stream"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/mcp",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "mcp"
+              ]
+            },
+            "description": "Lists the five tools.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"jsonrpc\": \"2.0\",\n  \"id\": 2,\n  \"method\": \"tools/list\",\n  \"params\": {}\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "function body() {",
+                  "  const text = pm.response.text();",
+                  "  const data = text.split('\\n').find((l) => l.startsWith('data:'));",
+                  "  return JSON.parse(data ? data.slice(5) : text);",
+                  "}",
+                  "pm.test('200', () => pm.response.to.have.status(200));",
+                  "const names = body().result.tools.map((t) => t.name);",
+                  "pm.test('has the five tools', () => ['search_products','get_slots','book_slot','create_checkout','get_order_status'].forEach((n) => pm.expect(names).to.include(n)));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "2.3 search_products",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Accept",
+                "value": "application/json, text/event-stream"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/mcp",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "mcp"
+              ]
+            },
+            "description": "Finds the seeded product. Needs the demo data.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"jsonrpc\": \"2.0\",\n  \"id\": 3,\n  \"method\": \"tools/call\",\n  \"params\": {\n    \"name\": \"search_products\",\n    \"arguments\": {\n      \"query\": \"iPhone 13 screen protector\",\n      \"location\": \"Liepāja\"\n    }\n  }\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "function body() {",
+                  "  const text = pm.response.text();",
+                  "  const data = text.split('\\n').find((l) => l.startsWith('data:'));",
+                  "  return JSON.parse(data ? data.slice(5) : text);",
+                  "}",
+                  "pm.test('200', () => pm.response.to.have.status(200));",
+                  "const r = body().result;",
+                  "pm.test('not an error', () => pm.expect(r.isError).to.not.eql(true));",
+                  "pm.test('finds the seeded product', () => pm.expect(r.structuredContent.products.map((p) => p.productId)).to.include(pm.collectionVariables.get('productId')));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "2.4 search_products malformed input",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Accept",
+                "value": "application/json, text/event-stream"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/mcp",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "mcp"
+              ]
+            },
+            "description": "Malformed input example: an empty query. The answer is HTTP 200 with isError true, because MCP reports tool failures inside the result.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"jsonrpc\": \"2.0\",\n  \"id\": 4,\n  \"method\": \"tools/call\",\n  \"params\": {\n    \"name\": \"search_products\",\n    \"arguments\": {\n      \"query\": \"\"\n    }\n  }\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "function body() {",
+                  "  const text = pm.response.text();",
+                  "  const data = text.split('\\n').find((l) => l.startsWith('data:'));",
+                  "  return JSON.parse(data ? data.slice(5) : text);",
+                  "}",
+                  "pm.test('200', () => pm.response.to.have.status(200));",
+                  "pm.test('tool reports an error', () => pm.expect(body().result.isError).to.eql(true));"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "3 Checkout (creates a sandbox order)",
+      "description": "WARNING: 3.1 creates one unpaid PayPal sandbox order. It never charges anything. The approvalUrl in the answer is the link where a person signs in as the sandbox buyer and approves payment in PayPal. Nothing in this collection approves or captures. Without sandbox credentials the shop answers 503 PAYMENT_NOT_CONFIGURED, which these checks accept.",
+      "item": [
+        {
+          "name": "3.1 Create sandbox order (a person must approve payment)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/shops/{{shopSlug}}/checkout",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "shops",
+                "{{shopSlug}}",
+                "checkout"
+              ]
+            },
+            "description": "MUTATING. Creates a sandbox order for one unit of the product. Payment is not made: open approvalUrl and approve as the sandbox buyer.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"productId\": \"{{productId}}\",\n  \"idempotencyKey\": \"{{$guid}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const code = pm.response.code;",
+                  "pm.test('200 success or 503 not configured', () => pm.expect([200, 503]).to.include(code));",
+                  "if (code === 200) {",
+                  "  const j = pm.response.json();",
+                  "  pm.test('has approvalUrl and amounts', () => { pm.expect(j.approvalUrl).to.be.a('string'); pm.expect(j.totalMinor).to.be.a('number'); pm.expect(j.currency).to.be.a('string'); });",
+                  "  const q = new URLSearchParams(j.returnPath.split('?')[1]);",
+                  "  pm.collectionVariables.set('orderId', q.get('order'));",
+                  "  pm.collectionVariables.set('statusToken', q.get('status'));",
+                  "  console.log('Approve this payment yourself in PayPal as the sandbox buyer:', j.approvalUrl);",
+                  "} else {",
+                  "  pm.test('stable error code', () => pm.expect(pm.response.json().error.code).to.eql('PAYMENT_NOT_CONFIGURED'));",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "3.2 Malformed checkout is refused (creates nothing)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/shops/{{shopSlug}}/checkout",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "shops",
+                "{{shopSlug}}",
+                "checkout"
+              ]
+            },
+            "description": "Malformed input example: a client-supplied total is an unknown field, so the strict schema refuses it before anything is created.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"productId\": \"{{productId}}\",\n  \"idempotencyKey\": \"{{$guid}}\",\n  \"totalMinor\": 1\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('400', () => pm.response.to.have.status(400));",
+                  "pm.test('INVALID_INPUT', () => pm.expect(pm.response.json().error.code).to.eql('INVALID_INPUT'));"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "4 Order status (read-only)",
+      "item": [
+        {
+          "name": "4.1 get_order_status",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Accept",
+                "value": "application/json, text/event-stream"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/mcp",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "mcp"
+              ]
+            },
+            "description": "Reads stored payment status through MCP with the capability from request 3.1. It never asks PayPal. Right after 3.1 the status is not paid, because a person has not approved yet. Skipped when no token is set.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"jsonrpc\": \"2.0\",\n  \"id\": 5,\n  \"method\": \"tools/call\",\n  \"params\": {\n    \"name\": \"get_order_status\",\n    \"arguments\": {\n      \"orderId\": \"{{orderId}}\",\n      \"statusToken\": \"{{statusToken}}\"\n    }\n  }\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "function body() {",
+                  "  const text = pm.response.text();",
+                  "  const data = text.split('\\n').find((l) => l.startsWith('data:'));",
+                  "  return JSON.parse(data ? data.slice(5) : text);",
+                  "}",
+                  "if (!pm.collectionVariables.get('statusToken')) { pm.test('skipped: run request 3.1 first or set statusToken', () => {}); return; }",
+                  "pm.test('200', () => pm.response.to.have.status(200));",
+                  "const r = body().result;",
+                  "pm.test('status fields', () => { pm.expect(r.isError).to.not.eql(true); pm.expect(r.structuredContent.orderId).to.eql(pm.collectionVariables.get('orderId')); pm.expect(r.structuredContent.paymentStatus).to.be.a('string'); pm.expect(r.structuredContent).to.not.have.property('payer'); });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "4.2 get_order_status with a wrong token",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Accept",
+                "value": "application/json, text/event-stream"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/mcp",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "mcp"
+              ]
+            },
+            "description": "Same answer as a missing order.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"jsonrpc\": \"2.0\",\n  \"id\": 6,\n  \"method\": \"tools/call\",\n  \"params\": {\n    \"name\": \"get_order_status\",\n    \"arguments\": {\n      \"orderId\": \"00000000-0000-4000-8000-000000000000\",\n      \"statusToken\": \"not-a-real-token-not-a-real-token\"\n    }\n  }\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "function body() {",
+                  "  const text = pm.response.text();",
+                  "  const data = text.split('\\n').find((l) => l.startsWith('data:'));",
+                  "  return JSON.parse(data ? data.slice(5) : text);",
+                  "}",
+                  "pm.test('200', () => pm.response.to.have.status(200));",
+                  "pm.test('tool reports an error', () => pm.expect(body().result.isError).to.eql(true));"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}
