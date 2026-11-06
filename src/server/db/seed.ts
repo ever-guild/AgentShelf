@@ -191,6 +191,20 @@ export const DEMO_FIXTURE_EVENT_IDS = fixtures.map(
   ({ n }) => `50000000-0000-4000-8000-${String(n).padStart(12, "0")}`,
 );
 
+// For a hosted demo. A database holding any shop is left exactly as it is, so a redeploy never
+// resets demo data, and only one with nothing in it gets the demo. Returns whether it seeded.
+export async function seedDemoDataIfEmpty(
+  db: Db,
+  env: SeedEnv = process.env,
+): Promise<boolean> {
+  const [anyShop] = await db.select({ id: shops.id }).from(shops).limit(1);
+  if (anyShop) {
+    return false;
+  }
+  await seedDemoData(db, env);
+  return true;
+}
+
 export async function seedDemoData(
   db: Db,
   env: SeedEnv = process.env,

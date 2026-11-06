@@ -1,9 +1,9 @@
 import { count, eq, sql } from "drizzle-orm";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { createTemporaryDatabase } from "../../../test/database";
 import { createDb } from "./client";
-import { runMigrations } from "./migrate";
+import { prepareDatabase, runMigrations } from "./migrate";
 import { products, shops, technicians, technicianWindows } from "./schema";
 import {
   DEMO_PRODUCT_ID,
@@ -115,5 +115,98 @@ describe("a clean database", () => {
     const second = await readShop();
     expect(second.paypalMerchantId).toBe("SANDBOXMERCHANT");
     expect(second.sellerAccessCodeHash).toBe(first.sellerAccessCodeHash);
+  });
+});
+
+describe("starting the service", () => {
+  const ON_RENDER = { RENDER: "true" };
+  let temporary: Awaited<ReturnType<typeof createTemporaryDatabase>>;
+  let connection: ReturnType<typeof createDb>;
+
+  beforeEach(async () => {
+    temporary = await createTemporaryDatabase();
+    connection = createDb(temporary.url);
+    vi.spyOn(console, "log").mockImplementation(() => {});
+    vi.spyOn(console, "error").mockImplementation(() => {});
+  });
+
+  afterEach(async () => {
+    vi.restoreAllMocks();
+    await connection.close();
+    await temporary.drop();
+  });
+
+  const countOf = async (table: typeof shops | typeof products) => {
+    const [{ n }] = await connection.db.select({ n: count() }).from(table);
+    return n;
+  };
+
+  it("gives an empty database the demo data on Render", async () => {
+    await prepareDatabase(temporary.url, ON_RENDER);
+
+    expect(await countOf(shops)).toBe(2);
+    expect(await countOf(products)).toBe(8);
+  });
+
+  it.each([
+    ["no flag", {}],
+    ["another value", { RENDER: "false" }],
+  ])("migrates and seeds nothing outside Render, with %s", async (_name, env) => {
+    await prepareDatabase(temporary.url, env);
+
+    expect(await countOf(shops)).toBe(0);
+  });
+
+  it("leaves a database holding any shop alone", async () => {
+    await prepareDatabase(temporary.url, {});
+    await connection.db.insert(shops).values({
+      slug: "a-real-shop",
+      name: "A real shop",
+      location: "Riga",
+      currency: "EUR",
+      timezone: "Europe/Riga",
+      paypalCredentialRef: "A_REAL_SHOP",
+    });
+
+    await prepareDatabase(temporary.url, ON_RENDER);
+
+    expect(await countOf(shops)).toBe(1);
+    expect(await countOf(products)).toBe(0);
+  });
+
+  it("keeps what was changed in the demo on every later start", async () => {
+    await prepareDatabase(temporary.url, ON_RENDER);
+    await connection.db
+      .update(products)
+      .set({ priceMinor: 1234 })
+      .where(eq(products.id, DEMO_PRODUCT_ID));
+
+    await prepareDatabase(temporary.url, ON_RENDER);
+
+    const [product] = await connection.db
+      .select()
+      .from(products)
+      .where(eq(products.id, DEMO_PRODUCT_ID));
+    expect(product.priceMinor).toBe(1234);
+  });
+
+  it("still starts when the seed fails, and logs no detail", async () => {
+    await prepareDatabase(temporary.url, {
+      ...ON_RENDER,
+      DEMO_PHONE_WORKSHOP_PAYPAL_MERCHANT_ID: "THESAMEMERCHANT",
+      DEMO_SECOND_SHOP_PAYPAL_MERCHANT_ID: "THESAMEMERCHANT",
+    });
+
+    expect(await countOf(shops)).toBe(0);
+    expect(console.error).toHaveBeenCalledWith("Demo seed failed", { error: "Error" });
+
+    await prepareDatabase(temporary.url, ON_RENDER);
+    expect(await countOf(shops)).toBe(2);
+  });
+
+  it("does not start when a migration fails", async () => {
+    await expect(
+      prepareDatabase("postgres://postgres@127.0.0.1:1/nothing", ON_RENDER),
+    ).rejects.toThrow();
   });
 });

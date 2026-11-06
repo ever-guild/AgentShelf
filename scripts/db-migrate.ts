@@ -1,11 +1,11 @@
-import { runMigrations } from "../src/server/db/migrate";
+import { prepareDatabase } from "../src/server/db/migrate";
 
 async function main() {
   const connectionString = process.env.DATABASE_URL;
   if (!connectionString) {
     throw new Error("DATABASE_URL is not set");
   }
-  await runMigrations(connectionString);
+  await prepareDatabase(connectionString);
   console.log("Migrations applied.");
 }
 

@@ -19,7 +19,7 @@ npm run db:seed
 npm test
 ```
 
-Migrating and seeding are safe to repeat. The seed updates its own fixed rows and leaves everything else alone. It is a manual step, not part of a deploy, so a redeploy never resets demo data. [Demo data](#demo-data) covers what the seed writes and `npm run demo:reset`.
+Migrating and seeding are safe to repeat. The seed updates its own fixed rows and leaves everything else alone. On Render the first start on an empty database runs it, and otherwise it is a manual step, so a redeploy never resets demo data. [Demo data](#demo-data) covers what the seed writes and `npm run demo:reset`.
 
 `npm test` needs a real Postgres server and creates and drops its own temporary database on it, never touching the database named in `TEST_DATABASE_URL`. It fails when that variable is missing rather than skipping tests. `npm run test:unit` runs the tests that need no database.
 
