@@ -20,7 +20,7 @@ export function AgentAccessManager() {
   const [shopId, setShopId] = useState("");
   const [createShop, setCreateShop] = useState(false);
   const [scopes, setScopes] = useState<string[]>([]);
-  const [shareDataConsent, setShareDataConsent] = useState(false);
+  const [shareDataConsentShopId, setShareDataConsentShopId] = useState<string | null>(null);
   const [grant, setGrant] = useState<Grant | null>(null);
   const [revokeToken, setRevokeToken] = useState("");
   const [message, setMessage] = useState<string | null>(null);
@@ -44,7 +44,7 @@ export function AgentAccessManager() {
   function toggleScope(scope: string) {
     setScopes((current) => {
       const next = current.includes(scope) ? current.filter((item) => item !== scope) : [...current, scope];
-      if (!next.includes("connect_paypal")) setShareDataConsent(false);
+      if (!next.includes("connect_paypal")) setShareDataConsentShopId(null);
       return next;
     });
   }
@@ -62,7 +62,7 @@ export function AgentAccessManager() {
         body: JSON.stringify({
           shopId: createShop ? null : shopId,
           scopes: selectedScopes,
-          ...(selectedScopes.includes("connect_paypal") && shareDataConsent ? { shareDataConsent: true } : {}),
+          ...(selectedScopes.includes("connect_paypal") && shareDataConsentShopId === shopId ? { shareDataConsent: true } : {}),
         }),
       });
       if (response.ok) {
@@ -70,6 +70,7 @@ export function AgentAccessManager() {
         setGrant(result);
         setRevokeToken(result.grantToken);
         setScopes([]);
+        setShareDataConsentShopId(null);
         setMessage("Credential issued. Copy it now; it will not be shown again after you leave this page.");
       } else if (response.status === 401) {
         router.replace("/seller/owner-sign-in");
@@ -110,7 +111,7 @@ export function AgentAccessManager() {
     setBusy(false);
   }
 
-  const canIssue = createShop || (Boolean(shopId) && scopes.length > 0 && (!scopes.includes("connect_paypal") || shareDataConsent));
+  const canIssue = createShop || (Boolean(shopId) && scopes.length > 0 && (!scopes.includes("connect_paypal") || shareDataConsentShopId === shopId));
   const shopChoices = session?.shops ?? [];
 
   return (
@@ -126,7 +127,7 @@ export function AgentAccessManager() {
               <p className="text-sm text-zinc-600 dark:text-zinc-400">Choose one shop and only the actions the agent needs. Each credential expires in 15 minutes.</p>
             </div>
             <label className="flex items-start gap-3 rounded-lg border border-zinc-200 p-4 text-sm dark:border-zinc-800">
-              <input type="checkbox" checked={createShop} onChange={(event) => { setCreateShop(event.currentTarget.checked); setScopes([]); }} className="mt-1 accent-ink" />
+              <input type="checkbox" checked={createShop} onChange={(event) => { setCreateShop(event.currentTarget.checked); setScopes([]); setShareDataConsentShopId(null); }} className="mt-1 accent-ink" />
               <span><span className="block font-medium">Let the agent create one shop</span><span className="mt-1 block text-zinc-600 dark:text-zinc-400">This permission is limited to creating a shop and can be used once.</span></span>
             </label>
             {createShop ? (
@@ -135,7 +136,7 @@ export function AgentAccessManager() {
               <>
                 {shopChoices.length ? (
                   <label className="flex flex-col gap-1 text-sm font-medium">Shop
-                    <select value={shopId} onChange={(event) => setShopId(event.currentTarget.value)} required className="h-11 rounded-lg border border-zinc-300 bg-background px-3 dark:border-zinc-700">
+                    <select value={shopId} onChange={(event) => { setShopId(event.currentTarget.value); setShareDataConsentShopId(null); }} required className="h-11 rounded-lg border border-zinc-300 bg-background px-3 dark:border-zinc-700">
                       {shopChoices.map((shop) => <option key={shop.id} value={shop.id}>{shop.name} · {shop.location}</option>)}
                     </select>
                   </label>
@@ -155,8 +156,8 @@ export function AgentAccessManager() {
                   <label className="flex items-start gap-3 rounded-lg border border-zinc-300 p-4 text-sm dark:border-zinc-700">
                     <input
                       type="checkbox"
-                      checked={shareDataConsent}
-                      onChange={(event) => setShareDataConsent(event.currentTarget.checked)}
+                      checked={shareDataConsentShopId === shopId}
+                      onChange={(event) => setShareDataConsentShopId(event.currentTarget.checked ? shopId : null)}
                       className="mt-1 accent-ink"
                     />
                     <span>
