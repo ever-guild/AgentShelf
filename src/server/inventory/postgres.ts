@@ -196,7 +196,18 @@ export async function reserveInventory(
 ): Promise<Reservation> {
   const lines = parseLines(rawLines);
   if (!/^[A-Za-z0-9._:-]{16,128}$/.test(key) || Number.isNaN(expiresAt.getTime()) || expiresAt <= new Date()) throw new InventoryError("INVALID", "Reservation key and expiry must be valid and in the future.");
-  return transaction(pool, async (client) => {
+  return transaction(pool, (client) => reserveInventoryInTransaction(client, shopId, key, lines, expiresAt));
+}
+
+export async function reserveInventoryInTransaction(
+  client: Queryable,
+  shopId: string,
+  key: string,
+  rawLines: unknown,
+  expiresAt: Date,
+): Promise<Reservation> {
+  const lines = parseLines(rawLines);
+  if (!/^[A-Za-z0-9._:-]{16,128}$/.test(key) || Number.isNaN(expiresAt.getTime()) || expiresAt <= new Date()) throw new InventoryError("INVALID", "Reservation key and expiry must be valid and in the future.");
     // Serialize retries on a not-yet-existing key before checking the unique ledger row.
     await client.query("SELECT pg_advisory_xact_lock(hashtextextended($1 || ':' || $2, 0))", [shopId, key]);
     const hash = checksum(lines);
@@ -226,7 +237,6 @@ export async function reserveInventory(
       if (stock.mode === "tracked") await client.query("UPDATE inventory_stock SET reserved=reserved+$3, version=version+1, updated_at=now() WHERE shop_id=$1 AND product_id=$2", [shopId, line.productId, line.quantity]);
     }
     return loadReservation(client, shopId, reservationId);
-  });
 }
 
 async function loadReservation(client: Queryable, shopId: string, id: string): Promise<Reservation> {
@@ -237,11 +247,54 @@ async function loadReservation(client: Queryable, shopId: string, id: string): P
   return { id: h.id, shopId, idempotencyKey: h.idempotency_key, state: h.state, expiresAt: h.expires_at, lines: rows.rows.map((line) => ({ productId: line.product_id, quantity: Number(line.quantity) })) };
 }
 
+export type InventoryCapturePermit =
+  | { allowed: true; reason: "started" }
+  | { allowed: false; reason: "already_started" | "expired" | "terminal" };
+
+/**
+ * Atomically claims the single provider capture attempt for a live physical-order allocation.
+ * Reconciliation must call this before sending a new capture request. A retry sees
+ * `already_started` and must read PayPal instead of sending another capture.
+ */
+export async function beginInventoryCapture(
+  pool: Pool,
+  shopId: string,
+  reservationId: string,
+  now = new Date(),
+): Promise<InventoryCapturePermit> {
+  return transaction(pool, (client) => beginInventoryCaptureInTransaction(client, shopId, reservationId, now));
+}
+
+export async function beginInventoryCaptureInTransaction(
+  client: Queryable,
+  shopId: string,
+  reservationId: string,
+  now = new Date(),
+): Promise<InventoryCapturePermit> {
+    const result = await client.query<{ state: Reservation["state"]; expires_at: Date }>(
+      "SELECT state, expires_at FROM inventory_reservations WHERE shop_id=$1 AND id=$2 FOR UPDATE",
+      [shopId, reservationId],
+    );
+    if (!result.rowCount || result.rows[0].state !== "reserved") {
+      return { allowed: false, reason: result.rowCount && result.rows[0].state === "capture_pending" ? "already_started" : "terminal" };
+    }
+    if (result.rows[0].expires_at <= now) return { allowed: false, reason: "expired" };
+    await client.query(
+      "UPDATE inventory_reservations SET state='capture_pending', updated_at=now() WHERE shop_id=$1 AND id=$2 AND state='reserved'",
+      [shopId, reservationId],
+    );
+    return { allowed: true, reason: "started" };
+}
+
 // This records a capture the reconciliation layer has already verified. It never creates or
-// captures a provider order; callers must refuse capture when the reservation has expired.
-export async function commitReservation(pool: Pool, shopId: string, reservationId: string, proof: { captureId: string; providerStatus: "COMPLETED"; verified: true }): Promise<Reservation> {
-  if (!proof.captureId.trim() || proof.captureId.length > 256 || proof.providerStatus !== "COMPLETED" || proof.verified !== true) throw new InventoryError("INVALID", "A verified completed capture is required.");
-  return transaction(pool, async (client) => {
+// captures a provider order. The provider timestamp, not webhook arrival time, defines lateness.
+export async function commitReservation(pool: Pool, shopId: string, reservationId: string, proof: { captureId: string; providerStatus: "COMPLETED"; capturedAt: Date; verified: true }): Promise<Reservation> {
+  if (!proof.captureId.trim() || proof.captureId.length > 256 || proof.providerStatus !== "COMPLETED" || proof.verified !== true || !(proof.capturedAt instanceof Date) || Number.isNaN(proof.capturedAt.getTime())) throw new InventoryError("INVALID", "A verified completed capture with its provider timestamp is required.");
+  return transaction(pool, (client) => commitReservationInTransaction(client, shopId, reservationId, proof));
+}
+
+export async function commitReservationInTransaction(client: Queryable, shopId: string, reservationId: string, proof: { captureId: string; providerStatus: "COMPLETED"; capturedAt: Date; verified: true }): Promise<Reservation> {
+  if (!proof.captureId.trim() || proof.captureId.length > 256 || proof.providerStatus !== "COMPLETED" || proof.verified !== true || !(proof.capturedAt instanceof Date) || Number.isNaN(proof.capturedAt.getTime())) throw new InventoryError("INVALID", "A verified completed capture with its provider timestamp is required.");
     const reservation = await client.query<{ state: Reservation["state"]; expires_at: Date; capture_id: string | null }>("SELECT state, expires_at, capture_id FROM inventory_reservations WHERE shop_id=$1 AND id=$2 FOR UPDATE", [shopId, reservationId]);
     if (!reservation.rowCount) throw new InventoryError("NOT_FOUND", "Reservation was not found.");
     const state = reservation.rows[0].state;
@@ -249,7 +302,7 @@ export async function commitReservation(pool: Pool, shopId: string, reservationI
       if (reservation.rows[0].capture_id !== proof.captureId) throw new InventoryError("REVIEW_REQUIRED", "This reservation already records a different capture.");
       return loadReservation(client, shopId, reservationId);
     }
-    if (state === "released" || reservation.rows[0].expires_at <= new Date()) {
+    if (state !== "capture_pending" || proof.capturedAt >= reservation.rows[0].expires_at) {
       await client.query("UPDATE inventory_reservations SET state='review_required', capture_id=$3, updated_at=now() WHERE shop_id=$1 AND id=$2", [shopId, reservationId, proof.captureId]);
       return loadReservation(client, shopId, reservationId);
     }
@@ -260,12 +313,15 @@ export async function commitReservation(pool: Pool, shopId: string, reservationI
     for (const line of linesResult.rows) if (line.mode === "tracked") await client.query("UPDATE inventory_stock SET reserved=reserved-$3, on_hand=on_hand-$3, version=version+1, updated_at=now() WHERE shop_id=$1 AND product_id=$2", [shopId, line.product_id, line.quantity]);
     await client.query("UPDATE inventory_reservations SET state='committed', capture_id=$3, updated_at=now() WHERE shop_id=$1 AND id=$2", [shopId, reservationId, proof.captureId]);
     return loadReservation(client, shopId, reservationId);
-  });
 }
 
 export async function releaseReservation(pool: Pool, shopId: string, reservationId: string, outcome: "verified_unpaid" | "verified_cancelled" | "verified_expired_unpaid"): Promise<Reservation> {
   if (!["verified_unpaid", "verified_cancelled", "verified_expired_unpaid"].includes(outcome)) throw new InventoryError("INVALID", "A verified unpaid outcome is required before releasing stock.");
-  return transaction(pool, async (client) => {
+  return transaction(pool, (client) => releaseReservationInTransaction(client, shopId, reservationId, outcome));
+}
+
+export async function releaseReservationInTransaction(client: Queryable, shopId: string, reservationId: string, outcome: "verified_unpaid" | "verified_cancelled" | "verified_expired_unpaid"): Promise<Reservation> {
+  if (!["verified_unpaid", "verified_cancelled", "verified_expired_unpaid"].includes(outcome)) throw new InventoryError("INVALID", "A verified unpaid outcome is required before releasing stock.");
     const reservation = await client.query<{ state: Reservation["state"] }>("SELECT state FROM inventory_reservations WHERE shop_id=$1 AND id=$2 FOR UPDATE", [shopId, reservationId]);
     if (!reservation.rowCount) throw new InventoryError("NOT_FOUND", "Reservation was not found.");
     if (reservation.rows[0].state === "released") return loadReservation(client, shopId, reservationId);
@@ -276,5 +332,4 @@ export async function releaseReservation(pool: Pool, shopId: string, reservation
     for (const line of linesResult.rows) if (line.mode === "tracked") await client.query("UPDATE inventory_stock SET reserved=reserved-$3, version=version+1, updated_at=now() WHERE shop_id=$1 AND product_id=$2", [shopId, line.product_id, line.quantity]);
     await client.query("UPDATE inventory_reservations SET state='released', release_reason=$3, updated_at=now() WHERE shop_id=$1 AND id=$2", [shopId, reservationId, outcome]);
     return loadReservation(client, shopId, reservationId);
-  });
 }

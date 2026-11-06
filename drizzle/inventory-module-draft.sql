@@ -21,7 +21,7 @@ CREATE TABLE inventory_reservations (
   shop_id uuid NOT NULL REFERENCES shops(id) ON DELETE CASCADE,
   idempotency_key text NOT NULL CHECK (length(idempotency_key) BETWEEN 16 AND 128),
   request_hash text NOT NULL CHECK (length(request_hash) = 64),
-  state text NOT NULL CHECK (state IN ('reserved', 'committed', 'released', 'review_required')),
+  state text NOT NULL CHECK (state IN ('reserved', 'capture_pending', 'committed', 'released', 'review_required')),
   expires_at timestamptz NOT NULL,
   capture_id text UNIQUE,
   release_reason text,
@@ -69,6 +69,13 @@ CREATE TABLE inventory_audit (
 
 CREATE INDEX inventory_reservations_expiry_idx
   ON inventory_reservations(expires_at) WHERE state = 'reserved';
+
+-- Purchase orders link to the stock hold in the same transaction. Booking deposits keep NULL.
+ALTER TABLE orders ADD COLUMN inventory_reservation_id uuid;
+ALTER TABLE orders ADD CONSTRAINT orders_inventory_reservation_unique UNIQUE (inventory_reservation_id);
+ALTER TABLE orders ADD CONSTRAINT orders_inventory_reservation_shop_fk
+  FOREIGN KEY (inventory_reservation_id, shop_id)
+  REFERENCES inventory_reservations(id, shop_id) ON DELETE RESTRICT;
 
 CREATE FUNCTION inventory_audit_immutable() RETURNS trigger LANGUAGE plpgsql AS $$
 BEGIN

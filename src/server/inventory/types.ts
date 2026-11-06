@@ -1,5 +1,5 @@
 export type InventoryMode = "tracked" | "untracked";
-export type ReservationState = "reserved" | "committed" | "released" | "review_required";
+export type ReservationState = "reserved" | "capture_pending" | "committed" | "released" | "review_required";
 
 export type StockLevel = Readonly<{
   productId: string;
