@@ -34,6 +34,9 @@ yarn-error.log*
 .env*
 !.env.example
 
+# Local PayPal sandbox proof journal; contains order and idempotency references
+/.local/paypal-proof/
+
 # vercel
 .vercel
 

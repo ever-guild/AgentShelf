@@ -13,10 +13,12 @@
     "db:migrate": "tsx --env-file-if-exists=.env.local scripts/db-migrate.ts",
     "db:seed": "tsx --env-file-if-exists=.env.local scripts/db-seed.ts",
     "smoke:mcp": "tsx scripts/mcp-smoke.ts",
-    "paypal:preflight": "node --env-file-if-exists=.env.local scripts/paypal-preflight.mjs"
+    "paypal:preflight": "node --env-file-if-exists=.env.local scripts/paypal-preflight.mjs",
+    "paypal:proof": "node --env-file-if-exists=.env.local --import tsx scripts/paypal-proof.ts"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "1.32.2",
+    "@paypal/paypal-server-sdk": "2.5.0",
     "drizzle-orm": "^0.45.4",
     "next": "16.4.5",
     "pg": "^8.23.1",

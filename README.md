@@ -4,6 +4,8 @@ Make any small shop buyable by AI agents in 5 minutes. A seller photographs thei
 
 Early development. PayPal runs in sandbox only.
 
+As of 6 November 2026, the controlled Orders proof is blocked for both seller accounts because their separate Sandbox app credentials are not configured, see the [PayPal sandbox proof runbook](docs/paypal-sandbox-proof.md) for the approval and capture gates
+
 ## Run locally
 
 You need Node.js 24 and PostgreSQL 17.
@@ -33,6 +35,8 @@ npm run test:unit   # needs no database
 The connector is an MCP server at `/mcp`. [docs/mcp.md](docs/mcp.md) explains how to add it to Claude and ChatGPT, and what it can do so far.
 
 For PayPal development, follow the [project-scoped agent setup](docs/paypal-agent-setup.md) to install the official PayPal and APIMatic guidance, these skills provide development context and do not enable payments
+
+The diagnostic Orders proof uses APIMatic PayPal Context Plugin skills while writing client and controller setup, request models, and mocked transport checks for `@paypal/paypal-server-sdk` 2.5.0; the [runbook](docs/paypal-sandbox-proof.md) records this work without claiming a real Sandbox payment
 
 ## Deploy
 
