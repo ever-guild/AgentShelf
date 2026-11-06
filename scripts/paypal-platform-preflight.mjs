@@ -134,16 +134,36 @@ export async function runPlatformPreflight({
   }
 }
 
+export function parseCliArgs(argv) {
+  let online = false;
+  let sellerId;
+  for (let index = 0; index < argv.length; index += 1) {
+    const arg = argv[index];
+    if (arg === "--online" && !online) {
+      online = true;
+      continue;
+    }
+    if (arg === "--seller-id" && sellerId === undefined) {
+      const value = argv[index + 1];
+      if (!value || value.startsWith("--")) return undefined;
+      sellerId = value;
+      index += 1;
+      continue;
+    }
+    return undefined;
+  }
+  if (sellerId && !online) return undefined;
+  return { online, sellerId };
+}
+
 async function main(argv = process.argv.slice(2)) {
-  const online = argv.includes("--online");
-  const idIndex = argv.indexOf("--seller-id");
-  const sellerId = idIndex >= 0 ? argv[idIndex + 1] : undefined;
-  if (argv.some((arg) => !["--online", "--seller-id"].includes(arg)) || (idIndex >= 0 && (!sellerId || sellerId.startsWith("--"))) || (sellerId && !online)) {
+  const parsed = parseCliArgs(argv);
+  if (!parsed) {
     console.error("Usage: npm run paypal:platform-preflight [-- --online [--seller-id SANDBOX_MERCHANT_ID]]");
     process.exitCode = 1;
     return;
   }
-  process.exitCode = await runPlatformPreflight({ online, sellerId });
+  process.exitCode = await runPlatformPreflight(parsed);
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) await main();

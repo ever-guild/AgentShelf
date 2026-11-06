@@ -1,6 +1,9 @@
 import { describe, expect, it, vi } from "vitest";
+import { spawnSync } from "node:child_process";
+import { resolve } from "node:path";
 import {
   inspectPlatformConfiguration,
+  parseCliArgs,
   runPlatformPreflight,
   SANDBOX_ORIGIN,
   TOKEN_URL,
@@ -16,6 +19,41 @@ const env = {
 const ok = (body: unknown) => new Response(JSON.stringify(body), { status: 200 });
 
 describe("PayPal platform preflight", () => {
+  it("parses the documented online seller arguments without treating the ID as an option", () => {
+    expect(parseCliArgs(["--online", "--seller-id", "sandbox-seller-123"])).toEqual({
+      online: true,
+      sellerId: "sandbox-seller-123",
+    });
+  });
+
+  it("rejects duplicate, missing, and unknown CLI arguments", () => {
+    expect(parseCliArgs(["--online", "--online"])).toBeUndefined();
+    expect(parseCliArgs(["--online", "--seller-id"])).toBeUndefined();
+    expect(parseCliArgs(["--online", "--seller-id", "--unknown"])).toBeUndefined();
+    expect(parseCliArgs(["--mystery"])).toBeUndefined();
+  });
+
+  it("accepts the seller CLI form and blocks on missing configuration before any online request", () => {
+    const result = spawnSync(process.execPath, [
+      resolve(process.cwd(), "scripts/paypal-platform-preflight.mjs"),
+      "--online", "--seller-id", "sandbox-seller-123",
+    ], {
+      encoding: "utf8",
+      env: {
+        ...process.env,
+        PAYPAL_PLATFORM_CLIENT_ID: "",
+        PAYPAL_PLATFORM_CLIENT_SECRET: "",
+        PAYPAL_PLATFORM_MERCHANT_ID: "",
+        PAYPAL_PARTNER_ATTRIBUTION_ID: "",
+      },
+      timeout: 5_000,
+    });
+    expect(result.status).toBe(2);
+    expect(result.stdout).toContain("BLOCKED missing platform configuration");
+    expect(result.stdout).not.toContain("Usage:");
+    expect(result.stderr).not.toContain("Usage:");
+  });
+
   it("checks names only and makes no network request offline", async () => {
     expect(inspectPlatformConfiguration({ ...env, PAYPAL_PLATFORM_CLIENT_SECRET: " " })).toContain("PAYPAL_PLATFORM_CLIENT_SECRET");
     const fetchImpl = vi.fn();
