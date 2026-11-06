@@ -84,6 +84,9 @@ Use these for real, because partner judges will notice superficial use.
 
 ## Working in this repo
 
+- Use native **Issue Type**: `Feature` for implementation, `Bug` for defects, `Task` for research or coordination
+- Use **Fields** `field.priority` and `field.effort` for priority and effort, never duplicate these or Issue Type with labels
+- Use **Relationships** `Blocked by` / `Blocking` for dependencies, keep issue descriptions in sync and avoid cycles, do not use `status:blocked`
 - Update [README.md](README.md), [DEVELOP.md](DEVELOP.md), affected `docs/` pages and [CHANGELOG.md](CHANGELOG.md) in the same logical change when behavior, configuration, commands or paths change
 - Before committing, verify local link targets and anchors, new or changed external links and documented commands, never invent releases, completed checks or external integration results
 
