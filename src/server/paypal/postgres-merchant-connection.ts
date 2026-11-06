@@ -10,6 +10,8 @@ import type {
 
 type ConnectionRow = {
   shop_id: string;
+  consented_by_owner_id: string;
+  share_data_consent_at: Date | string;
   status: MerchantConnectionRecord["status"];
   tracking_id: string;
   request_key_hash: string;
@@ -24,6 +26,8 @@ type ConnectionRow = {
 function mapRow(row: ConnectionRow): MerchantConnectionRecord {
   return {
     shopId: row.shop_id,
+    consentedByOwnerId: row.consented_by_owner_id,
+    shareDataConsentAt: new Date(row.share_data_consent_at),
     status: row.status,
     trackingId: row.tracking_id,
     requestKeyHash: row.request_key_hash,
@@ -51,7 +55,7 @@ async function transaction<T>(pool: Pool, work: (client: PoolClient) => Promise<
   }
 }
 
-const byShopAndTracking = `SELECT shop_id, status, tracking_id, request_key_hash,
+const byShopAndTracking = `SELECT shop_id, consented_by_owner_id, share_data_consent_at, status, tracking_id, request_key_hash,
   referral_self_url, seller_merchant_id, status_evidence, error_code, created_at, updated_at
   FROM paypal_merchant_connections WHERE shop_id = $1 AND tracking_id = $2 FOR UPDATE`;
 
@@ -63,7 +67,7 @@ export class PostgresMerchantConnectionRepository implements MerchantConnectionR
     return transaction(this.pool, async (client) => {
       await client.query("SELECT pg_advisory_xact_lock(hashtextextended($1, 0))", [input.shopId]);
       const same = await client.query<ConnectionRow>(
-        `SELECT shop_id, status, tracking_id, request_key_hash, referral_self_url,
+        `SELECT shop_id, consented_by_owner_id, share_data_consent_at, status, tracking_id, request_key_hash, referral_self_url,
           seller_merchant_id, status_evidence, error_code, created_at, updated_at
          FROM paypal_merchant_connections WHERE shop_id = $1 AND request_key_hash = $2`,
         [input.shopId, input.requestKeyHash],
@@ -71,7 +75,7 @@ export class PostgresMerchantConnectionRepository implements MerchantConnectionR
       if (same.rows[0]) return { kind: "replay" as const, record: mapRow(same.rows[0]) };
 
       const active = await client.query<ConnectionRow>(
-        `SELECT shop_id, status, tracking_id, request_key_hash, referral_self_url,
+        `SELECT shop_id, consented_by_owner_id, share_data_consent_at, status, tracking_id, request_key_hash, referral_self_url,
           seller_merchant_id, status_evidence, error_code, created_at, updated_at
          FROM paypal_merchant_connections
          WHERE shop_id = $1 AND (
@@ -84,11 +88,11 @@ export class PostgresMerchantConnectionRepository implements MerchantConnectionR
 
       const inserted = await client.query<ConnectionRow>(
         `INSERT INTO paypal_merchant_connections
-          (shop_id, status, tracking_id, request_key_hash, created_at, updated_at)
-         VALUES ($1, 'pending', $2, $3, $4, $4)
-         RETURNING shop_id, status, tracking_id, request_key_hash, referral_self_url,
+          (shop_id, consented_by_owner_id, share_data_consent_at, status, tracking_id, request_key_hash, created_at, updated_at)
+         VALUES ($1, $2, $3, 'pending', $4, $5, $6, $6)
+         RETURNING shop_id, consented_by_owner_id, share_data_consent_at, status, tracking_id, request_key_hash, referral_self_url,
            seller_merchant_id, status_evidence, error_code, created_at, updated_at`,
-        [input.shopId, input.trackingId, input.requestKeyHash, input.now],
+        [input.shopId, input.consentedByOwnerId, input.shareDataConsentAt, input.trackingId, input.requestKeyHash, input.now],
       );
       return { kind: "created" as const, record: mapRow(inserted.rows[0]) };
     });
@@ -96,7 +100,7 @@ export class PostgresMerchantConnectionRepository implements MerchantConnectionR
 
   async getByShop(shopId: string) {
     const result = await this.pool.query<ConnectionRow>(
-      `SELECT shop_id, status, tracking_id, request_key_hash, referral_self_url,
+      `SELECT shop_id, consented_by_owner_id, share_data_consent_at, status, tracking_id, request_key_hash, referral_self_url,
         seller_merchant_id, status_evidence, error_code, created_at, updated_at
        FROM paypal_merchant_connections WHERE shop_id = $1 ORDER BY created_at DESC LIMIT 1`,
       [shopId],
@@ -106,7 +110,7 @@ export class PostgresMerchantConnectionRepository implements MerchantConnectionR
 
   async getByTrackingId(trackingId: string) {
     const result = await this.pool.query<ConnectionRow>(
-      `SELECT shop_id, status, tracking_id, request_key_hash, referral_self_url,
+      `SELECT shop_id, consented_by_owner_id, share_data_consent_at, status, tracking_id, request_key_hash, referral_self_url,
         seller_merchant_id, status_evidence, error_code, created_at, updated_at
        FROM paypal_merchant_connections WHERE tracking_id = $1`,
       [trackingId],
@@ -125,7 +129,7 @@ export class PostgresMerchantConnectionRepository implements MerchantConnectionR
       const updated = await client.query<ConnectionRow>(
         `UPDATE paypal_merchant_connections SET referral_self_url = $3, updated_at = $4
          WHERE shop_id = $1 AND tracking_id = $2
-         RETURNING shop_id, status, tracking_id, request_key_hash, referral_self_url,
+         RETURNING shop_id, consented_by_owner_id, share_data_consent_at, status, tracking_id, request_key_hash, referral_self_url,
            seller_merchant_id, status_evidence, error_code, created_at, updated_at`,
         [input.shopId, input.trackingId, input.referralUrl, input.now],
       );
@@ -168,7 +172,7 @@ export class PostgresMerchantConnectionRepository implements MerchantConnectionR
         `UPDATE paypal_merchant_connections SET status = $3, seller_merchant_id = $4,
           status_evidence = $5::jsonb, error_code = NULL, updated_at = $6
          WHERE shop_id = $1 AND tracking_id = $2 AND status <> 'revoked'
-         RETURNING shop_id, status, tracking_id, request_key_hash, referral_self_url,
+         RETURNING shop_id, consented_by_owner_id, share_data_consent_at, status, tracking_id, request_key_hash, referral_self_url,
            seller_merchant_id, status_evidence, error_code, created_at, updated_at`,
         [input.shopId, input.trackingId, status, input.sellerMerchantId, JSON.stringify(input.evidence), input.now],
       );
@@ -192,14 +196,14 @@ export class PostgresMerchantConnectionRepository implements MerchantConnectionR
         [input.sellerMerchantId],
       );
       const connectionIds = matching.rows.map((row) => row.id);
-      const connectionId = connectionIds[0];
-      if (!connectionId) return "unmatched" as const;
+      const connectionId = connectionIds[0] ?? null;
       const event = await client.query(
         `INSERT INTO paypal_merchant_connection_webhook_events (event_id, connection_id, seller_merchant_id, received_at)
          VALUES ($1, $2, $3, $4) ON CONFLICT (event_id) DO NOTHING RETURNING event_id`,
         [input.eventId, connectionId, input.sellerMerchantId, input.now],
       );
       if (!event.rowCount) return "duplicate" as const;
+      if (!connectionId) return "unmatched" as const;
       await client.query(
         `UPDATE paypal_merchant_connections SET status = 'revoked', error_code = NULL,
           updated_at = $2 WHERE seller_merchant_id = $1 AND status IN ('pending', 'ready', 'error')`,

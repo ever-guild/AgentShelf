@@ -25,11 +25,20 @@ describe("Postgres merchant connection repository", () => {
   let pool: Pool;
   let repository: PostgresMerchantConnectionRepository;
   let shopId: string;
+  let ownerId: string;
 
   beforeAll(async () => {
     temporary = await createTemporaryDatabase();
     pool = new Pool({ connectionString: temporary.url, max: 8 });
-    await pool.query(`CREATE TABLE shops (id uuid PRIMARY KEY DEFAULT gen_random_uuid())`);
+    await pool.query(`
+      CREATE TABLE shops (id uuid PRIMARY KEY DEFAULT gen_random_uuid());
+      CREATE TABLE seller_owners (id uuid PRIMARY KEY DEFAULT gen_random_uuid());
+      CREATE TABLE shop_memberships (
+        owner_id uuid NOT NULL REFERENCES seller_owners(id),
+        shop_id uuid NOT NULL REFERENCES shops(id),
+        PRIMARY KEY(owner_id, shop_id)
+      );
+    `);
     const draft = await readFile(new URL("../../../drizzle/drafts/paypal-merchant-connection.sql", import.meta.url), "utf8");
     await pool.query(draft);
     repository = new PostgresMerchantConnectionRepository(pool);
@@ -38,7 +47,10 @@ describe("Postgres merchant connection repository", () => {
   beforeEach(async () => {
     await pool.query("TRUNCATE paypal_merchant_connection_webhook_events, paypal_merchant_connections, shops CASCADE");
     shopId = randomUUID();
+    ownerId = randomUUID();
+    await pool.query("INSERT INTO seller_owners (id) VALUES ($1)", [ownerId]);
     await pool.query("INSERT INTO shops (id) VALUES ($1)", [shopId]);
+    await pool.query("INSERT INTO shop_memberships (owner_id, shop_id) VALUES ($1, $2)", [ownerId, shopId]);
   });
 
   afterAll(async () => {
@@ -47,7 +59,7 @@ describe("Postgres merchant connection repository", () => {
   });
 
   it("serializes idempotent starts and blocks a second referral while the first is pending", async () => {
-    const input = { shopId, requestKeyHash: "1".repeat(64), trackingId: tracking, now };
+    const input = { shopId, consentedByOwnerId: ownerId, shareDataConsentAt: now, requestKeyHash: "1".repeat(64), trackingId: tracking, now };
     const [first, duplicate] = await Promise.all([repository.reserveStart(input), repository.reserveStart(input)]);
     expect([first.kind, duplicate.kind].sort()).toEqual(["created", "replay"]);
     const other = await repository.reserveStart({ ...input, requestKeyHash: "2".repeat(64), trackingId: "b".repeat(43) });
@@ -55,7 +67,7 @@ describe("Postgres merchant connection repository", () => {
   });
 
   it("replays a stored request key, preserves failed attempts, and only retries a definite rejection", async () => {
-    const firstInput = { shopId, requestKeyHash: "1".repeat(64), trackingId: tracking, now };
+    const firstInput = { shopId, consentedByOwnerId: ownerId, shareDataConsentAt: now, requestKeyHash: "1".repeat(64), trackingId: tracking, now };
     await repository.reserveStart(firstInput);
     await repository.markStartFailure({
       shopId, trackingId: tracking, status: "pending", errorCode: "provider_outcome_unknown", now,
@@ -73,7 +85,7 @@ describe("Postgres merchant connection repository", () => {
   });
 
   it("binds verified status to the tracking row and applies only deduplicated revocation events", async () => {
-    await repository.reserveStart({ shopId, requestKeyHash: "1".repeat(64), trackingId: tracking, now });
+    await repository.reserveStart({ shopId, consentedByOwnerId: ownerId, shareDataConsentAt: now, requestKeyHash: "1".repeat(64), trackingId: tracking, now });
     const status = await repository.saveStatus({
       shopId, trackingId: tracking, sellerMerchantId: seller, status: "ready", evidence, now,
     });
@@ -90,14 +102,14 @@ describe("Postgres merchant connection repository", () => {
 
   it("revokes the active reconnected row and ignores a late status update for the historical row", async () => {
     const oldTracking = "c".repeat(43);
-    await repository.reserveStart({ shopId, requestKeyHash: "3".repeat(64), trackingId: oldTracking, now });
+    await repository.reserveStart({ shopId, consentedByOwnerId: ownerId, shareDataConsentAt: now, requestKeyHash: "3".repeat(64), trackingId: oldTracking, now });
     await repository.saveStatus({
       shopId, trackingId: oldTracking, sellerMerchantId: seller, status: "ready", evidence: { ...evidence, trackingId: oldTracking }, now,
     });
     await repository.markRevoked({ sellerMerchantId: seller, eventId: "event-old", now });
 
     const newTracking = "d".repeat(43);
-    await repository.reserveStart({ shopId, requestKeyHash: "4".repeat(64), trackingId: newTracking, now: new Date(now.getTime() + 1_000) });
+    await repository.reserveStart({ shopId, consentedByOwnerId: ownerId, shareDataConsentAt: new Date(now.getTime() + 1_000), requestKeyHash: "4".repeat(64), trackingId: newTracking, now: new Date(now.getTime() + 1_000) });
     await repository.saveStatus({
       shopId, trackingId: newTracking, sellerMerchantId: seller, status: "ready", evidence: { ...evidence, trackingId: newTracking }, now: new Date(now.getTime() + 2_000),
     });
@@ -109,5 +121,44 @@ describe("Postgres merchant connection repository", () => {
     await expect(repository.markRevoked({ sellerMerchantId: seller, eventId: "event-new", now: new Date(now.getTime() + 4_000) })).resolves.toBe("revoked");
     expect(await repository.getByTrackingId(oldTracking)).toMatchObject({ status: "revoked" });
     expect(await repository.getByShop(shopId)).toMatchObject({ trackingId: newTracking, status: "revoked" });
+  });
+
+  it("stores verified revocations that arrive before the first merchant mapping and blocks stale status", async () => {
+    const observedAt = new Date(now.getTime() + 1_000);
+    await repository.reserveStart({
+      shopId,
+      consentedByOwnerId: ownerId,
+      shareDataConsentAt: now,
+      requestKeyHash: "5".repeat(64),
+      trackingId: tracking,
+      now,
+    });
+    await expect(repository.markRevoked({
+      sellerMerchantId: seller,
+      eventId: "event-before-first-mapping",
+      now: new Date(observedAt.getTime() + 1),
+    })).resolves.toBe("unmatched");
+    const stale = await repository.saveStatus({
+      shopId,
+      trackingId: tracking,
+      sellerMerchantId: seller,
+      status: "ready",
+      evidence,
+      observedAt,
+      now: new Date(observedAt.getTime() + 2_000),
+    });
+    expect(stale.status).toBe("pending");
+    expect((await pool.query("SELECT connection_id FROM paypal_merchant_connection_webhook_events WHERE event_id = $1", ["event-before-first-mapping"])).rows[0].connection_id).toBeNull();
+
+    const refreshed = await repository.saveStatus({
+      shopId,
+      trackingId: tracking,
+      sellerMerchantId: seller,
+      status: "ready",
+      evidence,
+      observedAt: new Date(observedAt.getTime() + 3_000),
+      now: new Date(observedAt.getTime() + 4_000),
+    });
+    expect(refreshed.status).toBe("ready");
   });
 });

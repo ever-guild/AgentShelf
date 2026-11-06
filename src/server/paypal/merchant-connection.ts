@@ -26,6 +26,8 @@ export type MerchantStatusEvidence = {
 
 export type MerchantConnectionRecord = {
   shopId: string;
+  consentedByOwnerId: string;
+  shareDataConsentAt: Date;
   status: Exclude<MerchantConnectionState, "not_connected">;
   trackingId: string;
   requestKeyHash: string;
@@ -44,6 +46,8 @@ export interface MerchantConnectionRepository {
   // error, and creates only after a definite referral rejection or revocation.
   reserveStart(input: {
     shopId: string;
+    consentedByOwnerId: string;
+    shareDataConsentAt: Date;
     requestKeyHash: string;
     trackingId: string;
     now: Date;
@@ -87,6 +91,7 @@ export interface PartnerReferralsAdapter {
 const startSchema = z.strictObject({
   shopId: z.uuid(),
   idempotencyKey: z.string().trim().min(16).max(128),
+  shareDataConsent: z.literal(true),
 });
 const shopIdSchema = z.uuid();
 const callbackSchema = z.strictObject({
@@ -99,6 +104,7 @@ export class MerchantConnectionError extends Error {
   constructor(
     readonly code:
       | "UNAUTHORIZED"
+      | "CONSENT_REQUIRED"
       | "CONNECTION_CONFLICT"
       | "CONNECTION_OUTCOME_UNKNOWN"
       | "INVALID_CALLBACK"
@@ -113,7 +119,6 @@ export class MerchantConnectionError extends Error {
 export type MerchantConnectionView = {
   shopId: string;
   status: MerchantConnectionState;
-  sellerMerchantId?: string;
   nextAction?: "continue_paypal" | "retry_status" | "retry_connection" | "contact_support";
   paymentsReceivable?: boolean;
   primaryEmailConfirmed?: boolean;
@@ -132,7 +137,6 @@ function publicView(record: MerchantConnectionRecord | undefined, shopId: string
   return {
     shopId: record.shopId,
     status: record.status,
-    ...(record.sellerMerchantId ? { sellerMerchantId: record.sellerMerchantId } : {}),
     ...(record.status === "pending" && record.referralUrl ? { nextAction: "continue_paypal" as const } : {}),
     ...(record.status === "pending" && record.errorCode === "provider_outcome_unknown" ? { nextAction: "contact_support" as const } : {}),
     ...(record.status === "error" && record.errorCode === "status_unavailable" ? { nextAction: "retry_status" as const } : {}),
@@ -176,15 +180,23 @@ export function createMerchantConnectionService(input: {
   return {
     async start(principal: MerchantConnectionPrincipal, rawInput: unknown) {
       const parsed = startSchema.safeParse(rawInput);
-      if (!parsed.success) throw new MerchantConnectionError("CONNECTION_CONFLICT", "The PayPal connection request is invalid.");
+      if (!parsed.success) {
+        if (!rawInput || typeof rawInput !== "object" || (rawInput as { shareDataConsent?: unknown }).shareDataConsent !== true) {
+          throw new MerchantConnectionError("CONSENT_REQUIRED", "Confirm that this shop may share its account data with PayPal before continuing.");
+        }
+        throw new MerchantConnectionError("CONNECTION_CONFLICT", "The PayPal connection request is invalid.");
+      }
       const { shopId, idempotencyKey } = parsed.data;
       await authorize(principal, shopId, "connect");
+      if (!z.uuid().safeParse(principal.actorId).success) throw new MerchantConnectionError("UNAUTHORIZED", "You are not authorized to manage PayPal for this shop.");
       const stamp = now();
       const trackingId = createTrackingId();
       if (!/^[A-Za-z0-9_-]{40,64}$/.test(trackingId)) throw new Error("Tracking ID generator returned an invalid value");
       const requestKeyHash = hash(idempotencyKey);
       const reservation = await input.repository.reserveStart({
         shopId,
+        consentedByOwnerId: principal.actorId,
+        shareDataConsentAt: stamp,
         requestKeyHash,
         trackingId,
         now: stamp,
@@ -195,12 +207,15 @@ export function createMerchantConnectionService(input: {
       const record = reservation.record;
       if (
         record.shopId !== shopId ||
-        (reservation.kind !== "active" && record.requestKeyHash !== requestKeyHash) ||
+        (reservation.kind !== "active" && (record.requestKeyHash !== requestKeyHash || record.consentedByOwnerId !== principal.actorId)) ||
         (reservation.kind === "created" && (record.trackingId !== trackingId || record.status !== "pending"))
       ) {
         throw new MerchantConnectionError("CONNECTION_CONFLICT", "The PayPal connection reservation could not be matched to this shop.");
       }
       if (reservation.kind !== "created") {
+        if (record.consentedByOwnerId !== principal.actorId) {
+          return { connection: publicView(record, shopId) };
+        }
         if (record.status === "ready" || record.status === "revoked" || record.status === "error") {
           return { connection: publicView(record, shopId) };
         }
