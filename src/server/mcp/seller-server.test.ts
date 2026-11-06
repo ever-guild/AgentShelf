@@ -140,4 +140,72 @@ describe("seller MCP capability registration", () => {
       await mcp.close();
     }
   });
+
+  it("only forwards PayPal consent after the identity resolver confirms the owner grant", async () => {
+    const shopId = "5f4b2190-f88b-4d19-bef6-cc11e71bb6f1";
+    const start = vi.fn(async () => ({ connection: { shopId, status: "pending" as const }, actionUrl: "https://www.sandbox.paypal.com/merchantsignup/partner/onboardingentry?token=action-token" }));
+    const services: SellerAgentServices = {
+      ...minimal,
+      grantTokenFromRequest: () => "seller-grant-test-only",
+      authorizeShop: vi.fn(async () => ({ shopId, actorId: "owner-1", shareDataConsent: true as const })),
+      shopIdFromRequest: () => shopId,
+      paypalConnection: { start },
+    };
+    const client = new Client({ name: "seller-paypal-consent-test", version: "0.1.0" });
+    const clientTransport = new InMemoryTransport();
+    const serverTransport = new InMemoryTransport();
+    clientTransport.peer = serverTransport;
+    serverTransport.peer = clientTransport;
+    const mcp = createSellerMcpServer(services);
+    try {
+      await mcp.connect(serverTransport);
+      await client.connect(clientTransport);
+      const response = await client.callTool({
+        name: "seller_connect_paypal",
+        arguments: { action: "start", idempotencyKey: "seller-connect-0001" },
+      });
+      expect(response.structuredContent).toEqual({
+        status: "pending",
+        humanActionUrl: "https://www.sandbox.paypal.com/merchantsignup/partner/onboardingentry?token=action-token",
+      });
+      expect(start).toHaveBeenCalledWith(
+        { shopId, actorId: "owner-1", shareDataConsent: true },
+        { shopId, idempotencyKey: "seller-connect-0001", shareDataConsent: true },
+      );
+    } finally {
+      await client.close();
+      await mcp.close();
+    }
+  });
+
+  it("does not start PayPal when the resolved seller grant lacks owner data-sharing consent", async () => {
+    const shopId = "5f4b2190-f88b-4d19-bef6-cc11e71bb6f1";
+    const start = vi.fn();
+    const services: SellerAgentServices = {
+      ...minimal,
+      grantTokenFromRequest: () => "seller-grant-test-only",
+      authorizeShop: vi.fn(async () => ({ shopId, actorId: "owner-1" })),
+      shopIdFromRequest: () => shopId,
+      paypalConnection: { start },
+    };
+    const client = new Client({ name: "seller-paypal-no-consent-test", version: "0.1.0" });
+    const clientTransport = new InMemoryTransport();
+    const serverTransport = new InMemoryTransport();
+    clientTransport.peer = serverTransport;
+    serverTransport.peer = clientTransport;
+    const mcp = createSellerMcpServer(services);
+    try {
+      await mcp.connect(serverTransport);
+      await client.connect(clientTransport);
+      const response = await client.callTool({
+        name: "seller_connect_paypal",
+        arguments: { action: "start", idempotencyKey: "seller-connect-0001", shareDataConsent: true },
+      });
+      expect(response.isError).toBe(true);
+      expect(start).not.toHaveBeenCalled();
+    } finally {
+      await client.close();
+      await mcp.close();
+    }
+  });
 });

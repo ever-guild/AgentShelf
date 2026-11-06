@@ -52,7 +52,11 @@ export function createSellerAgentServices(input: {
       if (!principal.shopId || principal.shopId !== requestedShopId) {
         throw Object.assign(new Error("This seller authorization does not cover the requested shop."), { code: "UNAUTHORIZED" });
       }
-      return principal;
+      const grant = principal as typeof principal & { shareDataConsent?: boolean };
+      if (scope === "connect_paypal" && grant.shareDataConsent !== true) {
+        throw Object.assign(new Error("The owner has not authorized PayPal data sharing."), { code: "UNAUTHORIZED" });
+      }
+      return scope === "connect_paypal" ? { ...principal, shareDataConsent: true as const } : principal;
     },
     shopIdFromRequest: () => input.shopId,
     grantTokenFromRequest: input.grantTokenFromRequest,
