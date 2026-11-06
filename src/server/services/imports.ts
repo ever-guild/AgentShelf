@@ -466,7 +466,16 @@ export async function updateImportRow(
       edited.add("duration");
     }
     if (patch.deposit !== undefined) {
-      next.depositMinor = parseEditedAmount(patch.deposit, "deposit").minor;
+      const deposit = parseEditedAmount(patch.deposit, "deposit");
+      // Stored as a bare number and charged in the shop's currency, so another currency is refused.
+      if (deposit.currency && deposit.currency !== shop.currency) {
+        throw new ServiceError(
+          "IMPORT_ROW_INVALID",
+          `This shop sells in ${shop.currency}. Enter the deposit in ${shop.currency}.`,
+          { field: "deposit" },
+        );
+      }
+      next.depositMinor = deposit.minor;
       edited.add("deposit");
     }
     if (next.kind === "product") {

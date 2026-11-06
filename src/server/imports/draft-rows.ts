@@ -99,6 +99,10 @@ const SOURCE_WARNINGS: Record<string, { field: RowField | null; message: string 
     field: "deposit",
     message: "The deposit could not be read. Enter it as an amount.",
   },
+  deposit_currency: {
+    field: "deposit",
+    message: "The deposit is in a different currency from this row, so it was not read. Enter it again.",
+  },
   title_truncated: {
     field: "title",
     message: `The name was longer than ${MAX_TITLE_LENGTH} characters and was shortened.`,

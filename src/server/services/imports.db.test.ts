@@ -797,6 +797,39 @@ describe("one shop cannot reach another's import", () => {
   });
 });
 
+describe("a deposit in another currency", () => {
+  const serviceCsv = "name,price,currency,kind,duration,deposit\nScreen repair,80.00,EUR,service,60,20.00\n";
+
+  it("is refused in the review table, as in the catalog", async () => {
+    const { shop, view, jobId } = await csvImport(serviceCsv);
+    const rowId = view.rows[0].id;
+    await expect(
+      updateImportRow(getDb(), shop, jobId, rowId, { deposit: "30 USD", status: "accepted" }),
+    ).rejects.toEqual(expect.objectContaining({ code: "IMPORT_ROW_INVALID", details: { field: "deposit" } }));
+    expect((await rowsOf(getDb(), jobId))[0].depositMinor).toBe(2000);
+  });
+
+  it("is kept when it states the shop's currency", async () => {
+    const { shop, view, jobId } = await csvImport(serviceCsv);
+    const after = await updateImportRow(getDb(), shop, jobId, view.rows[0].id, { deposit: "30 EUR" });
+    expect(after.rows[0].deposit).toBe("30.00");
+  });
+
+  it("stops an upload's row from being accepted until the seller enters one", async () => {
+    const { shop, view, jobId } = await csvImport(
+      "name,price,currency,kind,duration,deposit\nScreen repair,80.00,EUR,service,60,$20.00\n",
+    );
+    const after = await applyBulkAction(getDb(), shop, jobId, { action: "accept_clean" });
+    expect(after.rows[0]).toMatchObject({ status: "pending", deposit: null });
+    expect(after.rows[0].issues.map((issue) => issue.code)).toEqual(
+      expect.arrayContaining(["deposit_missing", "deposit_currency"]),
+    );
+
+    const fixed = await updateImportRow(getDb(), shop, jobId, view.rows[0].id, { deposit: "20.00" });
+    expect(fixed.rows[0].issues).toEqual([]);
+  });
+});
+
 describe("listing imports", () => {
   it("shows the newest first, counting rows that were not removed", async () => {
     const { shop, view, jobId, deps } = await csvImport();

@@ -326,10 +326,16 @@ function toDraftRow(
   const kind = readKind(cell("kind"), durationCell);
   const isProduct = kind === "product";
 
+  const currency = priceCurrency ?? statedCurrency ?? headingCurrency;
   const depositCell = cell("deposit");
   const deposit = depositCell?.trim() ? parsePriceText(depositCell) : null;
   if (deposit && deposit.problem && !isProduct) {
     warnings.push("deposit_unreadable");
+  }
+  // A row stores a deposit as a bare number in its own currency, so another currency's is not read.
+  const foreignDeposit = deposit?.currency != null && deposit.currency !== currency;
+  if (foreignDeposit && !isProduct) {
+    warnings.push("deposit_currency");
   }
 
   return {
@@ -339,9 +345,9 @@ function toDraftRow(
     kind,
     priceText,
     priceMinor: parsed?.minor ?? null,
-    currency: priceCurrency ?? statedCurrency ?? headingCurrency,
+    currency,
     serviceDurationMinutes: isProduct ? null : serviceDurationMinutes,
-    depositMinor: isProduct ? null : (deposit?.minor ?? null),
+    depositMinor: isProduct || foreignDeposit ? null : (deposit?.minor ?? null),
     description: description.text,
     sourceWarnings: warnings,
   };

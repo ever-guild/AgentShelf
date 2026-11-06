@@ -193,6 +193,24 @@ describe("kinds and service terms", () => {
     expect(row).toMatchObject({ kind: "service", depositMinor: 2000, serviceDurationMinutes: 45 });
   });
 
+  it("does not read a deposit written in another currency as the row's own", () => {
+    const [row] = rowsOf("name,price,currency,kind,duration,deposit\nRepair,80.00,EUR,service,60,$20.00\n");
+    expect(row.depositMinor).toBeNull();
+    expect(row.sourceWarnings).toContain("deposit_currency");
+  });
+
+  it("does not read a deposit's currency into a row that states none", () => {
+    const [row] = rowsOf("name,price,kind,duration,deposit\nRepair,80,service,60,20 USD\n");
+    expect(row).toMatchObject({ depositMinor: null, currency: null });
+    expect(row.sourceWarnings).toContain("deposit_currency");
+  });
+
+  it("reads a deposit written in the row's own currency", () => {
+    const [row] = rowsOf("name,price,currency,kind,duration,deposit\nRepair,80.00,EUR,service,60,€20.00\n");
+    expect(row.depositMinor).toBe(2000);
+    expect(row.sourceWarnings).not.toContain("deposit_currency");
+  });
+
   it("flags an unreadable deposit", () => {
     const [row] = rowsOf("name,price,kind,duration,deposit\nRepair,80,service,45,half\n");
     expect(row.depositMinor).toBeNull();
