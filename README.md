@@ -22,18 +22,18 @@ Requires Node.js 24 and PostgreSQL 17
 npm ci
 createdb agentshelf_dev
 if [ ! -e .env.local ]; then cp .env.example .env.local; fi
-# Set DATABASE_URL and APP_SIGNING_SECRET in .env.local
+# Set DATABASE_URL, APP_SIGNING_SECRET and APP_ORIGIN=http://localhost:3000 in .env.local
 npm run db:migrate
 npm run db:seed
 npm run dev
 ```
 
-Open <http://localhost:3000>. Keep secrets in local environment files or the deployment secret store, never in Git
+Open <http://localhost:3000>; keep secrets in local environment files or the deployment secret store, never in Git
 
 ## Operate the hosted demo
 
-Pushes to `main` run CI and, after it passes, request a Render deploy for that exact commit. The deploy workflow checks the live commit and readiness endpoints. Operators can follow [deployment and seeding instructions](docs/deployment.md); users can use the live demo link above
+Pushes to `main` run CI and, after it passes, request a Render deploy for that exact commit; the deploy workflow checks the live commit and readiness endpoints. Operators can follow [deployment and seeding instructions](docs/deployment.md), and users can use the live demo link above
 
-**Limits:** PayPal uses Sandbox only; real OAuth, seller consent, order approval, capture and webhook delivery are not yet proven end to end. External Claude and ChatGPT sessions have not been verified. See [the current runbook](docs/full-run.md) before a rehearsal
+**Limits:** PayPal uses Sandbox only; real OAuth, seller consent, order approval, capture and webhook delivery are not yet proven end to end; external Claude and ChatGPT sessions have not been verified. See [the current runbook](docs/full-run.md) before a rehearsal
 
 [Development and test commands](DEVELOP.md) · [Contribution guide](CONTRIBUTING.md) · [Changelog](CHANGELOG.md) · [MIT license](LICENSE)

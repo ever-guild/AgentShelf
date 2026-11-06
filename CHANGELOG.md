@@ -7,6 +7,8 @@ This project has no tagged releases yet. Entries describe code present in the cu
 - Added owner registration, shop creation, shop-scoped seller grants and seller MCP routes
 - Added quantity inventory and reservation behavior shared with checkout
 - Added Sandbox platform merchant-connection and PayPal webhook handling paths
-- Added operator and contributor documentation for registration, integrations, deployment and proof boundaries
+- Moved the shared `unslop` skill from `.claude/skills` to `.agents/skills`
+- Added `DEVELOP.md` and `CONTRIBUTING.md`, and updated operator documentation for registration, integrations, deployment and proof boundaries
+- Fixed merchant connection origin handling on Render and the PayPal return URL
 
-PayPal Sandbox consent, OAuth, order approval, capture and webhook delivery still need end-to-end evidence. See [the proof runbook](docs/paypal-sandbox-proof.md)
+PayPal Sandbox consent, OAuth, order approval, capture and webhook delivery still need end-to-end evidence; see [the proof runbook](docs/paypal-sandbox-proof.md)

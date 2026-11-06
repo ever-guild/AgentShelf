@@ -15,7 +15,7 @@ This setup uses one AgentShelf platform REST app and seller consent through PayP
    | `PAYPAL_PLATFORM_MERCHANT_ID` | Merchant ID of the platform's Sandbox API-caller account |
    | `PAYPAL_PARTNER_ATTRIBUTION_ID` | BN code for the platform REST app |
 
-4. The operator configures one AgentShelf platform REST app. Each seller then opens the PayPal connection page at `/seller/paypal-connection`, signs in to or creates a PayPal account, and grants the requested permissions. For PayPal Checkout, PayPal documents that a seller may use a Personal account; country and product eligibility still apply. No per-seller REST app or seller API secret is required for this platform flow. The code path exists, but callback origin handling still needs verification and real Sandbox consent and payment evidence are pending
+4. The operator configures one AgentShelf platform REST app; each seller then opens the PayPal connection page at `/seller/paypal-connection`, signs in to or creates a PayPal account, and grants the requested permissions. For PayPal Checkout, PayPal documents that a seller may use a Personal account; country and product eligibility still apply. No per-seller REST app or seller API secret is required for this platform flow; real Sandbox consent and payment evidence are pending
 5. After PayPal returns the seller, treat browser query parameters as hints only. Use the merchant-integration status GET to confirm the seller ID, `payments_receivable`, `primary_email_confirmed`, an active `EXPRESS_CHECKOUT` product, and the required `payment/authcapture` scope before enabling checkout.
 
 ## Safe local check
