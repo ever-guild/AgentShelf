@@ -21,7 +21,7 @@ Open source service that makes any small shop buyable by AI agents in 5 minutes,
 
 - Money goes directly to the seller. Every Orders v2 order sets `payee` to the shop's PayPal account (its test business account in sandbox).
 - A human always confirms payment in PayPal. An agent creates the order and returns the approval link, and never charges anything itself.
-- Sandbox only. No live credentials and no real seller onboarding (Partner Referrals).
+- Sandbox only, no live credentials or live seller onboarding, the approved seller-connection work in [#35](https://github.com/ever-guild/AgentShelf/issues/35) may implement and test sandbox Partner Referrals with explicit merchant consent, actual platform permissions still require [proof #2](https://github.com/ever-guild/AgentShelf/issues/2)
 - The repo is public. Secrets live only in environment variables: Render in production, `.env.local` locally. Add every new variable to `.env.example` with no value.
 - Real customers' names, faces and data never appear in demo data or screenshots.
 
@@ -60,6 +60,8 @@ MCP tools: `search_products`, `get_slots`, `book_slot`, `create_checkout`, `get_
 6. Simple storefront with PayPal buttons (JS SDK v6).
 7. Deployed on Render, with 2 demo shops and a sandbox test buyer.
 
+The scope clarified on 6 November also includes self-service owner/shop registration [#34](https://github.com/ever-guild/AgentShelf/issues/34), sandbox merchant connection [#35](https://github.com/ever-guild/AgentShelf/issues/35), quantity inventory [#36](https://github.com/ever-guild/AgentShelf/issues/36) and an authorized external seller agent [#37](https://github.com/ever-guild/AgentShelf/issues/37), these are delivery targets and do not claim that the flows are already wired or verified
+
 **Optional, in this order.** Start only once everything required works.
 
 1. Seller copilot on Agent Toolkit ("refund order 12", "invoice Janis for the repair").
@@ -97,7 +99,8 @@ npm run smoke:import -- URL [FILE]   # uploads a price list to a running service
 
 Run `npm run lint`, `npm run build` and `npm test` before pushing. [docs/architecture.md](docs/architecture.md) covers database setup, the rules the data model enforces and the shared service contracts.
 
-- Commit and push directly to `main`, keeping each commit to one issue. [CI](.github/workflows/ci.yml) runs lint, the full test suite with an isolated Postgres and the production build; after validation, its deploy job requests Render through a Deploy Hook for the exact commit SHA and checks public health and readiness endpoints. The repository secret `RENDER_DEPLOY_HOOK_URL` must be configured before automated delivery works. Render's native auto-deploy is disabled in [render.yaml](render.yaml); to freeze publishing, disable the GitHub Actions deploy job or its publishing gate as well.
+- Deliver reviewed commits directly to `main`, keeping each commit to one issue and one reviewable result, follow [the collaboration workflow](docs/collaboration.md), parallel workers may commit completed slices in isolated worktrees and one integrator per agent run serializes their publication, refresh main before integration and push, never leave completed work uncommitted solely because the whole feature is unfinished
+- [CI](.github/workflows/ci.yml) runs lint, the full test suite with an isolated Postgres and the production build; after validation, its deploy job requests Render through a Deploy Hook for the exact commit SHA and checks public health and readiness endpoints. The repository secret `RENDER_DEPLOY_HOOK_URL` must be configured before automated delivery works. Render's native auto-deploy is disabled in [render.yaml](render.yaml); to freeze publishing, disable the GitHub Actions deploy job or its publishing gate as well.
 - Each area has one owner: PayPal and backend; MCP and AI search; onboarding and booking; dashboard and submission. Stay inside the area you were asked to work on, and flag changes that reach into another.
 - Scope decisions belong to the team captain, so ask rather than adding features.
 - Write UI text, code, comments and the README in English.
