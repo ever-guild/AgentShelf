@@ -8,6 +8,8 @@ As of 6 November 2026, the controlled Orders proof is blocked for both seller ac
 
 The `create_checkout` tool creates sandbox orders through the [shared checkout service](docs/architecture.md#checkout), and [approval, capture and webhooks](docs/architecture.md#payment-reconciliation) settle them, but for the same reason no real PayPal order or payment has gone through this code yet
 
+Sellers can sign in at `/seller/imports`, upload a CSV or a photo of a price list and correct the rows in a table, as [Catalog import](docs/architecture.md#catalog-import) explains. CSV works today. Reading a photo needs `ANTHROPIC_API_KEY`, and no real model has read one yet. Publishing the result is [not built yet](https://github.com/ever-guild/AgentShelf/issues/9).
+
 ## Run locally
 
 You need Node.js 24 and PostgreSQL 17.

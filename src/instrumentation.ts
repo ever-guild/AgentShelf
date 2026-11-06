@@ -2,6 +2,8 @@
 export async function register() {
   if (process.env.NEXT_RUNTIME === "nodejs" && process.env.DATABASE_URL) {
     const { startOrderSweep } = await import("./server/services/order-sweep");
+    const { startImportSweep } = await import("./server/services/import-sweep");
     startOrderSweep();
+    startImportSweep();
   }
 }

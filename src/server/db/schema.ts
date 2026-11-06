@@ -1,6 +1,7 @@
 import { sql } from "drizzle-orm";
 import {
   check,
+  customType,
   foreignKey,
   index,
   integer,
@@ -29,6 +30,10 @@ const updatedAt = () =>
     .notNull()
     .defaultNow()
     .$onUpdate(() => new Date());
+
+const bytea = customType<{ data: Buffer; driverData: Buffer }>({
+  dataType: () => "bytea",
+});
 
 export const productKind = pgEnum("product_kind", ["product", "service"]);
 
@@ -70,6 +75,12 @@ export const importJobStatus = pgEnum("import_job_status", [
   "needs_review",
   "failed",
   "completed",
+]);
+
+export const importRowStatus = pgEnum("import_row_status", [
+  "pending",
+  "accepted",
+  "removed",
 ]);
 
 export const webhookReceiptStatus = pgEnum("webhook_receipt_status", [
@@ -350,16 +361,148 @@ export const importJobs = pgTable(
       .references(() => shops.id, { onDelete: "restrict" }),
     sourceKind: importSourceKind("source_kind").notNull(),
     status: importJobStatus("status").notNull().default("queued"),
+    // The uploaded file's name, for the seller to recognise it. Never used as a path.
     sourceRef: text("source_ref"),
     workflowRunId: text("workflow_run_id").unique(),
+    // Counts, token usage and the suggestion model. No extracted content: that lives in import_rows.
     result: jsonb("result"),
+    // A stable code. The message shown to a seller comes from the service.
     error: text("error"),
+    // How many times this job has been claimed since the seller last asked for a run.
+    attempts: integer("attempts").notNull().default(0),
+    // Fences a run: only the run holding the current token may finish the job, so one that lost
+    // its lease cannot overwrite the run that took over.
+    runToken: uuid("run_token"),
+    leaseExpiresAt: timestamp("lease_expires_at", { withTimezone: true }),
+    // What actually read the source. Null for a CSV, which no model touches.
+    model: text("model"),
+    promptVersion: text("prompt_version"),
     createdAt: createdAt(),
     updatedAt: updatedAt(),
   },
   (t) => [
     unique("import_jobs_id_shop_id_unique").on(t.id, t.shopId),
     index("import_jobs_shop_id_created_at_idx").on(t.shopId, t.createdAt),
+    index("import_jobs_status_idx").on(t.status),
+    check("import_jobs_attempts_not_negative", sql`${t.attempts} >= 0`),
+    check(
+      "import_jobs_running_holds_lease",
+      sql`${t.status} <> 'running' OR (${t.runToken} IS NOT NULL AND ${t.leaseExpiresAt} IS NOT NULL)`,
+    ),
+  ],
+);
+
+// The uploaded photo, kept only until the review ends or expires_at passes. It is here rather than
+// on a disk because the web service and a workflow run share no disk, and because a run's arguments
+// are limited to 4 MB. A separate table keeps the bytes out of every read of a job.
+export const importSources = pgTable(
+  "import_sources",
+  {
+    jobId: uuid("job_id").primaryKey(),
+    shopId: uuid("shop_id").notNull(),
+    mediaType: text("media_type").notNull(),
+    bytes: bytea("bytes").notNull(),
+    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+    createdAt: createdAt(),
+  },
+  (t) => [
+    foreignKey({
+      name: "import_sources_job_shop_fk",
+      columns: [t.jobId, t.shopId],
+      foreignColumns: [importJobs.id, importJobs.shopId],
+    }).onDelete("cascade"),
+    index("import_sources_expires_at_idx").on(t.expiresAt),
+    check(
+      "import_sources_media_type",
+      sql`${t.mediaType} IN ('image/jpeg', 'image/png', 'image/webp')`,
+    ),
+  ],
+);
+
+// A draft of one catalog row, as read from a source and then corrected by the seller. Anything the
+// source did not state stays null. A row only becomes a product through publication, so nothing
+// here is ever visible to a buyer. Accepted rows are held to the same rules as a published product.
+export const importRows = pgTable(
+  "import_rows",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    jobId: uuid("job_id").notNull(),
+    shopId: uuid("shop_id").notNull(),
+    // Order in the source. Unique per job, so a repeated completion cannot add rows.
+    position: integer("position").notNull(),
+    // Where this came from, in words a seller can follow: "Row 12", "Screens section, line 3".
+    sourceRef: text("source_ref").notNull(),
+    status: importRowStatus("status").notNull().default("pending"),
+    title: text("title"),
+    kind: productKind("kind"),
+    // The price exactly as the source showed it, kept for comparison after the seller edits.
+    priceText: text("price_text"),
+    priceMinor: integer("price_minor"),
+    currency: text("currency"),
+    serviceDurationMinutes: integer("service_duration_minutes"),
+    depositMinor: integer("deposit_minor"),
+    // The description as the source gave it, in the source's language.
+    description: text("description"),
+    // Generated suggestions, editable, and only ever stored here until a seller accepts the row.
+    descriptionEn: text("description_en"),
+    descriptionLv: text("description_lv"),
+    // Doubts recorded when the row was read, as stable codes. Editing a field clears its own.
+    sourceWarnings: text("source_warnings")
+      .array()
+      .notNull()
+      .default(sql`'{}'::text[]`),
+    createdAt: createdAt(),
+    updatedAt: updatedAt(),
+  },
+  (t) => [
+    foreignKey({
+      name: "import_rows_job_shop_fk",
+      columns: [t.jobId, t.shopId],
+      foreignColumns: [importJobs.id, importJobs.shopId],
+    }).onDelete("cascade"),
+    unique("import_rows_job_id_position_unique").on(t.jobId, t.position),
+    check("import_rows_position_not_negative", sql`${t.position} >= 0`),
+    check(
+      "import_rows_price_positive",
+      sql`${t.priceMinor} IS NULL OR ${t.priceMinor} > 0`,
+    ),
+    check(
+      "import_rows_currency_format",
+      sql`${t.currency} IS NULL OR ${t.currency} ~ '^[A-Z]{3}$'`,
+    ),
+    check(
+      "import_rows_duration_positive",
+      sql`${t.serviceDurationMinutes} IS NULL OR ${t.serviceDurationMinutes} > 0`,
+    ),
+    check(
+      "import_rows_deposit_positive",
+      sql`${t.depositMinor} IS NULL OR ${t.depositMinor} > 0`,
+    ),
+    // An accepted row must be publishable, whatever code wrote it. This is what makes a missing
+    // price block publication: such a row can never reach `accepted`.
+    check(
+      "import_rows_accepted_is_complete",
+      sql`${t.status} <> 'accepted' OR (
+        ${t.title} IS NOT NULL AND btrim(${t.title}) <> ''
+        AND ${t.kind} IS NOT NULL
+        AND ${t.priceMinor} IS NOT NULL
+        AND ${t.currency} IS NOT NULL
+      )`,
+    ),
+    check(
+      "import_rows_accepted_service_has_terms",
+      sql`${t.status} <> 'accepted' OR ${t.kind} <> 'service' OR (
+        ${t.serviceDurationMinutes} IS NOT NULL
+        AND ${t.depositMinor} IS NOT NULL
+        AND ${t.depositMinor} <= ${t.priceMinor}
+      )`,
+    ),
+    check(
+      "import_rows_accepted_product_has_no_service_terms",
+      sql`${t.status} <> 'accepted' OR ${t.kind} <> 'product' OR (
+        ${t.serviceDurationMinutes} IS NULL AND ${t.depositMinor} IS NULL
+      )`,
+    ),
   ],
 );
 

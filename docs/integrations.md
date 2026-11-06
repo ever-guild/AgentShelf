@@ -2,9 +2,9 @@
 
 Evidence for [#3](https://github.com/ever-guild/AgentShelf/issues/3).
 
-Checked on 2026-11-05 with `next` 16.4.5, `react` 19.3.0, Node 24.15.0 and npm 11.12.1 on macOS arm64. Updated on 2026-11-06 with the deployment and APIMatic results.
+Checked on 2026-11-05 with `next` 16.4.5, `react` 19.3.0, Node 24.15.0 and npm 11.12.1 on macOS arm64. Updated on 2026-11-06 with the deployment, APIMatic and catalog import results.
 
-**Render hosts the application, and the APIMatic skills were used while writing PayPal code. No other partner is integrated into the product yet.** This file records access, setup and the smallest check that could run without an account.
+**Render hosts the application, and the APIMatic skills were used while writing PayPal code. Catalog import has a Render Workflows task, run so far on the local server only. No other partner is integrated into the product yet.** This file records access, setup and the smallest check that could run without an account.
 
 - **Ran:** the step was executed. Clean installs used new empty directories, an empty npm config and a fresh cache, so no login was in play. Checks used small throwaway probes outside this repo, with `next build`, `next start` and a real browser.
 - **Read:** taken from vendor docs or shipped package code, not exercised.
@@ -16,7 +16,7 @@ Checked on 2026-11-05 with `next` 16.4.5, `react` 19.3.0, Node 24.15.0 and npm 1
 | AG Studio | `ag-studio-react`, `ag-studio` 3.1.0. Public npm, Commercial. Pulls `ag-grid-enterprise` 36.3.0, `ag-charts-enterprise` 14.3.0 | `npm install ag-studio-react ag-studio`, no registry login. Trial key from a web form | Install **PASS**. Trial key **BLOCKED**, owner action 2 | Without a key **PASS** (ran): build, render, custom theme, custom widget reading an aggregate. With a key **BLOCKED** | 45 days from request (read). A key requested on Nov 5 ends Dec 20, one day short. At expiry: watermark and console errors, no lock (read in shipped code) | Dependency only, never vendored. Key in an env var, and it reaches the browser. Trial terms **INCONCLUSIVE**, owner action 7 |
 | Studio Agent Framework | Included in `ag-studio` 3.1.0: `AgStudioAiModule`, `createAiHarness`. No separate package | Register the module, supply an `AgLlmAdapter`, keep the model key behind a server route | Module **PASS**. Real model **BLOCKED**, owner action 6 | **INCONCLUSIVE**: chat panel and one harness turn work through a local stub adapter (ran). No model was called | Same key as AG Studio, and the key must cover AI (read) | Model key stays on the server. Same trial terms question |
 | Bryntum Scheduler | 8.0.0 tier packages on public npm. Devpost still names the 7.3.8 trial | See [tracks](#bryntum-scheduler). No registry login | Install **PASS** on every track. Track choice is owner action 3 | 8.0 Community **PASS**, 8.0 Business without a key **PASS**, 7.3.8 trial **PASS**, `@bryntum/scheduler@latest` **FAIL** (all ran) | Community: none. Business and 7.3.8: masked at expiry (ran) | Community is MIT, fully compatible. A Business key must not be committed (read) |
-| Render Workflows | Render service, `@renderinc/sdk` 1.7.0, Render CLI 2.35.0 | `type: workflow` in `render.yaml`, TypeScript on `runtime: node` | SDK and CLI **PASS**. Deploy and credits **BLOCKED**, owner action 4 | Local task server **PASS** (ran): submit, wait, read result, failed status. On Render **BLOCKED** | Credit expiry unknown until claimed (read). Billed by usage, no free allowance listed | `RENDER_API_KEY` in Render only, no repo impact |
+| Render Workflows | Render service, `@renderinc/sdk` 1.7.0, Render CLI 2.35.0 | `type: workflow` in `render.yaml`, TypeScript on `runtime: node` | SDK and CLI **PASS**. Deploy and credits **BLOCKED**, owner action 4 | Local task server **PASS** (ran): the import task registered, ran, retried and failed as designed. On Render **BLOCKED** | Credit expiry unknown until claimed (read). Billed by usage, no free allowance listed | `RENDER_API_KEY` in Render only, no repo impact |
 | APIMatic Context Plugin | `context-plugins` 0.12.0 installs plugin `paypal` 0.1.0 from `paypaldev/server-sdk-context-plugin-preview` | One `npx` command per developer, no credentials, or the [project-level skills](paypal-agent-setup.md) from the same source | **PASS** | Install **PASS** into an isolated editor config (ran). Use while writing PayPal code **PASS**, [recorded below](#apimatic-context-plugin). It says nothing about how PayPal behaves, which is [#2](https://github.com/ever-guild/AgentShelf/issues/2) | No trial. The repo calls itself an experimental preview that may be removed (read) | Editor assistance only, nothing in the repo or at runtime |
 
 All partner packages added to this repo's current dependencies: `npm install` and `npm ci --include=dev` **PASS** with one copy of React and no peer conflicts (ran, macOS only). Partner packages add no audit findings.
@@ -131,7 +131,8 @@ task(
 - Get CLI 2.35.0 or later, then run `render workflows dev --port 8131 -- node src/main.ts`. Leave the command unquoted: the quoted form in `--help` fails with a `fork/exec` error.
 - Set `RENDER_USE_LOCAL_DEV=true` and `RENDER_LOCAL_DEV_URL` for the SDK. Node 24 runs the TypeScript directly, so `tsx` is optional.
 - `render workflows init` pins `@renderinc/sdk` 1.0.0, while the docs require `^1.7.0`. Bump it.
-- The local server does not match Render: a repeated idempotency key started a second run, `maxRetries` was not applied, and a 5 MB argument was accepted. Verify these three on Render.
+- The local server does not match Render: a repeated idempotency key started a second run, and a 5 MB argument was accepted. An early probe also saw `maxRetries` ignored, but the import task made 3 attempts with `maxRetries: 2` (ran). Verify these on Render.
+- **The import task on the local server** (ran, against a stand-in for the Claude API): a photo uploaded to a production build ran as a task and reached review. Delivering the same job again returned `skipped` with no model call. With the stand-in answering `529`, the task made 3 attempts and recorded the failure on the job.
 
 **Hosting limits for the demo** (read, relevant to [#4](https://github.com/ever-guild/AgentShelf/issues/4)):
 
@@ -161,10 +162,11 @@ task(
 | Name | Where | Purpose |
 | --- | --- | --- |
 | `AG_STUDIO` | Render web service, `.env.local` | AG Studio licence key, the boilerplate's name. Reaches the browser, never commit it |
-| `OPENAI_API_KEY` or `ANTHROPIC_API_KEY` | Render web service, `.env.local` | Model key for the server route. Provider not chosen |
+| `ANTHROPIC_API_KEY` | Render web service and workflow, `.env.local` | Reads price list photos and suggests descriptions |
+| `OPENAI_API_KEY` | Render web service, `.env.local` | Only if [#15](https://github.com/ever-guild/AgentShelf/issues/15) picks OpenAI for the Agent Framework. Nothing reads it yet |
 | `NEXT_PUBLIC_BRYNTUM_LICENSE_KEY` (proposed) | Render build, `.env.local` | Only on the Business track. Inlined at build time |
 | `RENDER_API_KEY` | Render web service | Starts and reads task runs. Secret, created under Account Settings |
-| `RENDER_WORKFLOW_SLUG` (proposed) | Render web service, from `fromService` | Prefix for task slugs |
+| `RENDER_WORKFLOW_SLUG` (proposed) | Render web service | Prefix for task slugs |
 | `RENDER_USE_LOCAL_DEV`, `RENDER_LOCAL_DEV_URL` | `.env.local` only | Point the SDK at the local task server |
 
 ## Owner actions
@@ -174,7 +176,7 @@ task(
 3. **Team captain:** choose the Bryntum track, a scope decision. Community has no expiry or watermark, but needs Riga wall-clock strings and lacks Business features. If Business is chosen, request a key from Nov 7 to Nov 10 at bryntum.com/download.
 4. **Render account owner:** sign in to the [credits portal](https://credits-portal-mmdm.onrender.com/claim/paypal-ai-hackathon) with GitHub and apply the code under Billing, Credit Balance in the right workspace. Credits do not transfer between workspaces. Record the credit expiry here. The web service and database already exist outside a Blueprint, as [deployment.md](deployment.md#existing-deployment) explains, so do not create a second stack. Run `render blueprints validate`, create `RENDER_API_KEY`, and deploy one task to confirm the slug, retries and idempotency.
 5. **Owner of [#4](https://github.com/ever-guild/AgentShelf/issues/4):** decide on the paid plans before Nov 12, as [deployment.md](deployment.md) explains. Licence keys cannot meet the "no secret in client bundles" check, so that check should exclude them.
-6. **Team captain:** choose the AI provider. For the Agent Framework, OpenAI has a copyable example adapter and any other provider needs its own.
+6. **Team captain:** catalog import uses Claude, recorded in [#8](https://github.com/ever-guild/AgentShelf/issues/8), and one adapter file holds that choice. Confirm it, or say otherwise. [#15](https://github.com/ever-guild/AgentShelf/issues/15) still chooses for the Agent Framework, where OpenAI has a copyable example adapter and any other provider needs its own.
 7. **PayPal Discord, AG Grid and Bryntum teams:** the bundled licences limit a trial to "internal evaluation and review purposes" (clause 13), while the Devpost pages invite teams to build on the trial and the rules require authorised use. AG Grid's [enterprise licence page](https://www.ag-grid.com/studio/react/enterprise-licence/) does allow a trial in a production environment, which does not settle the bundled clause. Ask for written confirmation that a public repo and hosted demo on a trial are fine, and that 8.0 Community qualifies for the Bryntum prize.
 8. **APIMatic claim owner:** file the claim form with the repository link and the description under [APIMatic Context Plugin](#apimatic-context-plugin).
 
@@ -183,6 +185,7 @@ task(
 - AG Studio and Bryntum behaviour with a real key, and AG Studio behaviour with an expired key.
 - A real model run through the Agent Framework.
 - On Render: Blueprint validation, hosted task runs, retries, idempotency, credit terms, whether a payment method is required. The deployment itself is verified in [#31](https://github.com/ever-guild/AgentShelf/issues/31).
+- A real model reading a real photo. The smoke check in [deployment.md](deployment.md#render-workflows-for-photo-import) does this once a key is set.
 - Builds on Linux with the partner packages. The repository's own build runs on Linux in CI.
 - The Devpost submission form and the PayPal Discord, both of which need a login.
 

@@ -14,3 +14,30 @@ export function errorResponse(error: unknown): Response {
     { status: 500 },
   );
 }
+
+// Reads a request body up to a limit, and returns undefined past it without reading the rest. A
+// declared length is checked first, and the stream is counted anyway, because it can be chunked.
+export async function readBodyWithin(
+  request: Request,
+  maxBytes: number,
+): Promise<Buffer | undefined> {
+  if (Number(request.headers.get("content-length") ?? 0) > maxBytes) {
+    return undefined;
+  }
+  const reader = request.body?.getReader();
+  const chunks: Uint8Array[] = [];
+  let size = 0;
+  while (reader) {
+    const { done, value } = await reader.read();
+    if (done) {
+      break;
+    }
+    size += value.length;
+    if (size > maxBytes) {
+      await reader.cancel();
+      return undefined;
+    }
+    chunks.push(value);
+  }
+  return Buffer.concat(chunks);
+}

@@ -1,10 +1,7 @@
 import { cookies } from "next/headers";
 
-import {
-  SELLER_SESSION_COOKIE,
-  requireSellerShop,
-  signInSeller,
-} from "@/server/auth/seller-session";
+import { SELLER_SESSION_COOKIE, signInSeller } from "@/server/auth/seller-session";
+import { currentSeller } from "@/server/auth/current-seller";
 import { getDb } from "@/server/db";
 import { errorResponse } from "@/server/http";
 
@@ -28,11 +25,7 @@ export async function POST(request: Request) {
 
 export async function GET() {
   try {
-    const cookieStore = await cookies();
-    const { sessionExpiresAt, ...shop } = await requireSellerShop(
-      getDb(),
-      cookieStore.get(SELLER_SESSION_COOKIE)?.value,
-    );
+    const { sessionExpiresAt, ...shop } = await currentSeller();
     return Response.json({
       shop,
       expiresAt: sessionExpiresAt.toISOString(),

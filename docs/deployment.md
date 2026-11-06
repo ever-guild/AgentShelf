@@ -101,8 +101,33 @@ After seeding, run the [MCP smoke check](#smoke-check) so that it finds the prod
 | `APP_ORIGIN` | Optional, by hand | Overrides the public origin, for a custom domain or local use |
 | `MCP_ALLOWED_ORIGINS` | Optional, by hand | Extra browser origins for the MCP endpoint, comma separated. See [mcp.md](mcp.md#origin-handling) |
 | `NODE_VERSION`, `NEXT_TELEMETRY_DISABLED` | Service settings mirrored in the Blueprint | Runtime settings |
+| `ANTHROPIC_API_KEY` | Secret, by hand | Reads price list photos and suggests descriptions. Until it is set, photo upload explains that and CSV upload still works |
+| `RENDER_WORKFLOW_SLUG`, `RENDER_API_KEY` | By hand, optional | Run photo reading as a workflow. See [Render Workflows for photo import](#render-workflows-for-photo-import) |
 
 PayPal, AI and partner variables are listed in [`.env.example`](../.env.example). Add them to the service in the Dashboard when the code that reads them lands. The code that reads the PayPal variables has landed, and [paypal-sandbox-setup.md](paypal-sandbox-setup.md) explains how to set them. Render ignores `sync: false` entries added to a blueprint after it was created, so the Dashboard is the one place to set them.
+
+## Render Workflows for photo import
+
+Photo reading works without this, inside the web service. A workflow service moves it out, and it is what the [Render prize](https://paypalaihackathon.devpost.com/details/render) looks for. It has not been created: it needs the Render account owner, because its compute is billed by use, and no free allowance is listed. `render.yaml` describes it, and committing that file does not create it.
+
+1. In the Dashboard choose **New > Workflow** and link this repository.
+2. Name it `agentshelf-import`. Set **Language** to Node, **Region** to Frankfurt, **Build Command** to `npm ci --include=dev` and **Start Command** to `npx tsx workflows/main.ts`.
+3. On the workflow, set `NODE_VERSION` to `24`, `DATABASE_URL` to the database's internal URL and `ANTHROPIC_API_KEY`.
+4. On the web service, set `RENDER_WORKFLOW_SLUG` to the workflow's slug and `RENDER_API_KEY`.
+5. Set the workflow's auto-deploy to run after checks pass, as `render.yaml` says. The CI deploy job only requests the web service, so a freeze has to turn this off too.
+6. Run the check below. The run should appear under the workflow in the Dashboard.
+
+Keep `ANTHROPIC_API_KEY` in a workspace with a low monthly spend limit, because the demo's seller code is shared with judges. The per-shop limits on photos bound the rest.
+
+```bash
+npm run smoke:import -- https://agentshelf-e5bk.onrender.com
+```
+
+It needs `DEMO_PHONE_WORKSHOP_SELLER_CODE`, the demo shop seeded with that code, and `ANTHROPIC_API_KEY` on the service. The second sample photo holds unclear prices and a note telling a model to change them:
+
+```bash
+npm run smoke:import -- https://agentshelf-e5bk.onrender.com test/fixtures/price-lists/ambiguous.png
+```
 
 ## Health checks
 

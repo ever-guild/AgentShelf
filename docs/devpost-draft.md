@@ -45,6 +45,7 @@ This is an early entry, submitted for the eligibility check. The sections above 
 - A checkout service that stores an order, asks PayPal to create it with the shop as recipient and can be retried safely. It returns PayPal's approval link only if the recipient and amount in PayPal's answer match.
 - Payment reconciliation: the buyer's return, verified webhooks and a periodic sweep all converge on one service that reads the order from PayPal, captures only what PayPal reports as approved, and marks an order paid only after a verified capture of the stored amount.
 - Both of these have been tested against a stand-in for PayPal, not against a real order or payment.
+- Catalog import for sellers: sign in, upload a CSV or a photo of a price list, and correct the rows in a table. A missing or unclear price stays unknown and blocks the row until a person fixes it. CSV works end to end up to the reviewed rows. Reading a photo has been tested against a stand-in for the model, not a real one, and publishing the result is not built yet.
 - Automated tests against a real Postgres database. All demo data is synthetic.
 - Deployment to Render, where every change is published only after lint, tests and a build pass.
 
@@ -52,7 +53,8 @@ This is an early entry, submitted for the eligibility check. The sections above 
 
 - PayPal: sandbox credentials and merchant routing are being verified. No real order or payment has gone through the service yet.
 - Seeding the deployed service and connecting it to Claude and ChatGPT, neither of which has been tested.
-- AI catalog extraction, semantic search and insights.
+- A real model run on a price list photo, and publishing reviewed rows to the catalog.
+- Semantic search and insights.
 - The Bryntum booking schedule and the AG Studio seller dashboard.
 - The storefront, the hosted demo and the demo video.
 

@@ -24,6 +24,27 @@ services:
       - key: APP_SIGNING_SECRET
         generateValue: true
 
+  # Reads price list photos. Not created on Render yet, and the web service reads them itself until
+  # it is. See "Render Workflows for photo import" in docs/deployment.md.
+  - type: workflow
+    name: agentshelf-import
+    runtime: node
+    region: frankfurt
+    branch: main
+    # Deploys only what CI passed. CI's own deploy job requests the web service alone.
+    autoDeployTrigger: checksPass
+    buildCommand: npm ci --include=dev
+    startCommand: npx tsx workflows/main.ts
+    envVars:
+      - key: NODE_VERSION
+        value: "24"
+      - key: DATABASE_URL
+        fromDatabase:
+          name: agentshelf-db
+          property: connectionString
+      - key: ANTHROPIC_API_KEY
+        sync: false
+
 databases:
   # A free database expires 30 days after creation. See docs/deployment.md before judging.
   - name: agentshelf-db
