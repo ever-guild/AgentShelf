@@ -1,8 +1,8 @@
 # Quantitative inventory contract (#36)
 
-This documents the inventory domain module and standalone migration draft. Checkout and payment
-reconciliation still need shared integration approval before they call these adapters. The SQL
-remains outside the Drizzle migration journal until the migration owner incorporates it.
+This documents the inventory domain module, seller stock API, physical-order adapter, and the
+inventory migration. Checkout and payment-reconciliation wiring remains a separate integration
+slice under review.
 
 ## Semantics
 
@@ -39,6 +39,25 @@ remains outside the Drizzle migration journal until the migration owner incorpor
   cannot release. Refunds do not restock automatically.
 - Seller access is scoped by a server-derived `{shopId, actorId}` principal from the identity
   boundary. `shopId`/`actorId` are never accepted as authority from tool or HTTP input.
+- `createReservedPhysicalOrder` writes the purchase order, immutable line snapshots and stock
+  reservation in one PostgreSQL transaction on the same client. Retries reuse the stored order and
+  reservation; a different fingerprint conflicts. It does not create a PayPal order.
+- `beginPhysicalOrderCapture` loads the order's immutable allocation link and atomically claims the
+  live capture attempt. `settlePhysicalOrderCapture` consumes stock and marks the order paid in one
+  transaction; a late capture marks both for review and keeps any still-held units reserved.
+- `closePhysicalOrderAfterVerifiedUnpaid` releases a purchase hold only after a verified unpaid,
+  cancelled, or expired-unpaid provider result, and updates the order in the same transaction.
+
+## Seller stock API
+
+- `GET /api/seller/inventory/{productId}` returns mode, on-hand, reserved, available, version and
+  `updatedAt` for the authenticated selected shop.
+- `PATCH /api/seller/inventory/{productId}` records an audited quantity delta with an expected
+  version, idempotency key and reason.
+- `PUT /api/seller/inventory/{productId}/policy` requires an explicit tracked quantity or untracked
+  decision. The initial policy cannot be reset or changed by retrying under another key.
+- Routes use the canonical owner-session/shop membership check and derive the tenant from the
+  authenticated principal; the body cannot select a shop.
 
 ## Required shared integration
 
