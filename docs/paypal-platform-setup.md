@@ -4,7 +4,7 @@ This setup uses one AgentShelf platform REST app and seller consent through PayP
 
 ## What the owner configures
 
-1. Sign in to the Sandbox API-caller account that represents AgentShelf, then create one REST app in the PayPal Developer Dashboard. PayPal's [platform getting-started guide](https://developer.paypal.com/platforms/get-started) says to create a Platform REST app under the sandbox API-caller account. Sandbox API calls can be tested before partner approval; live use requires approval.
+1. In the [PayPal Developer Dashboard](https://developer.paypal.com/dashboard/applications), select Sandbox → Create App → Type: Platform for AgentShelf, PayPal creates the platform's API-caller Sandbox account, see [platform account setup](https://developer.paypal.com/platforms/create-account/), Sandbox testing is available before live partner approval
 2. Configure the Partner Referrals features and product for the intended PayPal Checkout flow. The app settings and the `features` sent by Partner Referrals must match. Start with only the required capabilities; confirm the account intent and country/payment eligibility with the PayPal onboarding checklist.
 3. Keep the app's client secret private. Configure these values locally in `.env.local` or in the deployment's secret store; never commit or paste values into issues/logs:
 
@@ -17,6 +17,8 @@ This setup uses one AgentShelf platform REST app and seller consent through PayP
 
 4. The operator configures one AgentShelf platform REST app; each seller then opens the PayPal connection page at `/seller/paypal-connection`, signs in to or creates a PayPal account, and grants the requested permissions. For PayPal Checkout, PayPal documents that a seller may use a Personal account; country and product eligibility still apply. No per-seller REST app or seller API secret is required for this platform flow; real Sandbox consent and payment evidence are pending
 5. After PayPal returns the seller, treat browser query parameters as hints only. Use the merchant-integration status GET to confirm the seller ID, `payments_receivable`, `primary_email_confirmed`, an active `EXPRESS_CHECKOUT` product, and the required `payment/authcapture` scope before enabling checkout.
+
+The home page's PayPal identity login needs separate [Login feature settings](paypal-login.md), it does not replace merchant consent or establish payment rights
 
 ## Safe local check
 

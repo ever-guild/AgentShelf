@@ -23,6 +23,8 @@ Before publication run lint, the complete test suite against disposable PostgreS
 
 Read [architecture and service contracts](docs/architecture.md) before changing shared behavior; the buyer connector at `/mcp` and seller endpoints are separate, review [MCP contracts](docs/mcp.md) and [seller agent contract](docs/seller-agent-mcp.md)
 
+PayPal identity login has separate credentials and callbacks from merchant consent, see [Login setup and verification limits](docs/paypal-login.md), never use profile email or a browser callback hint as proof of shop ownership or payment permission
+
 ## Integration evidence
 
 The installed PayPal Server SDK is `@paypal/paypal-server-sdk` 2.5.0; APIMatic PayPal Context Plugin skills were used while writing its client/controller configuration, request models, error handling and mocked transport tests; these are coding references, not a runtime integration or evidence of a real payment, see [the integration record](docs/integrations.md#apimatic-context-plugin) and [Sandbox proof runbook](docs/paypal-sandbox-proof.md)
