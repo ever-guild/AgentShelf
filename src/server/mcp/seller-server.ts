@@ -25,7 +25,7 @@ import {
   type SellerAgentStockInput,
 } from "../contracts/seller-agent";
 
-export type SellerAgentGrant = { shopId: string; actorId: string };
+export type SellerAgentGrant = { shopId: string; actorId: string; shareDataConsent?: true };
 export type SellerAgentScope = "read_shop" | "manage_catalog" | "manage_inventory" | "connect_paypal";
 
 // This is the integration seam for Identity, Catalog/Import and Inventory. Implementations must
@@ -56,7 +56,7 @@ export type SellerAgentServices = {
     setMode: (principal: SellerAgentGrant, input: SellerAgentStockInput & { mode: "tracked" | "untracked"; onHand?: number; idempotencyKey: string; reason: string }) => Promise<z.infer<typeof sellerAgentStockResult>>;
   };
   paypalConnection?: {
-    start: (principal: SellerAgentGrant, input: { shopId: string; idempotencyKey: string }) => Promise<{
+    start: (principal: SellerAgentGrant, input: { shopId: string; idempotencyKey: string; shareDataConsent: true }) => Promise<{
       connection: { shopId: string; status: z.infer<typeof sellerAgentPayPalConnectResult>["status"]; nextAction?: z.infer<typeof sellerAgentPayPalConnectResult>["nextAction"] };
       actionUrl?: string;
     }>;
@@ -194,9 +194,11 @@ export function createSellerMcpServer(services: SellerAgentServices): McpServer 
       annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: true },
     }, (input: SellerAgentPayPalConnectInput, extra) => result(async () => {
       const principal = await toolContext(extra, services, "connect_paypal");
+      if (principal.shareDataConsent !== true) throw Object.assign(new Error("Seller data sharing consent is required."), { code: "UNAUTHORIZED" });
       const started = await services.paypalConnection!.start(principal, {
         shopId: principal.shopId,
         idempotencyKey: input.idempotencyKey,
+        shareDataConsent: true,
       });
       return {
         status: started.connection.status,
