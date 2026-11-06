@@ -20,7 +20,7 @@ The schemas are in [`src/server/contracts/commerce.ts`](../src/server/contracts/
 | Tool | Kind | State |
 | --- | --- | --- |
 | `search_products` | Read-only | Works, with deterministic text matching. Every meaningful word of the query must appear in the product or shop text. [#10](https://github.com/ever-guild/AgentShelf/issues/10) adds semantic matching and demand events |
-| `create_checkout` | Write | Validates the cart against stored data, then returns `PAYMENT_UNAVAILABLE` until [#6](https://github.com/ever-guild/AgentShelf/issues/6) creates PayPal orders. It never returns an invented approval link |
+| `create_checkout` | Write | Creates a PayPal sandbox order from the stored cart and returns its approval link, which is not payment. It returns `PAYMENT_NOT_CONFIGURED` for a shop without sandbox credentials, which is every shop until [#33](https://github.com/ever-guild/AgentShelf/issues/33) provides them. [architecture.md](architecture.md#checkout) lists its errors and when to retry |
 | `get_order_status` | Read-only | Not offered yet, belongs to [#11](https://github.com/ever-guild/AgentShelf/issues/11) |
 | `get_slots`, `book_slot` | Read-only, write | Not offered yet, belong to [#12](https://github.com/ever-guild/AgentShelf/issues/12) |
 
@@ -73,4 +73,10 @@ This runs against any deployment with the demo data seeded. It never sends a val
 npm run smoke:mcp -- https://YOUR-SERVICE.onrender.com/mcp
 ```
 
-Each line reports `PASS` or `FAIL`, and the command exits with an error if any check fails. Expect up to a minute on a sleeping free service, which is one reason [deployment.md](deployment.md#plan-decision-needed-before-judging) recommends a paid plan before judging.
+Each line reports `PASS` or `FAIL`, and the command exits with an error if any check fails.
+
+To check the checkout itself once a shop has sandbox credentials, run the following. It leaves one unpaid sandbox order behind and prints its private approval link. It checks that repeating the key returns the same order, and reads the recipient and amount back from PayPal using the seller's credentials in `.env.local`. It reports `BLOCKED` and exits with 2 rather than passing a check it could not run.
+
+```bash
+npm run smoke:checkout -- https://YOUR-SERVICE.onrender.com/mcp
+```

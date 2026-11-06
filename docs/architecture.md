@@ -32,7 +32,7 @@ Migrating and seeding are safe to repeat. The seed updates its own fixed rows an
 | `APP_SIGNING_SECRET` | app | At least 32 random characters. Signs seller sessions and order status tokens, and changing it invalidates them |
 | `APP_ORIGIN` | app | The public origin, such as `http://localhost:3000` locally. On Render it falls back to `RENDER_EXTERNAL_URL` |
 | `PAYPAL_CLIENT_ID_<REF>`, `PAYPAL_CLIENT_SECRET_<REF>` | app, from [#6](https://github.com/ever-guild/AgentShelf/issues/6) | Sandbox credentials for the shop whose `paypal_credential_ref` is `<REF>`. [#2](https://github.com/ever-guild/AgentShelf/issues/2) may change this once the merchant model is proven |
-| `DEMO_PHONE_WORKSHOP_PAYPAL_MERCHANT_ID` | `db:seed` | Optional. The demo shop's sandbox merchant. Its checkout returns `PAYMENT_NOT_CONFIGURED` until this is set |
+| `DEMO_PHONE_WORKSHOP_PAYPAL_MERCHANT_ID` | `db:seed` | Optional. The demo shop's sandbox merchant. Its checkout returns `PAYMENT_NOT_CONFIGURED` until this is set and the seed has run again, because checkout reads the merchant from the database |
 | `DEMO_PHONE_WORKSHOP_SELLER_CODE` | `db:seed` | Optional. The demo shop's seller access code, stored only as a hash. Nobody can sign in until this is set |
 
 ## Rules the data model enforces
@@ -72,10 +72,43 @@ Services throw a `ServiceError` with a stable code from [`errors.ts`](../src/ser
 
 These server pieces already exist for the issues above to build on:
 
-- `createCheckout` is the one checkout entry point for MCP and the storefront. It reports payment as unavailable until [#6](https://github.com/ever-guild/AgentShelf/issues/6) completes it.
+- `createCheckout` is the one checkout entry point for MCP and the storefront. See [Checkout](#checkout).
 - `quoteCheckout` resolves a cart to authoritative lines, total and recipient, and rejects mixed shops and products that are not on sale.
 - `searchProducts` matches text across all shops, and `getPublishedProduct` and `listPublishedProducts` read the public catalog.
 - `issueOrderStatusToken` and `verifyOrderStatusToken` provide the order capability. The token is derived with an HMAC, so an idempotent retry returns the same one and none are stored.
+
+## Checkout
+
+[`createCheckout`](../src/server/services/checkout.ts) turns a cart into a PayPal sandbox order, for [#6](https://github.com/ever-guild/AgentShelf/issues/6). Everything specific to PayPal is in [`paypal/orders.ts`](../src/server/paypal/orders.ts).
+
+**Status:** tested with the real SDK against a stand-in for PayPal, and against the real sandbox only as far as a refused token request. No real PayPal order has been created, because the sandbox credentials from [#33](https://github.com/ever-guild/AgentShelf/issues/33) do not exist yet. Run `npm run smoke:checkout -- URL` once they do. It creates one sandbox order through a running `/mcp` endpoint and reads the recipient back from PayPal.
+
+1. A repeated `idempotencyKey` is answered from the stored order, whatever has happened to prices or stock since.
+2. A new key is quoted from stored data and saved as a `pending` order with its lines, before PayPal hears about it.
+3. PayPal is asked to create the order, built only from what was stored, with the shop's merchant as `payee` and the local order ID as `PayPal-Request-Id`.
+4. PayPal's answer must be the order that was asked for: the same reference, recipient, amount, currency and intent, with a link to PayPal's sandbox checkout for that order. Only then is the link stored and returned.
+
+An approval link is not payment. The order stays `pending`, and only [#11](https://github.com/ever-guild/AgentShelf/issues/11) may move it on.
+
+| Code | When | What the caller does | Stored order |
+| --- | --- | --- | --- |
+| `PRODUCT_NOT_FOUND`, `PRODUCT_UNAVAILABLE`, `PRODUCT_REQUIRES_BOOKING`, `MIXED_SHOPS`, `UNSUPPORTED_CURRENCY` | The cart cannot be sold | Changes the cart | None |
+| `PAYMENT_NOT_CONFIGURED` | The shop has no merchant or credentials, or PayPal refuses them (`401`, `403`, `PAYEE_NOT_CONSENTED`) | Nothing, the seller has to fix it | None, or `pending` if PayPal refused |
+| `PAYMENT_TIMEOUT` | No answer within 12 seconds per request | Retries with the same key | `pending` |
+| `PAYMENT_UNAVAILABLE` | Any other unknown outcome: `5xx`, `409`, `429`, a network failure, an unreadable response | Retries with the same key | `pending` |
+| `PAYMENT_DECLINED` | PayPal refused this order (`400`, `422`) | Uses a new key once the cause has changed | `failed` |
+| `CHECKOUT_NEEDS_REVIEW` | PayPal's answer is not the requested order, or a retry came more than 6 hours after the first attempt | Starts again with a new key if nothing was paid | `review_required` |
+| `IDEMPOTENCY_CONFLICT` | The key was used for a different cart | Uses a new key | Unchanged |
+
+Retrying is safe because PayPal keeps a `PayPal-Request-Id` for 6 hours, so repeating one returns the first order. The SDK itself never retries. Past 6 hours the service stops repeating the request, because PayPal could then create a second order. Starting again cannot lead to two payments, since the first attempt's link never reached anyone.
+
+Provider details go to the server log only, as short codes: status, name, `debug_id` and issue names. An SDK error is never logged whole, because its request holds the seller's authorization header.
+
+The SDK keeps a failed token exchange as a rejected promise and rethrows it on every later call without sending a request, so `createPayPalOrdersProvider` replaces a client after any failure. Otherwise one network failure would stop a seller's payments until a restart.
+
+`/checkout/return` and `/checkout/cancel` are static pages where PayPal sends the buyer. They change nothing, and neither says an order is paid.
+
+The merchant model is the candidate from [paypal-sandbox-proof.md](paypal-sandbox-proof.md): each seller has its own REST app and is its own `payee`. [#2](https://github.com/ever-guild/AgentShelf/issues/2) has not proven it yet. If it settles on another model, `createPayPalOrdersProvider` and the `payee` in `buildOrderRequest` are what change.
 
 ## Seller demo session
 

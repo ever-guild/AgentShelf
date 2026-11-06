@@ -1,28 +1,42 @@
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import { count } from "drizzle-orm";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { setupMigratedDatabase } from "../../../test/database";
 import { createProduct, createService, createShop } from "../../../test/fixtures";
+import { createFakePayPal } from "../../../test/paypal-fake";
 import { orders } from "../db/schema";
 import { DEMO_PRODUCT_ID, DEMO_SHOP_ID, seedDemoData } from "../db/seed";
+import { createPayPalOrdersProvider } from "../paypal/orders";
 import { createMcpServer } from "./server";
 
 const getDb = setupMigratedDatabase();
 const idempotencyKey = "3f0c9c58-6f6d-4e2b-9a57-0f4f7f0f1a11";
 
 let client: Client;
+let paypal: ReturnType<typeof createFakePayPal>;
 
 beforeEach(async () => {
+  vi.stubEnv("APP_ORIGIN", "https://shop.example");
+  paypal = createFakePayPal();
+  const paypalOrdersFor = createPayPalOrdersProvider(
+    {
+      PAYPAL_CLIENT_ID_DEMO_PHONE_WORKSHOP: "test-client-id",
+      PAYPAL_CLIENT_SECRET_DEMO_PHONE_WORKSHOP: "test-client-secret",
+    },
+    paypal.adapter,
+  );
   const [clientSide, serverSide] = InMemoryTransport.createLinkedPair();
-  await createMcpServer(getDb()).connect(serverSide);
+  await createMcpServer(getDb(), { paypalOrdersFor }).connect(serverSide);
   client = new Client({ name: "test", version: "0.0.0" });
   await client.connect(clientSide);
 });
 
 afterEach(async () => {
   await client.close();
+  vi.unstubAllEnvs();
+  vi.restoreAllMocks();
 });
 
 type ToolResult = Awaited<ReturnType<Client["callTool"]>>;
@@ -141,16 +155,65 @@ describe("create_checkout", () => {
     idempotencyKey,
   };
 
-  it("reaches the shared service, which reports payment as unavailable", async () => {
+  it("returns the approval link from the shared service, as structured and text content", async () => {
     await seedDemoData(getDb(), {
       DEMO_PHONE_WORKSHOP_PAYPAL_MERCHANT_ID: "SANDBOXMERCHANT",
     });
     const result = await call("create_checkout", seededCart);
 
-    expect(errorCode(result)).toBe("PAYMENT_UNAVAILABLE");
-    expect(textOf(result)).not.toMatch(/approval|paypal\.com/i);
+    expect(result.isError).toBeFalsy();
+    const [order] = await getDb().select().from(orders);
+    expect(result.structuredContent).toEqual({
+      orderId: order.id,
+      totalMinor: 990,
+      currency: "EUR",
+      approvalUrl: `https://www.sandbox.paypal.com/checkoutnow?token=${order.paypalOrderId}`,
+      statusToken: expect.any(String),
+    });
+    expect(JSON.parse(textOf(result))).toEqual(result.structuredContent);
+    expect(order.paymentStatus).toBe("pending");
+    expect(JSON.stringify(result)).not.toMatch(/SANDBOXMERCHANT|DEMO_PHONE_WORKSHOP/);
+  });
+
+  it("returns the same order when a client retries the same key", async () => {
+    await seedDemoData(getDb(), {
+      DEMO_PHONE_WORKSHOP_PAYPAL_MERCHANT_ID: "SANDBOXMERCHANT",
+    });
+
+    const first = await call("create_checkout", seededCart);
+    const second = await call("create_checkout", seededCart);
+
+    expect(second.structuredContent).toEqual(first.structuredContent);
+    expect(paypal.createRequests()).toHaveLength(1);
+  });
+
+  it("tells the client to retry with the same key after PayPal times out", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    await seedDemoData(getDb(), {
+      DEMO_PHONE_WORKSHOP_PAYPAL_MERCHANT_ID: "SANDBOXMERCHANT",
+    });
+    paypal.nextOrder({ type: "timeout", orderCreated: true });
+
+    const result = await call("create_checkout", seededCart);
+
+    expect(errorCode(result)).toBe("PAYMENT_TIMEOUT");
+    expect(textOf(result)).toMatch(/same idempotencyKey/);
     expect(result.structuredContent).toBeUndefined();
+    expect(textOf(result)).not.toMatch(/paypal\.com|SANDBOXMERCHANT/);
+  });
+
+  it("creates nothing when the shop has no PayPal credentials", async () => {
+    const shop = await createShop(getDb(), { paypalCredentialRef: "NOT_CONFIGURED" });
+    const product = await createProduct(getDb(), shop.id);
+
+    const result = await call("create_checkout", {
+      items: [{ productId: product.id, quantity: 1 }],
+      idempotencyKey,
+    });
+
+    expect(errorCode(result)).toBe("PAYMENT_NOT_CONFIGURED");
     expect(await getDb().select({ n: count() }).from(orders)).toEqual([{ n: 0 }]);
+    expect(paypal.requests).toHaveLength(0);
   });
 
   it("runs the shared cart rules before anything else", async () => {

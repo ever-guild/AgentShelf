@@ -1,6 +1,6 @@
 # PayPal sandbox setup
 
-This guide prepares credentials for the current demo configuration; the application does not yet create Orders or process captures; the preflight only checks configuration and, with `--online`, sandbox OAuth credentials
+This guide prepares credentials for the current demo configuration; the application creates Orders once a shop has these credentials and a merchant ID, and does not yet process captures; the preflight only checks configuration and, with `--online`, sandbox OAuth credentials
 
 ## Accounts and apps
 
@@ -56,6 +56,8 @@ The online check sends one OAuth client-credentials request per seller app to Pa
 Add the two seller credential groups, seller merchant IDs, and `APP_ORIGIN` to the existing AgentShelf web service's Environment settings in the Render Dashboard; keep the current service and database, do not change service configuration or plans for this setup, and never add the buyer's password
 
 The script reads the current process environment and the optional local file loaded by the documented Node command; it does not read Render settings or fetch service variables; to check values held in Render, an operator must provide the required variables to the process through an approved secure mechanism
+
+Checkout reads a shop's merchant ID from the database rather than from the environment, so run `npm run db:seed` again wherever you set or change `DEMO_PHONE_WORKSHOP_PAYPAL_MERCHANT_ID`, [deployment.md](deployment.md#seed-the-demo-data) explains how on Render, then run `npm run smoke:checkout` as described in [mcp.md](mcp.md#smoke-check)
 
 ## Webhooks and payment implementation
 

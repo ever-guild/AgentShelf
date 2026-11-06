@@ -30,7 +30,7 @@ Open source service that makes any small shop buyable by AI agents in 5 minutes,
 - Next.js and TypeScript (App Router, `src/`), Tailwind CSS
 - Postgres on Render, through Drizzle ORM (see [docs/architecture.md](docs/architecture.md))
 - MCP TypeScript SDK over Streamable HTTP
-- `@paypal/agent-toolkit`, PayPal JS SDK v6
+- `@paypal/paypal-server-sdk` for Orders v2, `@paypal/agent-toolkit`, PayPal JS SDK v6
 - Claude or OpenAI API (not chosen yet)
 - AG Grid / AG Studio, starting from https://github.com/paypaldev/hackathon-paypal-ag-grid-boilerplate
 - Bryntum Scheduler
@@ -90,6 +90,7 @@ npm test       # needs TEST_DATABASE_URL; npm run test:unit needs no database
 npm run db:migrate
 npm run db:seed
 npm run smoke:mcp -- URL   # checks a running /mcp endpoint
+npm run smoke:checkout -- URL   # creates one sandbox order through a running /mcp endpoint
 ```
 
 Run `npm run lint`, `npm run build` and `npm test` before pushing. [docs/architecture.md](docs/architecture.md) covers database setup, the rules the data model enforces and the shared service contracts.

@@ -12,7 +12,7 @@ import {
 import type { Db } from "../db/client";
 import { ServiceError } from "../errors";
 import { searchProducts } from "../services/catalog";
-import { createCheckout } from "../services/checkout";
+import { createCheckout, type CheckoutDeps } from "../services/checkout";
 
 const INSTRUCTIONS = `AgentShelf is one connector to many small shops. Find products with search_products, then use create_checkout to get a PayPal approval link.
 The buyer always confirms payment in PayPal: an approval link does not mean an order is paid.
@@ -50,7 +50,7 @@ async function toolResult(
 
 // Tools take every price, total and recipient from stored data, and their strict input schemas
 // reject those values if a model sends them. No tool can reach seller credentials.
-export function createMcpServer(db: Db): McpServer {
+export function createMcpServer(db: Db, checkoutDeps?: CheckoutDeps): McpServer {
   const server = new McpServer(
     { name: "agentshelf", version: "0.1.0" },
     { instructions: INSTRUCTIONS },
@@ -80,7 +80,7 @@ export function createMcpServer(db: Db): McpServer {
     {
       title: "Create checkout",
       description:
-        "Create a PayPal sandbox order for products from one shop and return the approval link. The buyer must open the link and confirm in PayPal: this tool never charges anything. Send a random idempotencyKey, such as a UUID, and reuse it only to retry the same request.",
+        "Create a PayPal sandbox order for products from one shop and return the approval link. The buyer must open the link and confirm in PayPal: this tool never charges anything. Send a random idempotencyKey, such as a UUID, and reuse it only to retry the same request. After PAYMENT_TIMEOUT or PAYMENT_UNAVAILABLE, retry with the same key, which cannot create a second order.",
       inputSchema: createCheckoutInput,
       outputSchema: createCheckoutResult,
       annotations: {
@@ -91,7 +91,7 @@ export function createMcpServer(db: Db): McpServer {
         openWorldHint: true,
       },
     },
-    (input) => toolResult(() => createCheckout(db, input)),
+    (input) => toolResult(() => createCheckout(db, input, checkoutDeps)),
   );
 
   return server;
