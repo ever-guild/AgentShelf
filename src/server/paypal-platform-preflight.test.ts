@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { spawnSync } from "node:child_process";
+import { createServer, type Server } from "node:http";
 import { resolve } from "node:path";
 import {
   inspectPlatformConfiguration,
@@ -17,6 +18,22 @@ const env = {
   PAYPAL_PARTNER_ATTRIBUTION_ID: "platform-bn-code",
 };
 const ok = (body: unknown) => new Response(JSON.stringify(body), { status: 200 });
+
+async function withLocalHttpServer(
+  handler: (request: import("node:http").IncomingMessage, response: import("node:http").ServerResponse) => void,
+  run: (origin: string, server: Server) => Promise<void>,
+) {
+  const server = createServer(handler);
+  await new Promise<void>((resolveListen) => server.listen(0, "127.0.0.1", resolveListen));
+  const address = server.address();
+  if (!address || typeof address === "string") throw new Error("test server did not bind");
+  try {
+    await run(`http://127.0.0.1:${address.port}`, server);
+  } finally {
+    server.closeAllConnections();
+    await new Promise<void>((resolveClose) => server.close(() => resolveClose()));
+  }
+}
 
 describe("PayPal platform preflight", () => {
   it("parses the documented online seller arguments without treating the ID as an option", () => {
@@ -148,5 +165,83 @@ describe("PayPal platform preflight", () => {
     expect(output).toContain("OAuth HTTP 401");
     expect(output).not.toContain("contains platform-client-secret");
     expect(output).not.toContain(env.PAYPAL_PLATFORM_CLIENT_SECRET);
+  });
+
+  it("uses native fetch redirect rejection for sandbox OAuth and does not follow the redirect", async () => {
+    const paths: string[] = [];
+    await withLocalHttpServer((request, response) => {
+      paths.push(request.url ?? "");
+      response.writeHead(302, { location: "/redirect-target" }).end("redirect body hidden-token");
+    }, async (localOrigin) => {
+      const log = vi.fn();
+      const fetchImpl = (url: string, init: RequestInit) => {
+        expect(url).toBe(TOKEN_URL);
+        return fetch(`${localOrigin}/oauth`, init);
+      };
+
+      await expect(runPlatformPreflight({ env, online: true, fetchImpl, log, timeoutMs: 1_000 })).resolves.toBe(1);
+      expect(paths).toEqual(["/oauth"]);
+      const output = log.mock.calls.flat().join(" ");
+      expect(output).toContain("network error, timeout, redirect, or invalid response");
+      expect(output).not.toContain("redirect body");
+      expect(output).not.toContain("hidden-token");
+      expect(output).not.toContain(env.PAYPAL_PLATFORM_CLIENT_SECRET);
+    });
+  });
+
+  it("uses native fetch redirect rejection for seller status and does not follow the redirect", async () => {
+    const paths: string[] = [];
+    await withLocalHttpServer((request, response) => {
+      paths.push(request.url ?? "");
+      response.writeHead(302, { location: "/credential-target" }).end("redirect body hidden-token");
+    }, async (localOrigin) => {
+      const log = vi.fn();
+      const fetchImpl = (url: string, init: RequestInit) => {
+        if (url === TOKEN_URL) return Promise.resolve(ok({ access_token: "hidden-token", token_type: "Bearer" }));
+        expect(url).toBe(`${SANDBOX_ORIGIN}/v1/customer/partners/platform-merchant-id/merchant-integrations/seller-id-123`);
+        return fetch(`${localOrigin}/status`, init);
+      };
+
+      await expect(runPlatformPreflight({ env, online: true, sellerId: "seller-id-123", fetchImpl, log, timeoutMs: 1_000 })).resolves.toBe(1);
+      expect(paths).toEqual(["/status"]);
+      const output = log.mock.calls.flat().join(" ");
+      expect(output).toContain("network error, timeout, redirect, or invalid response");
+      expect(output).not.toContain("redirect body");
+      expect(output).not.toContain("hidden-token");
+      expect(output).not.toContain(env.PAYPAL_PLATFORM_CLIENT_SECRET);
+    });
+  });
+
+  it.each(["sandbox OAuth", "seller status"] as const)("aborts a stalled native fetch during %s and redacts the failure", async (phase) => {
+    let requestCount = 0;
+    const signals: AbortSignal[] = [];
+    await withLocalHttpServer(() => {
+      requestCount += 1;
+    }, async (localOrigin) => {
+      const log = vi.fn();
+      const fetchImpl = (url: string, init: RequestInit) => {
+        if (init.signal) signals.push(init.signal as AbortSignal);
+        if (phase === "seller status" && url === TOKEN_URL) {
+          return Promise.resolve(ok({ access_token: "timeout-hidden-token", token_type: "Bearer" }));
+        }
+        return fetch(`${localOrigin}/${phase === "sandbox OAuth" ? "oauth" : "status"}`, init);
+      };
+
+      await expect(runPlatformPreflight({
+        env,
+        online: true,
+        ...(phase === "seller status" ? { sellerId: "seller-id-123" } : {}),
+        fetchImpl,
+        log,
+        timeoutMs: 20,
+      })).resolves.toBe(1);
+      expect(requestCount).toBe(1);
+      expect(signals).toHaveLength(phase === "sandbox OAuth" ? 1 : 2);
+      expect(signals.at(-1)?.aborted).toBe(true);
+      const output = log.mock.calls.flat().join(" ");
+      expect(output).toContain("network error, timeout, redirect, or invalid response");
+      expect(output).not.toContain("timeout-hidden-token");
+      expect(output).not.toContain(env.PAYPAL_PLATFORM_CLIENT_SECRET);
+    });
   });
 });
