@@ -69,6 +69,24 @@ describe("Postgres seller identity store", () => {
     await expect(store.registerOwnerAndShopAtomic({ ...request, shop: shop("different-shop") })).rejects.toBeTruthy();
   });
 
+  it("registers an owner without a shop and authorizes creation of the first shop", async () => {
+    const request = { username: "firstowner", passwordHash, idempotencyKey: randomUUID() };
+    const first = await store.registerOwnerAtomic(request);
+    const replay = await store.registerOwnerAtomic(request);
+    expect(first.replayed).toBe(false);
+    expect(replay.replayed).toBe(true);
+    expect(replay.owner).toEqual(first.owner);
+    expect(await store.listOwnerShops(first.owner.id)).toEqual([]);
+
+    const tokenHash = "e".repeat(64);
+    const expiresAt = new Date("2026-12-01T00:00:00.000Z");
+    const now = new Date("2026-11-30T23:00:00.000Z");
+    await store.createAgentGrant({ ownerId: first.owner.id, shopId: null, scopes: ["create_shop"], tokenHash, expiresAt, shareDataConsentAt: null });
+    const created = await store.createAgentShopAtomic({ grantTokenHash: tokenHash, shop: shop("first-agent-shop"), idempotencyKey: randomUUID(), now });
+    expect(created?.shop.slug).toBe("first-agent-shop");
+    expect(await store.listOwnerShops(first.owner.id)).toMatchObject([{ slug: "first-agent-shop" }]);
+  });
+
   it("rolls back failed duplicate-slug registration without claiming the existing shop", async () => {
     const first = await store.registerOwnerAndShopAtomic({ username: "first", passwordHash, shop: shop("same-slug"), idempotencyKey: randomUUID() });
     await expect(store.registerOwnerAndShopAtomic({ username: "second", passwordHash, shop: shop("same-slug"), idempotencyKey: randomUUID() })).rejects.toMatchObject({ code: "23505" });
@@ -108,13 +126,17 @@ describe("Postgres seller identity store", () => {
     expect(await store.findActiveSession(sessionHash, new Date("2026-11-30T22:01:00.000Z"))).toBeNull();
 
     const grantHash = "b".repeat(64);
-    await store.createAgentGrant({ ownerId: owner.registration.owner.id, shopId: owner.registration.shop.id, scopes: ["read_shop", "manage_inventory"], tokenHash: grantHash, expiresAt });
-    expect(await store.findActiveAgentGrant(grantHash, new Date("2026-11-30T23:00:00.000Z"))).toMatchObject({ actorId: owner.registration.owner.id, shopId: owner.registration.shop.id, scopes: ["read_shop", "manage_inventory"] });
-    await expect(store.createAgentGrant({ ownerId: owner.registration.owner.id, shopId: "99999999-9999-4999-8999-999999999999", scopes: ["manage_inventory"], tokenHash: "c".repeat(64), expiresAt })).rejects.toBeTruthy();
+    await store.createAgentGrant({ ownerId: owner.registration.owner.id, shopId: owner.registration.shop.id, scopes: ["read_shop", "manage_inventory"], tokenHash: grantHash, expiresAt, shareDataConsentAt: null });
+    expect(await store.findActiveAgentGrant(grantHash, new Date("2026-11-30T23:00:00.000Z"))).toMatchObject({ actorId: owner.registration.owner.id, shopId: owner.registration.shop.id, scopes: ["read_shop", "manage_inventory"], shareDataConsent: false });
+    await expect(store.createAgentGrant({ ownerId: owner.registration.owner.id, shopId: "99999999-9999-4999-8999-999999999999", scopes: ["manage_inventory"], tokenHash: "c".repeat(64), expiresAt, shareDataConsentAt: null })).rejects.toBeTruthy();
     await store.revokeAgentGrant(grantHash, unrelated.registration.owner.id, new Date("2026-11-30T22:00:00.000Z"));
     expect(await store.findActiveAgentGrant(grantHash, new Date("2026-11-30T22:01:00.000Z"))).not.toBeNull();
     await store.revokeAgentGrant(grantHash, owner.registration.owner.id, new Date("2026-11-30T22:00:00.000Z"));
     expect(await store.findActiveAgentGrant(grantHash, new Date("2026-11-30T22:01:00.000Z"))).toBeNull();
+
+    await expect(store.createAgentGrant({ ownerId: owner.registration.owner.id, shopId: owner.registration.shop.id, scopes: ["connect_paypal"], tokenHash: "f".repeat(64), expiresAt, shareDataConsentAt: null })).rejects.toMatchObject({ code: "23514" });
+    await store.createAgentGrant({ ownerId: owner.registration.owner.id, shopId: owner.registration.shop.id, scopes: ["connect_paypal"], tokenHash: "1".repeat(64), expiresAt, shareDataConsentAt: new Date("2026-11-30T21:00:00.000Z") });
+    expect(await store.findActiveAgentGrant("1".repeat(64), new Date("2026-11-30T23:00:00.000Z"))).toMatchObject({ shareDataConsent: true });
   });
 
   it("allows one agent shop operation with same-key replay and rejects a second operation", async () => {
@@ -122,7 +144,7 @@ describe("Postgres seller identity store", () => {
     const grantTokenHash = "d".repeat(64);
     const expiresAt = new Date("2026-12-01T00:00:00.000Z");
     const now = new Date("2026-11-30T23:00:00.000Z");
-    await store.createAgentGrant({ ownerId: owner.registration.owner.id, shopId: null, scopes: ["create_shop"], tokenHash: grantTokenHash, expiresAt });
+    await store.createAgentGrant({ ownerId: owner.registration.owner.id, shopId: null, scopes: ["create_shop"], tokenHash: grantTokenHash, expiresAt, shareDataConsentAt: null });
     const input = { grantTokenHash, shop: shop("agent-created-shop"), idempotencyKey: randomUUID(), now };
     const first = await store.createAgentShopAtomic(input);
     expect(first?.shop.slug).toBe("agent-created-shop");
