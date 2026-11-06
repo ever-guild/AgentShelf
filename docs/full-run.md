@@ -8,7 +8,7 @@ Everything below that touches PayPal, a model, AG Studio or Bryntum with a key h
 
 - Any PayPal call: Orders create, approval, capture, webhooks, Catalog Products with caller-chosen record IDs, and the JS SDK v6 buttons with `payment_source.paypal.experience_context`.
 - Reading a real price list photo with the model, and the Render Workflows task on Render.
-- Search indexing on the deployed database: `unaccent` may be refused by Render Postgres, and then the new version does not start.
+- Search indexing on the deployed database, which needs `ANTHROPIC_API_KEY` on the web service. The migration that creates `unaccent` has run there.
 - Claude and ChatGPT connecting to `/mcp`.
 - AG Studio with a key, including the AI assistant, which needs a key for "AG Studio Pro with AI".
 - Bryntum on the deployed service and the screen reader and keyboard passes.
@@ -40,7 +40,7 @@ Never put the buyer's password, a key or a secret in the repository, a chat or a
 Use the deployed service, `URL=https://agentshelf-e5bk.onrender.com`. Record the commit from `/api/health` first.
 
 1. **Clean database.** A fresh Render database seeds itself on the first start. For a used one, set `DEMO_ENVIRONMENT=true` and run `npm run demo:reset` in the Render Shell. Expect the two demo shops, 8 products, 2 technicians and 8 demand fixtures. `npm run smoke:demo -- URL/mcp` should pass.
-2. **Health.** `curl -fsS URL/api/health/ready` returns 200. If the deploy failed on `unaccent`, record it as a blocker.
+2. **Health.** `curl -fsS URL/api/health/ready` returns 200.
 3. **Credentials.** Run `node --env-file-if-exists=.env.local scripts/paypal-preflight.mjs --online`, then `npm run db:seed` in the Render Shell so the merchant IDs reach the database. See [paypal-sandbox-setup.md](paypal-sandbox-setup.md).
 4. **Seller upload.** Sign in at `URL/seller/sign-in` with the seller code. Upload a price list photo at `/seller/imports`. Expect rows in the table within about a minute. Correct a row, and check that an unclear price stays blocked. `npm run smoke:import -- URL` does the upload check, and also with `test/fixtures/price-lists/ambiguous.png`.
 5. **Publish.** Publish the reviewed rows. Open `/seller/catalog`. Each product moves from `pending` to `synced`. Record any `failed` with its reason, since Catalog Products has never run against PayPal.
