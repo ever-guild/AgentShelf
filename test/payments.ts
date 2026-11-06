@@ -1,8 +1,10 @@
 import { randomUUID } from "node:crypto";
+import type { Pool } from "pg";
 
 import { eq } from "drizzle-orm";
 
 import type { Db } from "../src/server/db/client";
+import { createSellerInventoryAdapter } from "../src/server/inventory/seller-adapter";
 import { orders } from "../src/server/db/schema";
 import { createPayPalProvider } from "../src/server/paypal/orders";
 import { createCheckout } from "../src/server/services/checkout";
@@ -39,6 +41,9 @@ export function createPaymentHarness(): PaymentHarness {
       onPaymentConfirmed: async (_tx, order) => {
         confirmed.push(order.id);
       },
+      onPhysicalPaymentConfirmed: async (_client, orderId) => {
+        confirmed.push(orderId);
+      },
       closeIfHoldEnded: async () => false,
     },
   };
@@ -52,6 +57,17 @@ export async function placeOrder(
 ) {
   const shop = await createShop(db, shopOverrides);
   const product = await createProduct(db, shop.id, { priceMinor: 990 });
+  const pool = (db as Db & { $client: Pool }).$client;
+  await createSellerInventoryAdapter(pool).setMode(
+    { actorId: "00000000-0000-4000-8000-000000000099", shopId: shop.id },
+    {
+      productId: product.id,
+      mode: "tracked",
+      onHand: 100,
+      idempotencyKey: `payment-seed-${product.id}`,
+      reason: "Seeded physical stock for payment test",
+    },
+  );
   const checkout = await createCheckout(
     db,
     {

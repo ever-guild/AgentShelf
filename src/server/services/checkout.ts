@@ -4,6 +4,7 @@ import { createHash } from "node:crypto";
 
 import type { Order } from "@paypal/paypal-server-sdk";
 import { and, asc, eq, isNull, sql } from "drizzle-orm";
+import type { Pool } from "pg";
 import type { z } from "zod";
 
 import { issueOrderStatusToken } from "../auth/order-status-token";
@@ -13,6 +14,7 @@ import {
 } from "../contracts/commerce";
 import type { Db } from "../db/client";
 import { orderLines, orders, shops } from "../db/schema";
+import { BOOKING_POLICY } from "../domain/booking-policy";
 import { ServiceError, parseInput } from "../errors";
 import {
   buildOrderRequest,
@@ -24,6 +26,8 @@ import {
 } from "../paypal/orders";
 import { publicOrigin } from "../public-origin";
 import { quoteCheckout, type CheckoutQuote } from "./checkout-quote";
+import { assertPhysicalOrderAllocationLive, closePhysicalOrderAfterVerifiedUnpaid, createReservedPhysicalOrder } from "../inventory/physical-orders";
+import { InventoryError } from "../inventory/postgres";
 
 // PayPal keeps a PayPal-Request-Id for six hours. After that, repeating one could create a second
 // order instead of returning the first.
@@ -63,7 +67,7 @@ async function findByKey(
   idempotencyKey: string,
 ): Promise<StoredOrder | undefined> {
   const [row] = await db
-    .select({ order: orders, credentialRef: shops.paypalCredentialRef })
+    .select({ order: orders, credentialRef: sql<string>`coalesce(${orders.paypalCredentialRef}, ${shops.paypalCredentialRef})` })
     .from(orders)
     .innerJoin(shops, eq(orders.shopId, shops.id))
     .where(eq(orders.idempotencyKey, idempotencyKey));
@@ -78,39 +82,35 @@ async function insertOrder(
   fingerprint: string,
   quote: CheckoutQuote,
 ): Promise<StoredOrder> {
-  const inserted = await db.transaction(async (tx) => {
-    const [order] = await tx
-      .insert(orders)
-      .values({
-        shopId: quote.shopId,
-        kind: "purchase",
-        currency: quote.currency,
-        totalMinor: quote.totalMinor,
-        idempotencyKey: input.idempotencyKey,
-        requestFingerprint: fingerprint,
-        payeeMerchantId: quote.payeeMerchantId,
-      })
-      .onConflictDoNothing({ target: orders.idempotencyKey })
-      .returning();
-    if (order) {
-      await tx.insert(orderLines).values(
-        quote.lines.map((line) => ({
-          orderId: order.id,
-          shopId: order.shopId,
-          ...line,
-        })),
-      );
+  const pool = (db as Db & { $client: Pool }).$client;
+  try {
+    await createReservedPhysicalOrder(pool, {
+      quote,
+      idempotencyKey: input.idempotencyKey,
+      requestFingerprint: fingerprint,
+      expiresAt: new Date(Date.now() + BOOKING_POLICY.holdMinutes * 60_000),
+    });
+  } catch (error) {
+    if (!(error instanceof InventoryError)) throw error;
+    if (error.code === "CONFLICT") {
+      const winner = await findByKey(db, input.idempotencyKey);
+      if (winner) {
+        if (winner.order.requestFingerprint !== fingerprint) {
+          throw new ServiceError("IDEMPOTENCY_CONFLICT", "This idempotencyKey was already used for a different order. Use a new key for a new order.");
+        }
+        return winner;
+      }
+      throw new ServiceError("PRODUCT_UNAVAILABLE", "A product in this order is not currently available.");
     }
-    return order;
-  });
-  if (inserted) {
-    return { order: inserted, credentialRef: quote.paypalCredentialRef };
+    if (error.code === "INSUFFICIENT") {
+      throw new ServiceError("PRODUCT_UNAVAILABLE", "A product in this order is not currently available.");
+    }
+    if (error.code === "REVIEW_REQUIRED") throw needsReview();
+    throw error;
   }
-
-  // A concurrent request with this key committed first, and its order is the one to continue.
   const winner = await findByKey(db, input.idempotencyKey);
   if (!winner) {
-    throw new Error("An order with this idempotency key was not found");
+    throw new Error("The reserved physical order was not found after its transaction");
   }
   return winner;
 }
@@ -141,10 +141,17 @@ async function failureToError(
 
   switch (failure.kind) {
     case "rejected":
-      await db
-        .update(orders)
-        .set({ paymentStatus: "failed" })
-        .where(and(eq(orders.id, orderId), eq(orders.paymentStatus, "pending")));
+      if (!(await closePhysicalOrderAfterVerifiedUnpaid(
+        (db as Db & { $client: Pool }).$client,
+        orderId,
+        "verified_unpaid",
+        "failed",
+      ))) {
+        await db
+          .update(orders)
+          .set({ paymentStatus: "failed" })
+          .where(and(eq(orders.id, orderId), eq(orders.paymentStatus, "pending")));
+      }
       return declined();
     case "not_authorized":
       return notConfigured();
@@ -168,7 +175,7 @@ async function requestPayPalOrder(
   statusToken: string,
   deps: CheckoutDeps,
 ): Promise<OrderRow> {
-  const paypal = deps.paypalFor(credentialRef);
+  const paypal = deps.paypalFor(credentialRef, order.payeeMerchantId);
   if (!paypal) {
     throw notConfigured();
   }
@@ -245,11 +252,11 @@ export async function ensureApprovalLink(
   if (order.paymentStatus === "review_required") {
     throw needsReview();
   }
-  if (order.approvalUrl) {
-    return order;
-  }
   if (order.paymentStatus !== "pending") {
     throw needsReview();
+  }
+  if (order.approvalUrl) {
+    return order;
   }
   if (Date.now() - order.createdAt.getTime() >= PROVIDER_REPLAY_WINDOW_MS) {
     // The first attempt's outcome was never learned, but its link never reached anyone, so
@@ -278,7 +285,7 @@ export async function createCheckout(
   let stored = await findByKey(db, input.idempotencyKey);
   if (!stored) {
     const quote = await quoteCheckout(db, input);
-    if (!deps.paypalFor(quote.paypalCredentialRef)) {
+    if (!deps.paypalFor(quote.paypalCredentialRef, quote.payeeMerchantId)) {
       throw notConfigured();
     }
     stored = await insertOrder(db, input, fingerprint, quote);
@@ -290,6 +297,18 @@ export async function createCheckout(
       "IDEMPOTENCY_CONFLICT",
       "This idempotencyKey was already used for a different order. Use a new key for a new order.",
     );
+  }
+
+  if (order.kind === "purchase" && order.paymentStatus === "pending") {
+    try {
+      await assertPhysicalOrderAllocationLive(
+        (db as Db & { $client: Pool }).$client,
+        order.id,
+      );
+    } catch (error) {
+      if (error instanceof InventoryError) throw needsReview();
+      throw error;
+    }
   }
 
   // Signed before PayPal is called, so a misconfigured server cannot leave an order behind.

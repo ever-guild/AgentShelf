@@ -1,6 +1,8 @@
 import "server-only";
 
 import { and, eq, inArray, ne, sql } from "drizzle-orm";
+import type { Pool } from "pg";
+import type { PoolClient } from "pg";
 
 import { verifyOrderStatusToken } from "../auth/order-status-token";
 import { getOrderStatusInput } from "../contracts/commerce";
@@ -11,11 +13,14 @@ import {
   describePayPalFailure,
   paypalFor,
   readPayPalOrder,
+  type PayPalFailure,
   type PayPalOrderReading,
   type PayPalProvider,
   type PayPalSellerApi,
 } from "../paypal/orders";
+import { isReadyConnectedMerchant } from "../paypal/merchant-eligibility";
 import { closeDepositIfHoldEnded, confirmBookingPayment } from "./bookings";
+import { beginPhysicalOrderCapture, closePhysicalOrderAfterVerifiedUnpaid, rearmPhysicalOrderAfterVerifiedRefusal, settlePhysicalOrderCapture } from "../inventory/physical-orders";
 
 // The one place that decides what a PayPal order means for a stored order. The buyer's return, a
 // verified webhook and the sweep are all only reasons to ask: each calls reconcileOrder, which
@@ -30,6 +35,10 @@ export type Tx = Parameters<Parameters<Db["transaction"]>[0]>[0];
 // database changes, and must record a problem rather than throw for an order it cannot fulfil.
 export type PaymentConfirmedHook = (tx: Tx, order: OrderRow) => Promise<void>;
 
+// Physical purchase side effects share the raw PostgreSQL transaction that commits stock and
+// payment status. A failed hook rolls all three back so reconciliation can retry from PayPal.
+export type PhysicalPaymentConfirmedHook = (client: PoolClient, orderId: string) => Promise<void>;
+
 // Asked before anything is captured. True means this order must not be charged, and the hook has
 // recorded that. It runs only while PayPal reports that no money has moved.
 export type CaptureGuard = (db: Db, order: OrderRow) => Promise<boolean>;
@@ -37,12 +46,14 @@ export type CaptureGuard = (db: Db, order: OrderRow) => Promise<boolean>;
 export type ReconcileDeps = {
   paypalFor: PayPalProvider;
   onPaymentConfirmed: PaymentConfirmedHook;
+  onPhysicalPaymentConfirmed?: PhysicalPaymentConfirmedHook;
   closeIfHoldEnded: CaptureGuard;
 };
 
 export const defaultReconcileDeps: ReconcileDeps = {
   paypalFor,
   onPaymentConfirmed: (tx, order) => confirmBookingPayment(tx, order),
+  onPhysicalPaymentConfirmed: async () => undefined,
   closeIfHoldEnded: (db, order) => closeDepositIfHoldEnded(db, order),
 };
 
@@ -52,9 +63,13 @@ const unavailable = () =>
     "PayPal could not confirm this order right now. Nothing has changed.",
   );
 
+function inventoryPool(db: Db): Pool {
+  return (db as Db & { $client: Pool }).$client;
+}
+
 async function loadOrder(db: Db, orderId: string) {
   const [row] = await db
-    .select({ order: orders, credentialRef: shops.paypalCredentialRef })
+    .select({ order: orders, credentialRef: sql<string>`coalesce(${orders.paypalCredentialRef}, ${shops.paypalCredentialRef})` })
     .from(orders)
     .innerJoin(shops, eq(orders.shopId, shops.id))
     .where(eq(orders.id, orderId));
@@ -85,8 +100,9 @@ async function captureAndRead(
   paypal: PayPalSellerApi,
   order: OrderRow & { paypalOrderId: string },
   read: () => Promise<PayPalOrderReading>,
-): Promise<PayPalOrderReading> {
+): Promise<ReconcileReading> {
   let refused = false;
+  let refusal: PayPalFailure | undefined;
   try {
     await paypal.captureOrder({
       id: order.paypalOrderId,
@@ -97,6 +113,7 @@ async function captureAndRead(
     const failure = describePayPalFailure(thrown);
     console.error("PayPal capture failed", { orderId: order.id, ...failure });
     refused = failure.kind === "rejected";
+    refusal = failure;
   }
 
   const reading = await read();
@@ -106,10 +123,15 @@ async function captureAndRead(
   // Still approved. A refusal such as a declined instrument is final for this attempt, while an
   // unknown outcome stays open for the next reconciliation, which repeats the same request.
   if (refused) {
-    return { outcome: "capture_refused" };
+    return {
+      outcome: "capture_refused",
+      retryable: refusal?.issues?.includes("INSTRUMENT_DECLINED") ?? false,
+    };
   }
   throw unavailable();
 }
+
+type ReconcileReading = Exclude<PayPalOrderReading, { outcome: "capture_refused" }> | { outcome: "capture_refused"; captureId?: string; retryable?: boolean };
 
 async function markForReview(
   db: Db,
@@ -132,7 +154,7 @@ async function markForReview(
 async function applyReading(
   db: Db,
   order: OrderRow,
-  reading: PayPalOrderReading,
+  reading: ReconcileReading,
   deps: ReconcileDeps,
   options: ReconcileOptions,
 ): Promise<void> {
@@ -167,6 +189,20 @@ async function applyReading(
       return;
 
     case "paid":
+      if (order.kind === "purchase") {
+        const capturedAt = "capturedAt" in reading ? reading.capturedAt : undefined;
+        if (!(capturedAt instanceof Date) || Number.isNaN(capturedAt.getTime())) {
+          await markForReview(db, order.id, "capture timestamp", reading.captureId);
+          return;
+        }
+        await settlePhysicalOrderCapture(inventoryPool(db), order.id, {
+          captureId: reading.captureId,
+          providerStatus: "COMPLETED",
+          capturedAt,
+          verified: true,
+        }, deps.onPhysicalPaymentConfirmed);
+        return;
+      }
       // The status check makes this the one write that can take the order to paid, however many
       // reconciliations race, so the hook runs once.
       await db.transaction(async (tx) => {
@@ -186,6 +222,22 @@ async function applyReading(
         await markForReview(db, order.id, "paid order with a refused capture");
         return;
       }
+      if (order.kind === "purchase") {
+        if (reading.retryable) {
+          const disposition = await rearmPhysicalOrderAfterVerifiedRefusal(inventoryPool(db), order.id);
+          if (disposition === "rearmed" || disposition === "expired") return;
+        }
+        await closePhysicalOrderAfterVerifiedUnpaid(
+          inventoryPool(db),
+          order.id,
+          "verified_unpaid",
+          "failed",
+          true,
+          new Date(),
+          reading.captureId,
+        );
+        return;
+      }
       await db
         .update(orders)
         .set({
@@ -198,6 +250,16 @@ async function applyReading(
     case "voided":
       if (isPaid) {
         await markForReview(db, order.id, "paid order that was voided");
+        return;
+      }
+      if (order.kind === "purchase") {
+        await closePhysicalOrderAfterVerifiedUnpaid(
+          inventoryPool(db),
+          order.id,
+          "verified_cancelled",
+          "cancelled",
+          true,
+        );
         return;
       }
       await db
@@ -240,7 +302,7 @@ export async function reconcileOrder(
     return order;
   }
 
-  const paypal = deps.paypalFor(credentialRef);
+  const paypal = deps.paypalFor(credentialRef, order.payeeMerchantId);
   if (!paypal) {
     throw new ServiceError(
       "PAYMENT_NOT_CONFIGURED",
@@ -256,13 +318,82 @@ export async function reconcileOrder(
 
   let reading = await read();
   if (
+    order.kind !== "purchase" &&
     order.paymentStatus !== "paid" &&
     (reading.outcome === "ready_to_capture" || reading.outcome === "awaiting_buyer") &&
     (await deps.closeIfHoldEnded(db, order))
   ) {
     return (await loadOrder(db, order.id))?.order;
   }
-  if (reading.outcome === "ready_to_capture" && order.paymentStatus !== "paid") {
+  if (order.kind === "purchase" && order.paymentStatus !== "paid") {
+    if (reading.outcome === "awaiting_buyer") {
+      const closed = await closePhysicalOrderAfterVerifiedUnpaid(
+        inventoryPool(db),
+        order.id,
+        "verified_expired_unpaid",
+        "cancelled",
+      );
+      if (closed) return (await loadOrder(db, order.id))?.order;
+    }
+    if (reading.outcome === "ready_to_capture") {
+      if (
+        credentialRef === "PAYPAL_PLATFORM" &&
+        !(await isReadyConnectedMerchant(inventoryPool(db), order.shopId, order.payeeMerchantId))
+      ) {
+        // Revoking seller consent blocks any new capture. A prior ambiguous capture attempt keeps
+        // its stock hold; only a never-started allocation can be safely released here.
+        const closed = await closePhysicalOrderAfterVerifiedUnpaid(
+          inventoryPool(db), order.id, "verified_unpaid", "cancelled",
+        );
+        if (!closed) {
+          await db
+            .update(orders)
+            .set({ paymentStatus: "approved" })
+            .where(and(eq(orders.id, order.id), inArray(orders.paymentStatus, ["pending", "cancelled", "failed"])));
+        }
+        return (await loadOrder(db, order.id))?.order;
+      }
+      const gate = await beginPhysicalOrderCapture(inventoryPool(db), order.id);
+      if (!gate.allowed) {
+        if (gate.reason === "expired") {
+          await closePhysicalOrderAfterVerifiedUnpaid(
+            inventoryPool(db),
+            order.id,
+            "verified_expired_unpaid",
+            "cancelled",
+          );
+          return (await loadOrder(db, order.id))?.order;
+        }
+        if (gate.reason === "missing_reservation") {
+          await closePhysicalOrderAfterVerifiedUnpaid(
+            inventoryPool(db),
+            order.id,
+            "verified_unpaid",
+            "cancelled",
+          );
+          return (await loadOrder(db, order.id))?.order;
+        }
+        if (gate.reason === "already_started") {
+          await db
+            .update(orders)
+            .set({ paymentStatus: "approved" })
+            .where(and(eq(orders.id, order.id), inArray(orders.paymentStatus, ["pending", "cancelled", "failed"])));
+          return (await loadOrder(db, order.id))?.order;
+        }
+        const latest = await read();
+        if (latest.outcome !== "ready_to_capture" && latest.outcome !== "awaiting_buyer") {
+          await applyReading(db, order, latest, deps, options);
+          return (await loadOrder(db, order.id))?.order;
+        }
+        if (order.paymentStatus === "pending" || order.paymentStatus === "approved") {
+          await markForReview(db, order.id, "physical inventory allocation is terminal");
+        }
+        return (await loadOrder(db, order.id))?.order;
+      }
+    }
+  }
+
+  if (reading.outcome === "ready_to_capture" && order.paymentStatus !== "paid" && order.kind !== "purchase") {
     await db
       .update(orders)
       .set({ paymentStatus: "approved" })
@@ -272,6 +403,12 @@ export async function reconcileOrder(
           inArray(orders.paymentStatus, ["pending", "cancelled", "failed"]),
         ),
       );
+    reading = await captureAndRead(paypal, { ...order, paypalOrderId }, read);
+  } else if (reading.outcome === "ready_to_capture" && order.kind === "purchase" && order.paymentStatus !== "paid") {
+    await db
+      .update(orders)
+      .set({ paymentStatus: "approved" })
+      .where(and(eq(orders.id, order.id), inArray(orders.paymentStatus, ["pending", "cancelled", "failed"])));
     reading = await captureAndRead(paypal, { ...order, paypalOrderId }, read);
   }
 

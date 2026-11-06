@@ -18,6 +18,7 @@ export type ReservedPhysicalOrder = Readonly<{
 }>;
 
 export type PhysicalCaptureGate = InventoryCapturePermit | { allowed: false; reason: "missing_reservation" };
+export type PhysicalRefusalDisposition = "rearmed" | "expired" | "terminal";
 
 export async function assertPhysicalOrderAllocationLive(pool: Pool, orderId: string, now = new Date()): Promise<void> {
   const result = await pool.query<{ state: string; expires_at: Date }>(
@@ -89,6 +90,7 @@ export async function closePhysicalOrderAfterVerifiedUnpaid(
   finalStatus: "failed" | "cancelled",
   captureAttemptFinal = false,
   now = new Date(),
+  captureId?: string,
 ): Promise<boolean> {
   return withTransaction(pool, async (client) => {
     const result = await client.query<{ shop_id: string; inventory_reservation_id: string | null; kind: string; payment_status: string }>(
@@ -110,10 +112,52 @@ export async function closePhysicalOrderAfterVerifiedUnpaid(
       await releaseReservationInTransaction(client, order.shop_id, order.inventory_reservation_id, outcome);
     }
     await client.query(
-      "UPDATE orders SET payment_status=$2, updated_at=now() WHERE id=$1 AND payment_status <> 'paid'",
-      [orderId, finalStatus],
+      "UPDATE orders SET payment_status=$2, paypal_capture_id=coalesce(paypal_capture_id,$3), updated_at=now() WHERE id=$1 AND payment_status <> 'paid'",
+      [orderId, finalStatus, captureId ?? null],
     );
     return true;
+  });
+}
+
+/**
+ * A provider rejection such as INSTRUMENT_DECLINED confirms that no capture record was created.
+ * It can reopen a still-live allocation for the buyer's next funding choice, but never after expiry.
+ */
+export async function rearmPhysicalOrderAfterVerifiedRefusal(pool: Pool, orderId: string, now = new Date()): Promise<PhysicalRefusalDisposition> {
+  return withTransaction(pool, async (client) => {
+    const orderResult = await client.query<{ shop_id: string; inventory_reservation_id: string | null; kind: string; payment_status: string }>(
+      "SELECT shop_id, inventory_reservation_id, kind, payment_status FROM orders WHERE id=$1 FOR UPDATE",
+      [orderId],
+    );
+    if (!orderResult.rowCount || orderResult.rows[0].kind !== "purchase" || !orderResult.rows[0].inventory_reservation_id) return "terminal";
+    const order = orderResult.rows[0];
+    if (["paid", "review_required"].includes(order.payment_status)) return "terminal";
+    const reservationId = order.inventory_reservation_id;
+    if (!reservationId) return "terminal";
+    const reservation = await client.query<{ state: string; expires_at: Date }>(
+      "SELECT state, expires_at FROM inventory_reservations WHERE shop_id=$1 AND id=$2 FOR UPDATE",
+      [order.shop_id, reservationId],
+    );
+    if (!reservation.rowCount) return "terminal";
+    const state = reservation.rows[0].state;
+    if (state === "reserved" && reservation.rows[0].expires_at > now) {
+      await client.query("UPDATE orders SET payment_status='approved', updated_at=now() WHERE id=$1", [orderId]);
+      return "rearmed";
+    }
+    if (state === "capture_pending" && reservation.rows[0].expires_at > now) {
+      await client.query(
+        "UPDATE inventory_reservations SET state='reserved', updated_at=now() WHERE shop_id=$1 AND id=$2 AND state='capture_pending'",
+        [order.shop_id, reservationId],
+      );
+      await client.query("UPDATE orders SET payment_status='approved', updated_at=now() WHERE id=$1", [orderId]);
+      return "rearmed";
+    }
+    if (["reserved", "capture_pending"].includes(state) && reservation.rows[0].expires_at <= now) {
+      await releaseReservationInTransaction(client, order.shop_id, reservationId, "verified_expired_unpaid");
+      await client.query("UPDATE orders SET payment_status='cancelled', updated_at=now() WHERE id=$1", [orderId]);
+      return "expired";
+    }
+    return "terminal";
   });
 }
 
@@ -225,9 +269,9 @@ export async function createReservedPhysicalOrder(
     const orderId = randomUUID();
     await client.query(
       `INSERT INTO orders
-       (id, shop_id, kind, currency, total_minor, idempotency_key, request_fingerprint, payee_merchant_id, inventory_reservation_id)
-       VALUES ($1,$2,'purchase',$3,$4,$5,$6,$7,$8)`,
-      [orderId, quote.shopId, quote.currency, quote.totalMinor, idempotencyKey, requestFingerprint, quote.payeeMerchantId, reservation.id],
+       (id, shop_id, kind, currency, total_minor, idempotency_key, request_fingerprint, payee_merchant_id, paypal_credential_ref, inventory_reservation_id)
+       VALUES ($1,$2,'purchase',$3,$4,$5,$6,$7,$8,$9)`,
+      [orderId, quote.shopId, quote.currency, quote.totalMinor, idempotencyKey, requestFingerprint, quote.payeeMerchantId, quote.paypalCredentialRef, reservation.id],
     );
     for (const line of quote.lines) {
       await client.query(
