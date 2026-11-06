@@ -14,8 +14,10 @@ import { ownerIdentityRuntime } from "@/server/seller-identity/runtime";
 export async function GET(request: Request): Promise<Response> {
   try {
     const owner = await currentOwner(request);
-    const profile = await ownerIdentityRuntime().store.findOwnerById(owner.ownerId);
+    const { store } = ownerIdentityRuntime();
+    const profile = await store.findOwnerById(owner.ownerId);
     if (!profile) throw new IdentityError("UNAUTHORIZED", "Sign in to continue.");
+    const paypalProfile = await store.findPayPalProfileByOwnerId(owner.ownerId);
     const shops = await currentOwnerShops(owner);
     const storedSelection = await ownerCookieValue(OWNER_SELECTED_SHOP_COOKIE, request);
     let selectedShopId: string | null = null;
@@ -33,7 +35,7 @@ export async function GET(request: Request): Promise<Response> {
       }
     }
     return identityJsonResponse(
-      { owner: profile, shops, selectedShopId },
+      { owner: { ...profile, paypalProfile }, shops, selectedShopId },
       200,
       clearSelection ? [clearSelectedOwnerShopCookie()] : [],
     );

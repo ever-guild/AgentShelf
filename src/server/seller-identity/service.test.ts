@@ -24,7 +24,7 @@ import {
 } from "./service";
 import { IdentityStoreConflict } from "./service";
 
-class TestStore implements IdentityStore {
+export class TestStore implements IdentityStore {
   owners = new Map<string, OwnerRecord>();
   shops = new Map<string, ShopRecord>();
   memberships = new Map<string, string>();
@@ -34,6 +34,34 @@ class TestStore implements IdentityStore {
   ownerRegistrationKeys = new Map<string, { ownerId: string; username: string }>();
   shopKeys = new Map<string, ShopRecord>();
   agentShopKeys = new Map<string, { ownerId: string; shop: ShopRecord }>();
+  paypalProfiles = new Map<string, import("../contracts/seller-identity").PayPalLoginProfile>();
+  paypalSubjects = new Map<string, string>();
+  paypalStates = new Map<string, { browserBindingHash: string; expiresAt: Date; consumedAt?: Date }>();
+
+  async findPayPalProfileByOwnerId(ownerId: string) {
+    return this.paypalProfiles.get(ownerId) ?? null;
+  }
+  async createPayPalLoginState(input: { stateHash: string; browserBindingHash: string; expiresAt: Date; now: Date }) {
+    this.paypalStates.set(input.stateHash, { browserBindingHash: input.browserBindingHash, expiresAt: input.expiresAt });
+  }
+  async consumePayPalLoginState(input: { stateHash: string; browserBindingHash: string; now: Date }) {
+    const state = this.paypalStates.get(input.stateHash);
+    if (!state || state.consumedAt || state.expiresAt <= input.now || state.browserBindingHash !== input.browserBindingHash) return false;
+    state.consumedAt = input.now;
+    return true;
+  }
+  async findOrCreatePayPalOwnerIdentityAtomic(input: { subjectHash: string; syntheticUsername: string; profile: import("../contracts/seller-identity").PayPalLoginProfile; now: Date }) {
+    const priorId = this.paypalSubjects.get(input.subjectHash);
+    if (priorId) {
+      this.paypalProfiles.set(priorId, input.profile);
+      return { owner: { id: priorId, username: this.owners.get(priorId)!.username }, profile: input.profile, created: false };
+    }
+    const id = randomUUID();
+    this.owners.set(id, { id, username: input.syntheticUsername, passwordHash: null });
+    this.paypalSubjects.set(input.subjectHash, id);
+    this.paypalProfiles.set(id, input.profile);
+    return { owner: { id, username: input.syntheticUsername }, profile: input.profile, created: true };
+  }
 
   async findOwnerByUsername(username: string) {
     return [...this.owners.values()].find((owner) => owner.username === username) ?? null;

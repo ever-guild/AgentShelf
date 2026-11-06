@@ -939,7 +939,7 @@ export const sellerOwners = pgTable(
   {
     id: uuid("id").primaryKey().defaultRandom(),
     username: text("username").notNull(),
-    passwordHash: text("password_hash").notNull(),
+    passwordHash: text("password_hash"),
     createdAt: createdAt(),
   },
   (t) => [
@@ -949,15 +949,54 @@ export const sellerOwners = pgTable(
     ),
     check(
       "seller_owners_password_hash_format",
-      sql`split_part(${t.passwordHash}, '$', 1) = 'scrypt' AND
+      sql`${t.passwordHash} IS NULL OR (split_part(${t.passwordHash}, '$', 1) = 'scrypt' AND
         split_part(${t.passwordHash}, '$', 2) = '16384' AND
         split_part(${t.passwordHash}, '$', 3) = '8' AND
         split_part(${t.passwordHash}, '$', 4) = '1' AND
         split_part(${t.passwordHash}, '$', 5) ~ '^[A-Za-z0-9_-]{22}$' AND
         split_part(${t.passwordHash}, '$', 6) ~ '^[A-Za-z0-9_-]{43}$' AND
-        split_part(${t.passwordHash}, '$', 7) = ''`,
+        split_part(${t.passwordHash}, '$', 7) = '')`,
     ),
     uniqueIndex("seller_owners_username_unique").on(sql`lower(${t.username})`),
+  ],
+);
+
+export const sellerOwnerPayPalIdentities = pgTable(
+  "seller_owner_paypal_identities",
+  {
+    provider: text("provider").notNull().default("paypal_sandbox"),
+    subjectHash: text("subject_hash").notNull(),
+    ownerId: uuid("owner_id")
+      .notNull()
+      .references(() => sellerOwners.id, { onDelete: "cascade" }),
+    displayName: text("display_name"),
+    email: text("email"),
+    createdAt: createdAt(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    primaryKey({ columns: [t.provider, t.subjectHash] }),
+    uniqueIndex("seller_owner_paypal_identity_owner_unique").on(t.ownerId),
+    check("seller_owner_paypal_identity_provider", sql`${t.provider} = 'paypal_sandbox'`),
+    check("seller_owner_paypal_identity_subject_hash", sql`${t.subjectHash} ~ '^[a-f0-9]{64}$'`),
+    check("seller_owner_paypal_identity_display_name", sql`${t.displayName} IS NULL OR length(${t.displayName}) <= 160`),
+    check("seller_owner_paypal_identity_email", sql`${t.email} IS NULL OR length(${t.email}) <= 320`),
+  ],
+);
+
+export const sellerPayPalLoginStates = pgTable(
+  "seller_paypal_login_states",
+  {
+    stateHash: text("state_hash").primaryKey(),
+    browserBindingHash: text("browser_binding_hash").notNull(),
+    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+    consumedAt: timestamp("consumed_at", { withTimezone: true }),
+    createdAt: createdAt(),
+  },
+  (t) => [
+    check("seller_paypal_login_state_hash", sql`${t.stateHash} ~ '^[a-f0-9]{64}$'`),
+    check("seller_paypal_login_binding_hash", sql`${t.browserBindingHash} ~ '^[a-f0-9]{64}$'`),
+    index("seller_paypal_login_states_expiry_idx").on(t.expiresAt),
   ],
 );
 

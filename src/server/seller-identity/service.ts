@@ -15,6 +15,7 @@ import {
   ownerRegistrationInput,
   ownerSignInInput,
   type AuthenticatedOwner,
+  type PayPalLoginProfile,
   type SellerPayPalShopPrincipal,
   type SellerAgentGrantPrincipal,
   type SellerAgentScope,
@@ -36,7 +37,7 @@ const AGENT_GRANT_TTL_MS = 15 * 60 * 1000;
 const OWNER_REGISTRATION_CLIENT_LIMIT = 100;
 const DUMMY_SALT = Buffer.from("AgentShelfPilotDummySalt", "utf8");
 
-export type OwnerRecord = { id: string; username: string; passwordHash: string };
+export type OwnerRecord = { id: string; username: string; passwordHash: string | null };
 export type ShopRecord = {
   id: string;
   slug: string;
@@ -66,12 +67,21 @@ function isStoreConflict(error: unknown): boolean {
 export type IdentityStore = {
   findOwnerByUsername(username: string): Promise<OwnerRecord | null>;
   findOwnerById(ownerId: string): Promise<Pick<OwnerRecord, "id" | "username"> | null>;
+  findPayPalProfileByOwnerId(ownerId: string): Promise<PayPalLoginProfile | null>;
+  createPayPalLoginState(input: { stateHash: string; browserBindingHash: string; expiresAt: Date; now: Date }): Promise<void>;
+  consumePayPalLoginState(input: { stateHash: string; browserBindingHash: string; now: Date }): Promise<boolean>;
+  findOrCreatePayPalOwnerIdentityAtomic(input: {
+    subjectHash: string;
+    syntheticUsername: string;
+    profile: PayPalLoginProfile;
+    now: Date;
+  }): Promise<{ owner: Pick<OwnerRecord, "id" | "username">; profile: PayPalLoginProfile; created: boolean }>;
   /** Atomically persist an owner without requiring a shop, and safely replay the same key. */
   registerOwnerAtomic(input: {
     username: string;
     passwordHash: string;
     idempotencyKey: string;
-  }): Promise<{ owner: Pick<OwnerRecord, "id" | "username">; storedPasswordHash: string; replayed: boolean }>;
+  }): Promise<{ owner: Pick<OwnerRecord, "id" | "username">; storedPasswordHash: string | null; replayed: boolean }>;
   /** Must atomically enforce username/slug uniqueness, persist owner + shop + membership,
    * and replay the same result for an identical owner-registration idempotency key. */
   registerOwnerAndShopAtomic(input: {
@@ -79,7 +89,7 @@ export type IdentityStore = {
     passwordHash: string;
     shop: ShopRegistration;
     idempotencyKey: string;
-  }): Promise<{ registration: OwnerShopRegistration; storedPasswordHash: string; replayed: boolean }>;
+  }): Promise<{ registration: OwnerShopRegistration; storedPasswordHash: string | null; replayed: boolean }>;
   /** Must atomically enforce slug uniqueness, persist shop + owner membership, and
    * replay the same result for an identical owner-scoped key. */
   createOwnedShopAtomic(input: {
@@ -173,7 +183,7 @@ async function hashPassword(password: string): Promise<string> {
   return `scrypt$${SCRYPT.N}$${SCRYPT.r}$${SCRYPT.p}$${salt.toString("base64url")}$${derived.toString("base64url")}`;
 }
 
-async function verifyPassword(password: string, encoded: string | undefined): Promise<boolean> {
+async function verifyPassword(password: string, encoded: string | null | undefined): Promise<boolean> {
   const [scheme, nRaw, rRaw, pRaw, saltRaw, hashRaw, ...rest] = (encoded ?? "").split("$");
   if (
     scheme !== "scrypt" || nRaw !== String(SCRYPT.N) || rRaw !== String(SCRYPT.r) ||
@@ -207,7 +217,7 @@ export async function registerOwnerAndShop(
   if (!globalAllowed || !accountAllowed) throw new IdentityError("RATE_LIMITED", "Please try again later.");
   validateShop(input.shop);
   const passwordHash = await hashPassword(input.password);
-  let result: { registration: OwnerShopRegistration; storedPasswordHash: string; replayed: boolean };
+  let result: { registration: OwnerShopRegistration; storedPasswordHash: string | null; replayed: boolean };
   try {
     result = await store.registerOwnerAndShopAtomic({
       username,
@@ -225,7 +235,7 @@ export async function registerOwnerAndShop(
     throw new IdentityError("UNAUTHORIZED", "The registration request could not be authenticated.");
   }
   const registration = result.registration;
-  return { ...registration, ...(await issueSession(store, registration.owner.id, now)) };
+  return { ...registration, ...(await issueOwnerSession(store, registration.owner.id, now)) };
 }
 
 export async function registerOwner(
@@ -241,7 +251,7 @@ export async function registerOwner(
   const accountAllowed = await limiter.consume(`register-account:${username}`, 5, 60 * 60_000, now);
   if (!globalAllowed || !accountAllowed) throw new IdentityError("RATE_LIMITED", "Please try again later.");
   const passwordHash = await hashPassword(input.password);
-  let result: { owner: Pick<OwnerRecord, "id" | "username">; storedPasswordHash: string; replayed: boolean };
+  let result: { owner: Pick<OwnerRecord, "id" | "username">; storedPasswordHash: string | null; replayed: boolean };
   try {
     result = await store.registerOwnerAtomic({ username, passwordHash, idempotencyKey: input.idempotencyKey });
   } catch (error) {
@@ -253,10 +263,10 @@ export async function registerOwner(
   if (result.replayed && !(await verifyPassword(input.password, result.storedPasswordHash))) {
     throw new IdentityError("UNAUTHORIZED", "The registration request could not be authenticated.");
   }
-  return { owner: result.owner, ...(await issueSession(store, result.owner.id, now)) };
+  return { owner: result.owner, ...(await issueOwnerSession(store, result.owner.id, now)) };
 }
 
-async function issueSession(store: IdentityStore, ownerId: string, now: Date) {
+export async function issueOwnerSession(store: IdentityStore, ownerId: string, now: Date) {
   const token = makeToken();
   const expiresAt = new Date(now.getTime() + OWNER_SESSION_TTL_MS);
   await store.createSession({ ownerId, tokenHash: tokenHash(token), expiresAt });
@@ -279,7 +289,7 @@ export async function signInOwner(
     throw new IdentityError("UNAUTHORIZED", "Username or password is incorrect.");
   }
   if (!owner) throw new IdentityError("UNAUTHORIZED", "Username or password is incorrect.");
-  return { owner: { id: owner.id, username: owner.username }, ...(await issueSession(store, owner.id, now)) };
+  return { owner: { id: owner.id, username: owner.username }, ...(await issueOwnerSession(store, owner.id, now)) };
 }
 
 export async function requireOwnerSession(

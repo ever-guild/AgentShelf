@@ -4,6 +4,7 @@ import { createHash, createHmac } from "node:crypto";
 import type { Pool, PoolClient } from "pg";
 
 import type {
+  PayPalLoginProfile,
   SellerAgentGrantPrincipal,
   SellerAgentScope,
   ShopRegistration,
@@ -18,7 +19,7 @@ import type {
 import { IdentityStoreConflict } from "./service";
 
 type Queryable = Pick<Pool, "query">;
-type OwnerRow = { id: string; username: string; password_hash: string };
+type OwnerRow = { id: string; username: string; password_hash: string | null };
 type ShopRow = {
   id: string;
   slug: string;
@@ -125,11 +126,111 @@ export class PostgresIdentityStore implements IdentityStore {
     return result.rows[0] ?? null;
   }
 
+  async findPayPalProfileByOwnerId(ownerId: string): Promise<PayPalLoginProfile | null> {
+    const result = await this.pool.query<{ display_name: string | null; email: string | null }>(
+      `SELECT display_name, email FROM seller_owner_paypal_identities WHERE owner_id = $1`,
+      [ownerId],
+    );
+    const row = result.rows[0];
+    return row ? { displayName: row.display_name, email: row.email } : null;
+  }
+
+  async createPayPalLoginState(input: {
+    stateHash: string;
+    browserBindingHash: string;
+    expiresAt: Date;
+    now: Date;
+  }): Promise<void> {
+    await this.pool.query(
+      `DELETE FROM seller_paypal_login_states
+       WHERE expires_at <= $1 OR consumed_at < $2`,
+      [input.now, new Date(input.now.getTime() - 24 * 60 * 60_000)],
+    );
+    const inserted = await this.pool.query(
+      `INSERT INTO seller_paypal_login_states (state_hash, browser_binding_hash, expires_at, created_at)
+       VALUES ($1, $2, $3, $4) ON CONFLICT (state_hash) DO NOTHING`,
+      [input.stateHash, input.browserBindingHash, input.expiresAt, input.now],
+    );
+    if (inserted.rowCount !== 1) throw new Error("Could not create PayPal login state");
+  }
+
+  async consumePayPalLoginState(input: {
+    stateHash: string;
+    browserBindingHash: string;
+    now: Date;
+  }): Promise<boolean> {
+    const result = await this.pool.query(
+      `UPDATE seller_paypal_login_states SET consumed_at = $3
+       WHERE state_hash = $1 AND browser_binding_hash = $2
+         AND expires_at > $3 AND consumed_at IS NULL
+       RETURNING state_hash`,
+      [input.stateHash, input.browserBindingHash, input.now],
+    );
+    return result.rowCount === 1;
+  }
+
+  async findOrCreatePayPalOwnerIdentityAtomic(input: {
+    subjectHash: string;
+    syntheticUsername: string;
+    profile: PayPalLoginProfile;
+    now: Date;
+  }): Promise<{ owner: Pick<OwnerRecord, "id" | "username">; profile: PayPalLoginProfile; created: boolean }> {
+    return inTransaction(this.pool, async (client) => {
+      await client.query("SELECT pg_advisory_xact_lock(hashtextextended($1, 0))", [`paypal-sandbox:${input.subjectHash}`]);
+      const existing = await client.query<{
+        id: string;
+        username: string;
+        display_name: string | null;
+        email: string | null;
+      }>(
+        `SELECT o.id, o.username, i.display_name, i.email
+         FROM seller_owner_paypal_identities i
+         JOIN seller_owners o ON o.id = i.owner_id
+         WHERE i.provider = 'paypal_sandbox' AND i.subject_hash = $1
+         FOR UPDATE OF i, o`,
+        [input.subjectHash],
+      );
+      const row = existing.rows[0];
+      if (row) {
+        const updated = await client.query<{ display_name: string | null; email: string | null }>(
+          `UPDATE seller_owner_paypal_identities
+           SET display_name = COALESCE($3, display_name), email = COALESCE($4, email), updated_at = $5
+           WHERE provider = 'paypal_sandbox' AND subject_hash = $1 AND owner_id = $2
+           RETURNING display_name, email`,
+          [input.subjectHash, row.id, input.profile.displayName, input.profile.email, input.now],
+        );
+        return {
+          owner: { id: row.id, username: row.username },
+          profile: { displayName: updated.rows[0].display_name, email: updated.rows[0].email },
+          created: false,
+        };
+      }
+
+      const ownerResult = await client.query<{ id: string; username: string }>(
+        `INSERT INTO seller_owners (username, password_hash) VALUES ($1, NULL) RETURNING id, username`,
+        [input.syntheticUsername],
+      );
+      const owner = ownerResult.rows[0];
+      const identityResult = await client.query<{ display_name: string | null; email: string | null }>(
+        `INSERT INTO seller_owner_paypal_identities
+         (provider, subject_hash, owner_id, display_name, email, created_at, updated_at)
+         VALUES ('paypal_sandbox', $1, $2, $3, $4, $5, $5)
+         RETURNING display_name, email`,
+        [input.subjectHash, owner.id, input.profile.displayName, input.profile.email, input.now],
+      );
+      return {
+        owner,
+        profile: { displayName: identityResult.rows[0].display_name, email: identityResult.rows[0].email },
+        created: true,
+      };
+    });
+  }
+
   async registerOwnerAtomic(input: {
     username: string;
     passwordHash: string;
     idempotencyKey: string;
-  }): Promise<{ owner: Pick<OwnerRecord, "id" | "username">; storedPasswordHash: string; replayed: boolean }> {
+  }): Promise<{ owner: Pick<OwnerRecord, "id" | "username">; storedPasswordHash: string | null; replayed: boolean }> {
     return inTransaction(this.pool, async (client) => {
       const operation = await reserveOperation(client, {
         idempotencyKey: input.idempotencyKey,
@@ -173,7 +274,7 @@ export class PostgresIdentityStore implements IdentityStore {
     passwordHash: string;
     shop: ShopRegistration;
     idempotencyKey: string;
-  }): Promise<{ registration: OwnerShopRegistration; storedPasswordHash: string; replayed: boolean }> {
+  }): Promise<{ registration: OwnerShopRegistration; storedPasswordHash: string | null; replayed: boolean }> {
     return inTransaction(this.pool, async (client) => {
       const operation = await reserveOperation(client, {
         idempotencyKey: input.idempotencyKey,
