@@ -55,7 +55,7 @@ export function setupMigratedDatabase(): () => Db {
 
   beforeEach(async () => {
     await connection?.db.execute(
-      sql`TRUNCATE shops, products, technicians, technician_windows, orders, order_lines, bookings, webhook_receipts, import_jobs, import_sources, import_rows, product_search_terms, search_events, demand_insights, seller_ai_calls`,
+      sql`TRUNCATE shops, products, technicians, technician_windows, orders, order_lines, bookings, webhook_receipts, import_jobs, import_sources, import_rows, product_search_terms, search_events, demand_insights, seller_ai_calls, seller_identity_attempt_windows, seller_identity_operations, seller_agent_grants, owner_sessions, shop_memberships, seller_owners`,
     );
   });
 
