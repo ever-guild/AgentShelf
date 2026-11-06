@@ -41,3 +41,23 @@ export async function readBodyWithin(
   }
   return Buffer.concat(chunks);
 }
+
+// Room for the longest row edit a seller can send, with every character escaped.
+const MAX_JSON_BODY_BYTES = 64 * 1024;
+
+// A small JSON body for a route whose input schema decides the rest. Text that is not JSON reads as
+// null, which every schema refuses.
+export async function readJsonWithin(
+  request: Request,
+  maxBytes: number = MAX_JSON_BODY_BYTES,
+): Promise<unknown> {
+  const body = await readBodyWithin(request, maxBytes);
+  if (!body) {
+    throw new ServiceError("INVALID_INPUT", "This request is too large.");
+  }
+  try {
+    return JSON.parse(body.toString("utf8"));
+  } catch {
+    return null;
+  }
+}
