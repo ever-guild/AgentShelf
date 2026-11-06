@@ -150,6 +150,7 @@ export class PostgresMerchantConnectionRepository implements MerchantConnectionR
 
   async saveStatus(input: Parameters<MerchantConnectionRepository["saveStatus"]>[0]) {
     return transaction(this.pool, async (client) => {
+      await client.query("SELECT pg_advisory_xact_lock(hashtextextended($1, 0))", [`paypal-merchant:${input.sellerMerchantId}`]);
       const current = await client.query<ConnectionRow>(byShopAndTracking, [input.shopId, input.trackingId]);
       const row = current.rows[0];
       if (!row) throw new Error("PayPal connection reservation not found");
@@ -157,13 +158,19 @@ export class PostgresMerchantConnectionRepository implements MerchantConnectionR
       if (row.seller_merchant_id && row.seller_merchant_id !== input.sellerMerchantId) {
         throw new Error("PayPal seller is already bound to another merchant ID");
       }
+      const revokedAfterStatusRead = await client.query(
+        `SELECT 1 FROM paypal_merchant_connection_webhook_events
+         WHERE seller_merchant_id = $1 AND received_at >= $2 LIMIT 1`,
+        [input.sellerMerchantId, input.observedAt ?? input.now],
+      );
+      const status = revokedAfterStatusRead.rowCount && input.status === "ready" ? "pending" : input.status;
       const updated = await client.query<ConnectionRow>(
         `UPDATE paypal_merchant_connections SET status = $3, seller_merchant_id = $4,
           status_evidence = $5::jsonb, error_code = NULL, updated_at = $6
          WHERE shop_id = $1 AND tracking_id = $2 AND status <> 'revoked'
          RETURNING shop_id, status, tracking_id, request_key_hash, referral_self_url,
            seller_merchant_id, status_evidence, error_code, created_at, updated_at`,
-        [input.shopId, input.trackingId, input.status, input.sellerMerchantId, JSON.stringify(input.evidence), input.now],
+        [input.shopId, input.trackingId, status, input.sellerMerchantId, JSON.stringify(input.evidence), input.now],
       );
       return mapRow(updated.rows[0] ?? row);
     });
@@ -171,13 +178,21 @@ export class PostgresMerchantConnectionRepository implements MerchantConnectionR
 
   async markRevoked(input: Parameters<MerchantConnectionRepository["markRevoked"]>[0]) {
     return transaction(this.pool, async (client) => {
+      await client.query("SELECT pg_advisory_xact_lock(hashtextextended($1, 0))", [`paypal-merchant:${input.sellerMerchantId}`]);
+      const priorEvent = await client.query<{ seller_merchant_id: string }>(
+        "SELECT seller_merchant_id FROM paypal_merchant_connection_webhook_events WHERE event_id = $1",
+        [input.eventId],
+      );
+      if (priorEvent.rows[0]) return "duplicate" as const;
       const matching = await client.query<{ id: string }>(
         `SELECT id FROM paypal_merchant_connections
-         WHERE seller_merchant_id = $1
-         ORDER BY updated_at DESC LIMIT 1 FOR UPDATE`,
+         WHERE seller_merchant_id = $1 AND status IN ('pending', 'ready', 'error')
+         ORDER BY CASE WHEN status = 'ready' THEN 0 WHEN status = 'pending' THEN 1 ELSE 2 END,
+           updated_at DESC FOR UPDATE`,
         [input.sellerMerchantId],
       );
-      const connectionId = matching.rows[0]?.id;
+      const connectionIds = matching.rows.map((row) => row.id);
+      const connectionId = connectionIds[0];
       if (!connectionId) return "unmatched" as const;
       const event = await client.query(
         `INSERT INTO paypal_merchant_connection_webhook_events (event_id, connection_id, seller_merchant_id, received_at)
@@ -187,8 +202,8 @@ export class PostgresMerchantConnectionRepository implements MerchantConnectionR
       if (!event.rowCount) return "duplicate" as const;
       await client.query(
         `UPDATE paypal_merchant_connections SET status = 'revoked', error_code = NULL,
-          updated_at = $2 WHERE id = $1 AND status IN ('pending', 'ready', 'error')`,
-        [connectionId, input.now],
+          updated_at = $2 WHERE seller_merchant_id = $1 AND status IN ('pending', 'ready', 'error')`,
+        [input.sellerMerchantId, input.now],
       );
       return "revoked" as const;
     });

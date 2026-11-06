@@ -189,11 +189,11 @@ describe("merchant connection service", () => {
       .resolves.toMatchObject({ status: "ready" });
     expect(paypal.getMerchantStatus).toHaveBeenCalledTimes(1);
     await expect(service.handleRevocationWebhook({ headers: new Headers(), rawBody: "bad" }))
-      .resolves.toEqual({ applied: false });
+      .resolves.toMatchObject({ applied: false, outcome: "invalid" });
     await expect(service.handleRevocationWebhook({ headers: new Headers(), rawBody: "verified-event" }))
-      .resolves.toEqual({ applied: true, duplicate: false });
+      .resolves.toMatchObject({ applied: true, duplicate: false, outcome: "revoked" });
     await expect(service.handleRevocationWebhook({ headers: new Headers(), rawBody: "verified-event" }))
-      .resolves.toEqual({ applied: false, duplicate: true });
+      .resolves.toMatchObject({ applied: false, duplicate: true, outcome: "duplicate" });
     await expect(service.get(principal, shopA)).resolves.toMatchObject({ status: "revoked" });
     await expect(service.get(principal, shopB)).rejects.toBeInstanceOf(MerchantConnectionError);
     expect(await repository.getByShop(shopA)).toMatchObject({ status: "revoked" });

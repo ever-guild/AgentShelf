@@ -87,4 +87,27 @@ describe("Postgres merchant connection repository", () => {
     expect(lateStatus.status).toBe("revoked");
     expect(await repository.getByShop(shopId)).toMatchObject({ status: "revoked", sellerMerchantId: seller });
   });
+
+  it("revokes the active reconnected row and ignores a late status update for the historical row", async () => {
+    const oldTracking = "c".repeat(43);
+    await repository.reserveStart({ shopId, requestKeyHash: "3".repeat(64), trackingId: oldTracking, now });
+    await repository.saveStatus({
+      shopId, trackingId: oldTracking, sellerMerchantId: seller, status: "ready", evidence: { ...evidence, trackingId: oldTracking }, now,
+    });
+    await repository.markRevoked({ sellerMerchantId: seller, eventId: "event-old", now });
+
+    const newTracking = "d".repeat(43);
+    await repository.reserveStart({ shopId, requestKeyHash: "4".repeat(64), trackingId: newTracking, now: new Date(now.getTime() + 1_000) });
+    await repository.saveStatus({
+      shopId, trackingId: newTracking, sellerMerchantId: seller, status: "ready", evidence: { ...evidence, trackingId: newTracking }, now: new Date(now.getTime() + 2_000),
+    });
+    const lateHistoricalStatus = await repository.saveStatus({
+      shopId, trackingId: oldTracking, sellerMerchantId: seller, status: "ready", evidence: { ...evidence, trackingId: oldTracking }, now: new Date(now.getTime() + 3_000),
+    });
+    expect(lateHistoricalStatus.status).toBe("revoked");
+
+    await expect(repository.markRevoked({ sellerMerchantId: seller, eventId: "event-new", now: new Date(now.getTime() + 4_000) })).resolves.toBe("revoked");
+    expect(await repository.getByTrackingId(oldTracking)).toMatchObject({ status: "revoked" });
+    expect(await repository.getByShop(shopId)).toMatchObject({ trackingId: newTracking, status: "revoked" });
+  });
 });

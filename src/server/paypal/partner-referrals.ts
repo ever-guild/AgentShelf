@@ -272,12 +272,51 @@ export function createPartnerReferralsAdapter(
     },
 
     async verifyRevocationWebhook({ headers, rawBody }) {
-      if (!verifyWebhook) return undefined;
       let verified: VerifiedMerchantRevocation | undefined;
-      try {
-        verified = await verifyWebhook({ headers, rawBody });
-      } catch {
-        return undefined;
+      if (verifyWebhook) {
+        try {
+          verified = await verifyWebhook({ headers, rawBody });
+        } catch {
+          return undefined;
+        }
+      } else {
+        let parsedEvent: unknown;
+        try {
+          parsedEvent = JSON.parse(rawBody);
+        } catch {
+          return undefined;
+        }
+        const event = z.record(z.string(), z.unknown()).safeParse(parsedEvent);
+        const webhookId = required(env, "PAYPAL_PLATFORM_WEBHOOK_ID");
+        const authAlgo = headers.get("paypal-auth-algo");
+        const certUrl = headers.get("paypal-cert-url");
+        const transmissionId = headers.get("paypal-transmission-id");
+        const transmissionSig = headers.get("paypal-transmission-sig");
+        const transmissionTime = headers.get("paypal-transmission-time");
+        if (!event.success || !authAlgo || !certUrl || !transmissionId || !transmissionSig || !transmissionTime) {
+          return undefined;
+        }
+        const result = await callApi(`${API_ORIGIN}/v1/notifications/verify-webhook-signature`, {
+          method: "POST",
+          headers: { ...await baseHeaders(), "content-type": "application/json" },
+          body: JSON.stringify({
+            auth_algo: authAlgo,
+            cert_url: certUrl,
+            transmission_id: transmissionId,
+            transmission_sig: transmissionSig,
+            transmission_time: transmissionTime,
+            webhook_id: webhookId,
+            webhook_event: event.data,
+          }),
+        }, "read");
+        const verification = z.object({ verification_status: z.enum(["SUCCESS", "FAILURE"]) }).safeParse(result);
+        if (!verification.success || verification.data.verification_status !== "SUCCESS") return undefined;
+        const eventType = event.data.event_type;
+        const eventId = event.data.id;
+        const resource = z.record(z.string(), z.unknown()).safeParse(event.data.resource);
+        const merchantId = resource.success ? resource.data.merchant_id : undefined;
+        if (typeof eventType !== "string" || typeof eventId !== "string" || typeof merchantId !== "string") return undefined;
+        verified = { eventId, eventType, sellerMerchantId: merchantId };
       }
       if (
         !verified ||

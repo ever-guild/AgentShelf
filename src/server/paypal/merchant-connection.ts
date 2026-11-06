@@ -64,6 +64,7 @@ export interface MerchantConnectionRepository {
     sellerMerchantId: string;
     status: "ready" | "pending";
     evidence: MerchantStatusEvidence;
+    observedAt?: Date;
     now: Date;
   }): Promise<MerchantConnectionRecord>;
   markRevoked(input: {
@@ -268,6 +269,7 @@ export function createMerchantConnectionService(input: {
         return publicView(record, record.shopId);
       }
       let evidence: MerchantStatusEvidence;
+      const observedAt = now();
       try {
         evidence = await input.paypal.getMerchantStatus(sellerMerchantIdHint);
       } catch {
@@ -292,6 +294,7 @@ export function createMerchantConnectionService(input: {
         sellerMerchantId: evidence.merchantId,
         status: ready ? "ready" : "pending",
         evidence,
+        observedAt,
         now: now(),
       });
       if (
@@ -312,26 +315,38 @@ export function createMerchantConnectionService(input: {
       return publicView(record, shopId);
     },
 
+    async refreshStatus(principal: MerchantConnectionPrincipal, shopId: string) {
+      await authorize(principal, shopId, "connect");
+      const record = await input.repository.getByShop(shopId);
+      if (!record || !record.sellerMerchantId || record.status === "revoked") {
+        return publicView(record, shopId);
+      }
+      return this.complete(principal, {
+        trackingId: record.trackingId,
+        sellerMerchantIdHint: record.sellerMerchantId,
+      });
+    },
+
     async handleRevocationWebhook(rawInput: { headers: Headers; rawBody: string }) {
       const headerResult = webhookHeadersSchema.safeParse(rawInput?.headers);
-      if (!headerResult.success || typeof rawInput?.rawBody !== "string" || rawInput.rawBody.length > 1_000_000) {
-        return { applied: false as const };
+      if (!headerResult.success || typeof rawInput?.rawBody !== "string" || Buffer.byteLength(rawInput.rawBody, "utf8") > 256 * 1024) {
+        return { applied: false as const, outcome: "invalid" as const };
       }
       let verified: Awaited<ReturnType<PartnerReferralsAdapter["verifyRevocationWebhook"]>>;
       try {
         verified = await input.paypal.verifyRevocationWebhook(rawInput);
       } catch {
-        return { applied: false as const };
+        return { applied: false as const, outcome: "unavailable" as const };
       }
       if (!verified || verified.eventType !== "MERCHANT.PARTNER-CONSENT.REVOKED" || !verified.eventId || !verified.sellerMerchantId) {
-        return { applied: false as const };
+        return { applied: false as const, outcome: "invalid" as const };
       }
       const result = await input.repository.markRevoked({
         sellerMerchantId: verified.sellerMerchantId,
         eventId: verified.eventId,
         now: now(),
       });
-      return { applied: result === "revoked", duplicate: result === "duplicate" };
+      return { applied: result === "revoked", duplicate: result === "duplicate", outcome: result };
     },
   };
 }
