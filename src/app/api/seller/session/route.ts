@@ -3,11 +3,11 @@ import { cookies } from "next/headers";
 import { SELLER_SESSION_COOKIE, signInSeller } from "@/server/auth/seller-session";
 import { currentSeller } from "@/server/auth/current-seller";
 import { getDb } from "@/server/db";
-import { errorResponse } from "@/server/http";
+import { errorResponse, readJsonWithin } from "@/server/http";
 
 export async function POST(request: Request) {
   try {
-    const body: unknown = await request.json().catch(() => null);
+    const body: unknown = await readJsonWithin(request);
     const { shopId, token, expiresAt } = await signInSeller(getDb(), body);
     const cookieStore = await cookies();
     cookieStore.set(SELLER_SESSION_COOKIE, token, {

@@ -15,7 +15,8 @@ import {
   sourceOf,
 } from "../../../test/imports";
 import { AiFailure } from "../ai/types";
-import { importJobs, importRows, products } from "../db/schema";
+import { importJobs, importRows, products, sellerAiCalls } from "../db/schema";
+import { takeAiCall } from "./demand-insights";
 import { runImportJob } from "./import-run";
 import type { ImportDeps } from "./import-start";
 import {
@@ -228,6 +229,74 @@ describe("uploading a photo", () => {
     await expect(
       createImport(getDb(), shop, { name: "a.csv", bytes: readableCsv() }, deps),
     ).resolves.toMatchObject({ status: "needs_review" });
+  });
+
+  it("holds the limit on waiting photos against uploads at the same moment", async () => {
+    const shop = await createShop(getDb());
+    const { deps, started } = createImportHarness();
+    const results = await Promise.allSettled(
+      Array.from({ length: 12 }, () =>
+        createImport(getDb(), shop, { name: "a.jpg", bytes: JPEG }, deps),
+      ),
+    );
+    expect(results.filter((result) => result.status === "fulfilled")).toHaveLength(3);
+    expect(started).toHaveLength(3);
+  });
+
+  const failPhoto = (jobId: string) =>
+    getDb()
+      .update(importJobs)
+      .set({ status: "failed", error: "NOTHING_FOUND" })
+      .where(eq(importJobs.id, jobId));
+
+  it("counts a retry towards the photos a shop can read in a day", async () => {
+    const shop = await createShop(getDb());
+    const { deps, started } = createImportHarness();
+    const { id } = await createImport(getDb(), shop, { name: "a.jpg", bytes: JPEG }, deps);
+    await getDb()
+      .insert(importJobs)
+      .values(
+        Array.from({ length: 27 }, () => ({
+          shopId: shop.id,
+          sourceKind: "photo" as const,
+          status: "needs_review" as const,
+        })),
+      );
+
+    for (let retry = 0; retry < 2; retry += 1) {
+      await failPhoto(id);
+      await expect(retryImport(getDb(), shop, id, deps)).resolves.toMatchObject({ status: "queued" });
+    }
+    await failPhoto(id);
+    await expect(retryImport(getDb(), shop, id, deps)).rejects.toEqual(code("IMPORT_LIMIT_REACHED"));
+    expect(started).toHaveLength(3);
+    expect((await jobRow(getDb(), id)).status).toBe("failed");
+
+    // A new upload meets the same count.
+    await expect(
+      createImport(getDb(), shop, { name: "b.jpg", bytes: JPEG }, deps),
+    ).rejects.toEqual(code("IMPORT_LIMIT_REACHED"));
+
+    // Yesterday's do not count.
+    await getDb()
+      .update(importJobs)
+      .set({ createdAt: sql`now() - interval '25 hours'`, updatedAt: sql`now() - interval '25 hours'` })
+      .where(eq(importJobs.shopId, shop.id));
+    await expect(retryImport(getDb(), shop, id, deps)).resolves.toMatchObject({ status: "queued" });
+  });
+
+  it("does not retry a photo while others are waiting at the limit", async () => {
+    const shop = await createShop(getDb());
+    const { deps, started } = createImportHarness();
+    const { id } = await createImport(getDb(), shop, { name: "a.jpg", bytes: JPEG }, deps);
+    await failPhoto(id);
+    await createImport(getDb(), shop, { name: "b.jpg", bytes: JPEG }, deps);
+    await createImport(getDb(), shop, { name: "c.jpg", bytes: JPEG }, deps);
+    await createImport(getDb(), shop, { name: "d.jpg", bytes: JPEG }, deps);
+    started.length = 0;
+
+    await expect(retryImport(getDb(), shop, id, deps)).rejects.toEqual(code("IMPORT_LIMIT_REACHED"));
+    expect(started).toEqual([]);
   });
 
   it("limits how many photos a shop can read in a day", async () => {
@@ -797,6 +866,39 @@ describe("one shop cannot reach another's import", () => {
   });
 });
 
+describe("a deposit in another currency", () => {
+  const serviceCsv = "name,price,currency,kind,duration,deposit\nScreen repair,80.00,EUR,service,60,20.00\n";
+
+  it("is refused in the review table, as in the catalog", async () => {
+    const { shop, view, jobId } = await csvImport(serviceCsv);
+    const rowId = view.rows[0].id;
+    await expect(
+      updateImportRow(getDb(), shop, jobId, rowId, { deposit: "30 USD", status: "accepted" }),
+    ).rejects.toEqual(expect.objectContaining({ code: "IMPORT_ROW_INVALID", details: { field: "deposit" } }));
+    expect((await rowsOf(getDb(), jobId))[0].depositMinor).toBe(2000);
+  });
+
+  it("is kept when it states the shop's currency", async () => {
+    const { shop, view, jobId } = await csvImport(serviceCsv);
+    const after = await updateImportRow(getDb(), shop, jobId, view.rows[0].id, { deposit: "30 EUR" });
+    expect(after.rows[0].deposit).toBe("30.00");
+  });
+
+  it("stops an upload's row from being accepted until the seller enters one", async () => {
+    const { shop, view, jobId } = await csvImport(
+      "name,price,currency,kind,duration,deposit\nScreen repair,80.00,EUR,service,60,$20.00\n",
+    );
+    const after = await applyBulkAction(getDb(), shop, jobId, { action: "accept_clean" });
+    expect(after.rows[0]).toMatchObject({ status: "pending", deposit: null });
+    expect(after.rows[0].issues.map((issue) => issue.code)).toEqual(
+      expect.arrayContaining(["deposit_missing", "deposit_currency"]),
+    );
+
+    const fixed = await updateImportRow(getDb(), shop, jobId, view.rows[0].id, { deposit: "20.00" });
+    expect(fixed.rows[0].issues).toEqual([]);
+  });
+});
+
 describe("listing imports", () => {
   it("shows the newest first, counting rows that were not removed", async () => {
     const { shop, view, jobId, deps } = await csvImport();
@@ -871,6 +973,72 @@ describe("suggesting descriptions", () => {
     await updateImportRow(getDb(), shop, jobId, view.rows[0].id, { status: "removed" });
     await suggestDescriptions(getDb(), shop, jobId, deps);
     expect(model.suggestionRequests[0].map((row) => row.title)).toEqual(["Charger"]);
+  });
+
+  it("pays for a row once, however many requests arrive together", async () => {
+    const { shop, jobId, model, deps } = await csvImport();
+    const results = await Promise.allSettled(
+      Array.from({ length: 20 }, () => suggestDescriptions(getDb(), shop, jobId, deps)),
+    );
+    expect(model.suggestionRequests).toHaveLength(1);
+    expect(results.some((result) => result.status === "fulfilled")).toBe(true);
+    for (const result of results) {
+      if (result.status === "rejected") {
+        expect(result.reason).toEqual(code("SUGGESTIONS_BUSY"));
+      }
+    }
+  });
+
+  it("refuses a request while another is writing, until that one's lease has run out", async () => {
+    const { shop, jobId, model, deps } = await csvImport();
+    await getDb()
+      .update(importJobs)
+      .set({ leaseExpiresAt: sql`now() + interval '1 minute'` })
+      .where(eq(importJobs.id, jobId));
+    await expect(suggestDescriptions(getDb(), shop, jobId, deps)).rejects.toEqual(code("SUGGESTIONS_BUSY"));
+    expect(model.suggestionRequests).toEqual([]);
+
+    await getDb()
+      .update(importJobs)
+      .set({ leaseExpiresAt: sql`now() - interval '1 minute'` })
+      .where(eq(importJobs.id, jobId));
+    await expect(suggestDescriptions(getDb(), shop, jobId, deps)).resolves.toMatchObject({ remaining: 0 });
+  });
+
+  it("can ask again after a failed call", async () => {
+    const { shop, jobId, model, deps } = await csvImport();
+    model.setSuggestion(new AiFailure("PROVIDER_UNAVAILABLE"));
+    await expect(suggestDescriptions(getDb(), shop, jobId, deps)).rejects.toEqual(code("SUGGESTIONS_UNAVAILABLE"));
+    model.setSuggestion((rows) =>
+      rows.map((row) => ({ position: row.position, english: `A ${row.title}.`, latvian: `B ${row.title}.` })),
+    );
+    await expect(suggestDescriptions(getDb(), shop, jobId, deps)).resolves.toMatchObject({ remaining: 0 });
+  });
+
+  it("counts each model call towards the shop's hourly limit", async () => {
+    const { shop, view, jobId, model, deps } = await csvImport();
+    await suggestDescriptions(getDb(), shop, jobId, deps);
+    expect(await getDb().select().from(sellerAiCalls)).toMatchObject([{ shopId: shop.id, calls: 1 }]);
+
+    for (let call = 0; call < 59; call += 1) {
+      await takeAiCall(getDb(), shop.id, new Date());
+    }
+    await updateImportRow(getDb(), shop, jobId, view.rows[0].id, { descriptionEn: "", descriptionLv: "" });
+    await expect(suggestDescriptions(getDb(), shop, jobId, deps)).rejects.toEqual(
+      expect.objectContaining({
+        code: "AI_LIMIT_REACHED",
+        message: "This shop has used its AI answers for this hour. Your rows are unchanged. Try again later.",
+      }),
+    );
+    expect(model.suggestionRequests).toHaveLength(1);
+    expect((await jobRow(getDb(), jobId)).leaseExpiresAt).toBeNull();
+  });
+
+  it("spends nothing when no row is left to write", async () => {
+    const { shop, jobId, deps } = await csvImport();
+    await suggestDescriptions(getDb(), shop, jobId, deps);
+    await suggestDescriptions(getDb(), shop, jobId, deps);
+    expect(await getDb().select().from(sellerAiCalls)).toMatchObject([{ calls: 1 }]);
   });
 
   it("does not overwrite what a seller wrote while the model was answering", async () => {

@@ -1,6 +1,6 @@
 import "server-only";
 
-import { ServiceError } from "./errors";
+import { ServiceError, describeForLog } from "./errors";
 
 // Turns a thrown error into a response. Anything other than a ServiceError is logged on the
 // server and returned as a generic failure, so internal detail never reaches a client.
@@ -8,7 +8,7 @@ export function errorResponse(error: unknown): Response {
   if (error instanceof ServiceError) {
     return Response.json({ error: error.toJSON() }, { status: error.httpStatus });
   }
-  console.error(error);
+  console.error("Request failed", describeForLog(error));
   return Response.json(
     { error: { code: "INTERNAL_ERROR", message: "Something went wrong." } },
     { status: 500 },
@@ -40,4 +40,24 @@ export async function readBodyWithin(
     chunks.push(value);
   }
   return Buffer.concat(chunks);
+}
+
+// Room for the longest row edit a seller can send, with every character escaped.
+const MAX_JSON_BODY_BYTES = 64 * 1024;
+
+// A small JSON body for a route whose input schema decides the rest. Text that is not JSON reads as
+// null, which every schema refuses.
+export async function readJsonWithin(
+  request: Request,
+  maxBytes: number = MAX_JSON_BODY_BYTES,
+): Promise<unknown> {
+  const body = await readBodyWithin(request, maxBytes);
+  if (!body) {
+    throw new ServiceError("INVALID_INPUT", "This request is too large.");
+  }
+  try {
+    return JSON.parse(body.toString("utf8"));
+  } catch {
+    return null;
+  }
 }

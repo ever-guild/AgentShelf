@@ -43,7 +43,11 @@ import type { Tx } from "./payment-reconciliation";
 const MINUTE_MS = 60_000;
 const OVERLAP_CONSTRAINT = "bookings_technician_no_overlap";
 
-export type BookingDeps = CheckoutDeps & { now: () => Date };
+export type BookingDeps = CheckoutDeps & {
+  now: () => Date;
+  // Asked once per new hold. A retry of a stored key takes no new time, so it does not count.
+  allowNewHold?: () => boolean;
+};
 
 export const defaultBookingDeps: BookingDeps = {
   paypalFor,
@@ -393,6 +397,12 @@ export async function bookSlot(
     const { merchantId, credentialRef } = resolved.service;
     if (!merchantId || !deps.paypalFor(credentialRef)) {
       throw notConfigured();
+    }
+    if (deps.allowNewHold && !deps.allowNewHold()) {
+      throw new ServiceError(
+        "HOLD_LIMIT_REACHED",
+        "Too many new holds have come from this connection. Try again in a few minutes.",
+      );
     }
     stored =
       (await placeHold(db, idempotencyKey, fingerprint, resolved, merchantId, now)) ??

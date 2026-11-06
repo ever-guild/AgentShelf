@@ -169,6 +169,7 @@ async function isDegraded(
 export async function searchProducts(
   db: Db,
   rawInput: unknown,
+  { recordDemand = true }: { recordDemand?: boolean } = {},
 ): Promise<{
   products: ProductSummary[];
   matching: { mode: "full" | "degraded"; notice: string | null };
@@ -192,12 +193,14 @@ export async function searchProducts(
   }
 
   const degraded = await isDegraded(db, query, filters, near);
-  await recordSearch(db, {
-    query,
-    filters,
-    matchedProductIds: found.map((product) => product.productId),
-    degraded,
-  });
+  if (recordDemand) {
+    await recordSearch(db, {
+      query,
+      filters,
+      matchedProductIds: found.map((product) => product.productId),
+      degraded,
+    });
+  }
   return {
     products: found,
     matching: degraded

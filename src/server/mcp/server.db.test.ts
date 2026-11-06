@@ -1,11 +1,13 @@
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import { count } from "drizzle-orm";
+import { DrizzleQueryError } from "drizzle-orm/errors";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { setupMigratedDatabase } from "../../../test/database";
 import { createProduct, createService, createShop } from "../../../test/fixtures";
 import { createFakePayPal } from "../../../test/paypal-fake";
+import type { Db } from "../db/client";
 import { orders } from "../db/schema";
 import {
   DEMO_PRODUCT_ID,
@@ -15,6 +17,7 @@ import {
   seedDemoData,
 } from "../db/seed";
 import { createPayPalProvider } from "../paypal/orders";
+import { createCallerCounter } from "./caller-limits";
 import { createMcpServer } from "./server";
 
 const getDb = setupMigratedDatabase();
@@ -139,6 +142,48 @@ describe("booking a repair", () => {
     ).toBe("SLOT_UNAVAILABLE");
   });
 
+  it("limits new holds per caller, and still answers a retry of one it made", async () => {
+    await seedWithMerchant();
+    const paypalFor = createPayPalProvider(
+      {
+        PAYPAL_CLIENT_ID_DEMO_PHONE_WORKSHOP: "test-client-id",
+        PAYPAL_CLIENT_SECRET_DEMO_PHONE_WORKSHOP: "test-client-secret",
+      },
+      paypal.adapter,
+    );
+    const newHold = createCallerCounter(1);
+    const [clientSide, serverSide] = InMemoryTransport.createLinkedPair();
+    await createMcpServer(
+      getDb(),
+      { paypalFor },
+      { newHold: () => newHold("one caller"), recordSearch: () => true },
+    ).connect(serverSide);
+    const limited = new Client({ name: "test", version: "0.0.0" });
+    await limited.connect(clientSide);
+    const hold = async (key: string) =>
+      limited.callTool({
+        name: "book_slot",
+        arguments: {
+          slotId: (await firstSlot()).slotId,
+          serviceId: DEMO_SERVICE_ID,
+          idempotencyKey: key,
+        },
+      });
+
+    const slot = await firstSlot();
+    const args = { slotId: slot.slotId, serviceId: DEMO_SERVICE_ID, idempotencyKey };
+    const first = await limited.callTool({ name: "book_slot", arguments: args });
+    expect(first.isError).toBeFalsy();
+    const repeat = await limited.callTool({ name: "book_slot", arguments: args });
+    expect(repeat.structuredContent).toEqual(first.structuredContent);
+
+    const refused = await hold("7c1a2f7e-4f7b-4a9c-9a41-0f4f7f0f1a12");
+    expect(errorCode(refused)).toBe("HOLD_LIMIT_REACHED");
+    expect(paypal.createRequests()).toHaveLength(1);
+    await expect(getDb().select({ value: count() }).from(orders)).resolves.toEqual([{ value: 1 }]);
+    await limited.close();
+  });
+
   it("answers a shop with no PayPal set up with a stable code", async () => {
     await seedDemoData(getDb(), {});
     const slot = await firstSlot();
@@ -170,6 +215,38 @@ describe("booking a repair", () => {
       to: new Date(Date.now() + 40 * DAY_MS).toISOString(),
     });
     expect(tooLong.isError).toBe(true);
+  });
+});
+
+describe("a tool that fails unexpectedly", () => {
+  it("logs no query parameters and tells the client nothing was charged", async () => {
+    const log = vi.spyOn(console, "error").mockImplementation(() => {});
+    const failure = new DrizzleQueryError("insert into orders values ($1)", ["PRIVATEMERCHANT"], new Error("down"));
+    const brokenDb = new Proxy(
+      {},
+      {
+        get() {
+          throw failure;
+        },
+      },
+    ) as Db;
+    const [clientSide, serverSide] = InMemoryTransport.createLinkedPair();
+    await createMcpServer(brokenDb).connect(serverSide);
+    const broken = new Client({ name: "test", version: "0.0.0" });
+    await broken.connect(clientSide);
+
+    const result = await broken.callTool({ name: "get_slots", arguments: {
+      shopId: DEMO_SHOP_ID,
+      serviceId: DEMO_SERVICE_ID,
+      from: new Date(Date.now() + 86_400_000).toISOString(),
+      to: new Date(Date.now() + 172_800_000).toISOString(),
+    } });
+    await broken.close();
+
+    expect(errorCode(result)).toBe("INTERNAL_ERROR");
+    expect(JSON.stringify(log.mock.calls)).toContain("MCP tool failed");
+    expect(log.mock.calls.flat().some((value) => value === failure)).toBe(false);
+    expect(JSON.stringify(log.mock.calls)).not.toContain("PRIVATEMERCHANT");
   });
 });
 

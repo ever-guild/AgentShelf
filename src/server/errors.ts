@@ -18,6 +18,7 @@ const HTTP_STATUS = {
   BOOKING_HOLD_ENDED: 409,
   IMPORT_NOT_EDITABLE: 409,
   IMPORT_NOT_RETRYABLE: 409,
+  SUGGESTIONS_BUSY: 409,
   IMPORT_FILE_TOO_LARGE: 413,
   IMPORT_FILE_UNSUPPORTED: 415,
   IMPORT_FILE_INVALID: 422,
@@ -26,6 +27,7 @@ const HTTP_STATUS = {
   IMPORT_REVIEW_INCOMPLETE: 422,
   CATALOG_EDIT_INVALID: 422,
   IMPORT_LIMIT_REACHED: 429,
+  HOLD_LIMIT_REACHED: 429,
   IMPORT_NOT_CONFIGURED: 503,
   SUGGESTIONS_UNAVAILABLE: 503,
   AI_LIMIT_REACHED: 429,
@@ -64,6 +66,20 @@ export class ServiceError extends Error {
       ...(this.details ? { details: this.details } : {}),
     };
   }
+}
+
+// What an unexpected error may put in a log. A failed query's message and stack hold every bound
+// parameter, such as a photo's bytes or a seller's draft, so only its name and SQLSTATE go through.
+export function describeForLog(error: unknown): { error: string; code?: string } {
+  if (!(error instanceof Error)) {
+    return { error: "unknown" };
+  }
+  const cause: unknown = error.cause;
+  const code =
+    cause && typeof cause === "object" && "code" in cause && typeof cause.code === "string"
+      ? cause.code
+      : undefined;
+  return code ? { error: error.name, code } : { error: error.name };
 }
 
 export function parseInput<Schema extends z.ZodType>(

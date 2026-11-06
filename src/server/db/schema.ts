@@ -472,9 +472,13 @@ export const importJobs = pgTable(
     error: text("error"),
     // How many times this job has been claimed since the seller last asked for a run.
     attempts: integer("attempts").notNull().default(0),
+    // How many times the seller has asked for another run. Each costs a model call, so it counts
+    // towards the shop's daily limit, and unlike attempts it never goes back to zero.
+    retries: integer("retries").notNull().default(0),
     // Fences a run: only the run holding the current token may finish the job, so one that lost
     // its lease cannot overwrite the run that took over.
     runToken: uuid("run_token"),
+    // Also held while a job under review waits for a model's suggested descriptions.
     leaseExpiresAt: timestamp("lease_expires_at", { withTimezone: true }),
     // What actually read the source. Null for a CSV, which no model touches.
     model: text("model"),
@@ -487,6 +491,7 @@ export const importJobs = pgTable(
     index("import_jobs_shop_id_created_at_idx").on(t.shopId, t.createdAt),
     index("import_jobs_status_idx").on(t.status),
     check("import_jobs_attempts_not_negative", sql`${t.attempts} >= 0`),
+    check("import_jobs_retries_not_negative", sql`${t.retries} >= 0`),
     check(
       "import_jobs_running_holds_lease",
       sql`${t.status} <> 'running' OR (${t.runToken} IS NOT NULL AND ${t.leaseExpiresAt} IS NOT NULL)`,

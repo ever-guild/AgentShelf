@@ -1,6 +1,6 @@
 import { currentSeller } from "@/server/auth/current-seller";
 import { getDb } from "@/server/db";
-import { errorResponse } from "@/server/http";
+import { errorResponse, readJsonWithin } from "@/server/http";
 import { updateImportRow } from "@/server/services/imports";
 
 export async function PATCH(
@@ -10,7 +10,7 @@ export async function PATCH(
   try {
     const shop = await currentSeller();
     const { id, rowId } = await params;
-    const patch: unknown = await request.json().catch(() => null);
+    const patch: unknown = await readJsonWithin(request);
     return Response.json(await updateImportRow(getDb(), shop, id, rowId, patch));
   } catch (error) {
     return errorResponse(error);

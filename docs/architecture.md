@@ -19,7 +19,7 @@ npm run db:seed
 npm test
 ```
 
-Migrating and seeding are safe to repeat. The seed updates its own fixed rows and leaves everything else alone. It is a manual step, not part of a deploy, so a redeploy never resets demo data. [Demo data](#demo-data) covers what the seed writes and `npm run demo:reset`.
+Migrating and seeding are safe to repeat. The seed updates its own fixed rows and leaves everything else alone. On Render the first start on an empty database runs it, and otherwise it is a manual step, so a redeploy never resets demo data. [Demo data](#demo-data) covers what the seed writes and `npm run demo:reset`.
 
 `npm test` needs a real Postgres server and creates and drops its own temporary database on it, never touching the database named in `TEST_DATABASE_URL`. It fails when that variable is missing rather than skipping tests. `npm run test:unit` runs the tests that need no database.
 
@@ -211,6 +211,7 @@ A buyer's assistant holds a technician's time and the buyer pays a deposit in Pa
 | Code | When | What the caller does |
 | --- | --- | --- |
 | `SLOT_UNAVAILABLE` | The time is taken, or the slot is no longer one the service and windows offer | Calls `get_slots` again |
+| `HOLD_LIMIT_REACHED` | Too many new holds came from this caller in 15 minutes | Tries again in a few minutes |
 | `BOOKING_HOLD_ENDED` | A repeat of a key whose hold has expired or been cancelled | Calls `get_slots` again and uses a new key |
 | `PRODUCT_NOT_FOUND` | No published service with this ID, or it belongs to another shop | Searches again |
 
@@ -232,7 +233,9 @@ A buyer's assistant holds a technician's time and the buyer pays a deposit in Pa
 
 A view of what occupies the calendar filters on `blocksTime`. `depositCaptureId` is for the seller, and `get_order_status` leaves it out. A booking confirmed and later refunded at PayPal stays `confirmed` with `paymentStatus: "review_required"`, so a view should show both.
 
-**Known limit:** the connector has no sign-in, so an assistant can hold free slots with new keys, each for 15 minutes, and each creates a PayPal order. Nothing limits that yet.
+**Limits on an anonymous caller:** the connector has no sign-in, so [`caller-limits.ts`](../src/server/mcp/caller-limits.ts) allows one address 20 new holds and 60 searches recorded as demand per 15 minutes. A retry of a stored key does not count, and a search past its limit is still answered. There is deliberately no limit per shop, because that would let one caller stop a shop taking bookings with a handful of holds.
+
+**Known limits:** the counts are in the web process and are per address. All of one assistant provider's buyers can share an address, and a caller that forges its address on a route the edge does not overwrite escapes them, so they slow abuse and do not end it.
 
 ## Schedule
 
@@ -421,7 +424,7 @@ The seller's way in, for [#8](https://github.com/ever-guild/AgentShelf/issues/8)
 | --- | --- | --- |
 | Reader | [`csv.ts`](../src/server/imports/csv.ts), deterministic, no model | Claude, through [`claude.ts`](../src/server/ai/claude.ts) |
 | When | During the upload, so the table opens at once | In a background run |
-| Limits | 1 MB, 500 rows | 7 MB, 500 rows, 3 waiting and 30 a day per shop, since each costs a model call |
+| Limits | 1 MB, 500 rows | 7 MB, 500 rows, 3 waiting and 30 a day per shop, retries included, since each costs a model call |
 | A bad file | Refused with what to fix, and nothing stored | Refused by its bytes. A file's name and declared type do not decide |
 
 **A price is never invented.** A model returns the price as printed, and [`price-text.ts`](../src/server/imports/price-text.ts) turns that text into minor units, the same as for a CSV cell or a seller's edit. It accepts only what has one meaning. `9,90`, `1 200,50` and `12,-` read as amounts. `1.200` could be 1200 or 1.20, and `from 20`, `20-30` and `free` are not one price, so those stay unknown and the row shows what the list said. A missing currency also stays unknown, until the seller states one. A model has no field for a deposit.
@@ -453,7 +456,7 @@ The seller's way in, for [#8](https://github.com/ever-guild/AgentShelf/issues/8)
 
 **Keeping the photo:** a photo is stored in `import_sources`, because the web service and a workflow run share no disk, and a run's arguments are limited to 4 MB. **It is deleted when the seller finishes the review, or 72 hours after upload, whichever comes first.** The sweep enforces the second, and a job left with no photo tells the seller to upload it again. The rows of a review stay when its photo goes. The browser redraws a photo before uploading it, which shrinks it to what a model can use and drops its location metadata. A CSV is not kept at all.
 
-**Suggestions:** a seller can ask for English and Latvian descriptions, in batches of 25. They are generated from the row's own words and stored as editable text, and never overwrite what a seller wrote. A suggestion with a number the row does not contain, such as `5000 mAh`, is dropped and the row says so. That catches the checkable inventions, and the seller reads the rest.
+**Suggestions:** a seller can ask for English and Latvian descriptions, in batches of 25. An import writes one batch at a time, and each batch counts towards the shop's hourly AI calls. They are generated from the row's own words and stored as editable text, and never overwrite what a seller wrote. A suggestion with a number the row does not contain, such as `5000 mAh`, is dropped and the row says so. That catches the checkable inventions, and the seller reads the rest.
 
 **Sessions:** the cookie is `SameSite=Lax`, so another site cannot send these requests with it. Every query is scoped to the shop in the session, and an import in another shop gets the same `IMPORT_NOT_FOUND` as one that does not exist.
 

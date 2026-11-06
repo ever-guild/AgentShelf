@@ -60,16 +60,18 @@ render blueprints validate render.yaml
 ## What happens on a deploy
 
 1. **Build:** `npm ci --include=dev && npm run build`. This needs no database and no secrets.
-2. **Start:** `npm run db:migrate && npm run start`. Migrations run first, and the server only starts if they succeed.
+2. **Start:** `npm run db:migrate && npm run start`. Migrations run first, and the server only starts if they succeed. A database with no shop then gets the demo data.
 3. **Health check:** Render waits for `/api/health` before sending traffic to the new version.
 
-A redeploy never resets demo data. Migrations only apply what is pending, and the seed is not part of a deploy.
+A redeploy never resets demo data. Migrations only apply what is pending, and the seed runs on a start only if the database holds no shop at all.
 
 Migrations run in the start command because `preDeployCommand` is only available on paid web services. This works on every plan, so moving to a paid plan changes nothing here. Development dependencies stay installed because `db:migrate` runs through `tsx`.
 
 ## Seed the demo data
 
-**The demo database is not seeded yet**, so the [smoke check](#smoke-check) finds no product. The production database has external access disabled, so local seeding through its external URL is unavailable, and external access should not be enabled just to seed.
+**An empty database seeds itself.** On Render, `npm run db:migrate` seeds the demo data if the database holds no shop, because opening the Shell takes the account owner, while anyone who can push to `main` can deploy. It covers a recreated database too. A database with any shop is left exactly as it is. A seed that fails logs `Demo seed failed`, the service starts anyway, and the next start tries again.
+
+Run the seed by hand to apply seller codes or PayPal merchant IDs added later, or to put the seed's own rows back. The production database has external access disabled, so local seeding through its external URL is unavailable, and external access should not be enabled just to seed.
 
 Open the [web service](https://dashboard.render.com/web/srv-dbm8a6e1egvs73bl8d90) in the Render Dashboard and go to its Shell page, which [needs no SSH key on a paid service](https://render.com/docs/ssh). Then run:
 
@@ -98,6 +100,7 @@ After seeding, run the [MCP smoke check](#smoke-check) so that it finds the prod
 | --- | --- | --- |
 | `DATABASE_URL` | Service secret, internal Render Postgres URL | Private network connection string, never commit its value |
 | `APP_SIGNING_SECRET` | Service secret, generated once | Signs seller sessions and order status tokens, preserve it across redeploys |
+| `RENDER` | Set by Render | Seeds an empty database on start |
 | `RENDER_EXTERNAL_URL` | Set by Render | Public origin for PayPal return URLs and the MCP endpoint |
 | `APP_ORIGIN` | Optional, by hand | Overrides the public origin, for a custom domain or local use |
 | `MCP_ALLOWED_ORIGINS` | Optional, by hand | Extra browser origins for the MCP endpoint, comma separated. See [mcp.md](mcp.md#origin-handling) |
