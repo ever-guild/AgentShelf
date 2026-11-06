@@ -4,7 +4,7 @@ import { and, eq, sql } from "drizzle-orm";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { setupMigratedDatabase } from "../../../test/database";
-import { createProduct, createShop, violatedConstraint } from "../../../test/fixtures";
+import { createProduct, createShop, setTestTrackedStock, violatedConstraint } from "../../../test/fixtures";
 import { createImportHarness, rowsOf } from "../../../test/imports";
 import { CLIENT_SECRET, MERCHANT_ID, readOrder } from "../../../test/payments";
 import { createFakePayPal, type FakePayPal } from "../../../test/paypal-fake";
@@ -814,6 +814,7 @@ describe("editing a published product", () => {
   it("changes future checkouts and leaves existing orders as they were", async () => {
     const { shop } = await publishedShop();
     const glass = await productNamed(shop.id, "Tempered glass");
+    await setTestTrackedStock(getDb(), shop.id, glass.id);
     const key = randomUUID();
     const before = await checkoutFor(glass.id, key);
     expect(before.totalMinor).toBe(990);
@@ -842,6 +843,7 @@ describe("editing a published product", () => {
   it("keeps an existing order as it was when the product is unpublished", async () => {
     const { shop } = await publishedShop();
     const glass = await productNamed(shop.id, "Tempered glass");
+    await setTestTrackedStock(getDb(), shop.id, glass.id);
     const key = randomUUID();
     const order = await checkoutFor(glass.id, key);
 

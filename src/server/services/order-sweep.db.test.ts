@@ -9,7 +9,7 @@ import {
   readOrder,
   type PaymentHarness,
 } from "../../../test/payments";
-import { orders } from "../db/schema";
+import { inventoryStock, orders } from "../db/schema";
 import { sweepOpenOrders } from "./order-sweep";
 
 const getDb = setupMigratedDatabase();
@@ -52,19 +52,44 @@ describe("sweepOpenOrders", () => {
     expect(harness.confirmed).toEqual([orderId]);
   });
 
-  it("settles a capture whose outcome was lost, without charging twice", async () => {
-    const { orderId, paypalOrderId } = await placeOrder(getDb(), harness);
+  it("keeps stock reserved after an unknown capture and does not resend it", async () => {
+    const { orderId, paypalOrderId, product } = await placeOrder(getDb(), harness);
     harness.paypal.approve(paypalOrderId);
     harness.paypal.nextCapture({ type: "timeout", captured: false });
     await age(orderId, "10 minutes");
     await sweep();
     expect((await readOrder(getDb(), orderId)).paymentStatus).toBe("approved");
+    expect(harness.paypal.captureRequests()).toHaveLength(1);
+    expect(harness.paypal.charges()).toBe(0);
 
     await age(orderId, "20 minutes", "10 minutes");
     await sweep();
 
+    expect((await readOrder(getDb(), orderId)).paymentStatus).toBe("approved");
+    expect(harness.paypal.captureRequests()).toHaveLength(1);
+    expect(harness.paypal.charges()).toBe(0);
+    const [stock] = await getDb()
+      .select({ reserved: inventoryStock.reserved })
+      .from(inventoryStock)
+      .where(eq(inventoryStock.productId, product.id));
+    expect(stock.reserved).toBe(1);
+  });
+
+  it("settles a verified completed capture after its response was lost", async () => {
+    const { orderId, paypalOrderId } = await placeOrder(getDb(), harness);
+    harness.paypal.approve(paypalOrderId);
+    harness.paypal.nextCapture({ type: "timeout", captured: true });
+    await age(orderId, "10 minutes");
+    await sweep();
+
     expect((await readOrder(getDb(), orderId)).paymentStatus).toBe("paid");
     expect(harness.paypal.charges()).toBe(1);
+    expect(harness.paypal.captureRequests()).toHaveLength(1);
+    expect(harness.confirmed).toEqual([orderId]);
+
+    await age(orderId, "20 minutes", "10 minutes");
+    expect(await sweep()).toBe(0);
+    expect(harness.paypal.captureRequests()).toHaveLength(1);
     expect(harness.confirmed).toEqual([orderId]);
   });
 

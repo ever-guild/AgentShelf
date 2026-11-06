@@ -4,7 +4,7 @@ import { count, eq } from "drizzle-orm";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { setupMigratedDatabase } from "../../../test/database";
-import { createProduct, createService, createShop } from "../../../test/fixtures";
+import { createProduct, createService, createShop, setTestTrackedStock } from "../../../test/fixtures";
 import {
   CLIENT_SECRET,
   MERCHANT_ID,
@@ -52,6 +52,7 @@ beforeEach(() => {
 async function shopWithProduct(priceMinor = 990) {
   const shop = await createShop(getDb(), { paypalMerchantId: MERCHANT_ID });
   const product = await createProduct(getDb(), shop.id, { priceMinor });
+  await setTestTrackedStock(getDb(), shop.id, product.id);
   return { shop, product };
 }
 

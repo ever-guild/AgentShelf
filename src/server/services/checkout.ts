@@ -252,6 +252,9 @@ export async function ensureApprovalLink(
   if (order.paymentStatus === "review_required") {
     throw needsReview();
   }
+  if (order.kind !== "purchase" && order.approvalUrl) {
+    return order;
+  }
   if (order.paymentStatus !== "pending") {
     throw needsReview();
   }

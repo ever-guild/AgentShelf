@@ -19,6 +19,7 @@ import {
   type BookingHarness,
 } from "../../../test/bookings";
 import { setupMigratedDatabase } from "../../../test/database";
+import { createTrackedProduct } from "../../../test/fixtures";
 import {
   createProduct,
   createService,
@@ -525,7 +526,7 @@ describe("book_slot", () => {
 
   it("cannot reach a purchase order through its key", async () => {
     const workshop = await createWorkshop(getDb());
-    const cable = await createProduct(getDb(), workshop.shop.id);
+    const cable = await createTrackedProduct(getDb(), workshop.shop.id);
     const key = randomUUID();
     await createCheckout(
       getDb(),
@@ -919,7 +920,7 @@ describe("a verified deposit", () => {
 
   it("leaves a purchase order's path alone", async () => {
     const workshop = await createWorkshop(getDb());
-    const cable = await createProduct(getDb(), workshop.shop.id);
+    const cable = await createTrackedProduct(getDb(), workshop.shop.id);
     const { orderId } = await createCheckout(
       getDb(),
       { items: [{ productId: cable.id, quantity: 1 }], idempotencyKey: randomUUID() },
