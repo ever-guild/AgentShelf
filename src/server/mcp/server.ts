@@ -128,7 +128,7 @@ export function createMcpServer(db: Db, checkoutDeps?: CheckoutDeps): McpServer 
     {
       title: "Book slot",
       description:
-        "Hold a slot from get_slots and create a PayPal sandbox order for the service's deposit. The buyer must open the approval link and confirm in PayPal before expiresAt: this tool never charges anything, and the booking is pending until the deposit is verified. remainingMinor is what is left to pay at the shop. Send a random idempotencyKey, such as a UUID, and reuse it only to retry the same request. SLOT_UNAVAILABLE means someone else has this time, so call get_slots again. After PAYMENT_TIMEOUT or PAYMENT_UNAVAILABLE, retry with the same key, which cannot create a second booking.",
+        "Hold a slot from get_slots and create a PayPal sandbox order for the service's deposit. The buyer must open the approval link and confirm in PayPal before expiresAt, because after that the time is released and the deposit is not taken. This tool never charges anything, and the booking is pending until the deposit is verified. remainingMinor is what is left to pay at the shop. Send a random idempotencyKey, such as a UUID, and reuse it only to retry the same request. SLOT_UNAVAILABLE means someone else has this time, so call get_slots again. After PAYMENT_TIMEOUT or PAYMENT_UNAVAILABLE, retry with the same key, which cannot create a second booking.",
       inputSchema: bookSlotInput,
       outputSchema: bookSlotResult,
       annotations: {
@@ -150,7 +150,7 @@ export function createMcpServer(db: Db, checkoutDeps?: CheckoutDeps): McpServer 
     {
       title: "Get order status",
       description:
-        "Read the status of one order, using the orderId and statusToken that create_checkout or book_slot returned. paymentStatus is pending until the buyer approves in PayPal, approved until the payment is verified, and paid only after that. For a booking, booking.status is held until the deposit is verified, then confirmed. expired and cancelled mean the time is no longer held. review_required means the deposit arrived after the hold had ended, so the appointment is not confirmed and the shop will refund or rebook it. It reports stored state and never changes anything.",
+        "Read the status of one order, using the orderId and statusToken that create_checkout or book_slot returned. paymentStatus is pending until the buyer approves in PayPal, approved until the payment is verified, and paid only after that. For a booking, booking.status is held until the deposit is verified, then confirmed. expired and cancelled mean the time is no longer held, and an approval after that charges nothing. review_required means PayPal had already taken the deposit as the hold ended, so the appointment is not confirmed and the shop will refund or rebook it. It reports stored state and never changes anything.",
       inputSchema: getOrderStatusInput,
       outputSchema: getOrderStatusResult,
       annotations: {

@@ -4,6 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
   book,
+  captureAcrossExpiry,
   createBookingHarness,
   createWorkshop,
   minutes,
@@ -113,9 +114,7 @@ describe("a deposit moving through the schedule", () => {
   it("keeps a late deposit in view as needing review, with the reason", async () => {
     const workshop = await createWorkshop(getDb());
     const held = await holdAt(workshop);
-    harness.paypal.approve(await paypalIdOf(getDb(), held.orderId));
-    harness.advance(HOLD_MS + minutes(1));
-    await reconcileOrder(getDb(), held.orderId, harness.reconcileDeps);
+    await captureAcrossExpiry(getDb(), harness, held.orderId, HOLD_MS + minutes(1));
 
     const { bookings } = await scheduleOf(workshop.shop);
     expect(bookings[0]).toMatchObject({

@@ -87,12 +87,12 @@ function bookingCopy(
     case "expired":
       return paymentUnsettled ? undefined : {
         title: "This hold has ended",
-        body: "The time was only held for a short while, and it has been released. Please do not use the old payment link. Your assistant can find another time.",
+        body: "The time was only held for a short while, and it has been released. You have not been charged, even if you approved the payment in PayPal. Your assistant can find another time.",
       };
     case "cancelled":
       return paymentUnsettled ? undefined : {
         title: "Booking not completed",
-        body: "This time has been released. Please do not use the old payment link. Your assistant can find another time.",
+        body: "This time has been released. You have not been charged, even if you approved the payment in PayPal. Your assistant can find another time.",
       };
     case "held":
       return undefined;

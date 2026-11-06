@@ -6,11 +6,12 @@ import type { Db } from "../src/server/db/client";
 import { bookings } from "../src/server/db/schema";
 import {
   bookSlot,
+  closeDepositIfHoldEnded,
   confirmBookingPayment,
   getSlots,
   type BookingDeps,
 } from "../src/server/services/bookings";
-import type { ReconcileDeps } from "../src/server/services/payment-reconciliation";
+import { reconcileOrder, type ReconcileDeps } from "../src/server/services/payment-reconciliation";
 import { createService, createShop, createTechnician, createWindow } from "./fixtures";
 import { createPaymentHarness, MERCHANT_ID, readOrder } from "./payments";
 import type { FakePayPal } from "./paypal-fake";
@@ -50,6 +51,7 @@ export function createBookingHarness(): BookingHarness {
     reconcileDeps: {
       paypalFor: deps.paypalFor,
       onPaymentConfirmed: (tx, order) => confirmBookingPayment(tx, order, now()),
+      closeIfHoldEnded: (db, order) => closeDepositIfHoldEnded(db, order, now()),
     },
   };
 }
@@ -125,4 +127,24 @@ export async function readBooking(db: Db, bookingId: string) {
 
 export async function paypalIdOf(db: Db, orderId: string): Promise<string> {
   return (await readOrder(db, orderId)).paypalOrderId as string;
+}
+
+// The buyer approves inside the hold, and the hold ends while PayPal is taking the money. This is
+// the one way a deposit is still charged late, so it is how a test reaches a booking in review.
+export async function captureAcrossExpiry(
+  db: Db,
+  harness: BookingHarness,
+  orderId: string,
+  hold: number,
+) {
+  harness.paypal.approve(await paypalIdOf(db, orderId));
+  harness.paypal.nextRead({ type: "change", change: (order) => order });
+  harness.paypal.nextRead({
+    type: "change",
+    change: (order) => {
+      harness.advance(hold);
+      return order;
+    },
+  });
+  await reconcileOrder(db, orderId, harness.reconcileDeps);
 }

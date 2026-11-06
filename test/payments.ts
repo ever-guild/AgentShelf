@@ -39,6 +39,7 @@ export function createPaymentHarness(): PaymentHarness {
       onPaymentConfirmed: async (_tx, order) => {
         confirmed.push(order.id);
       },
+      closeIfHoldEnded: async () => false,
     },
   };
 }

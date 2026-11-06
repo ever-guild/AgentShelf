@@ -106,6 +106,7 @@ describe("runCheckoutSmoke", () => {
             await reconcileOrder(getDb(), order.id, {
               paypalFor,
               onPaymentConfirmed: async () => {},
+              closeIfHoldEnded: async () => false,
             });
           }
         },

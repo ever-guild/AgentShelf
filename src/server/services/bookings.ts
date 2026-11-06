@@ -432,11 +432,48 @@ export async function bookSlot(
   });
 }
 
+// A deposit pays for time, and the time is there only while its hold is live, so this is asked before
+// anything is captured. PayPal cannot be told to stop a link it has issued, so a buyer can still
+// approve after a hold has ended, and an approval moves no money until it is captured. Returns true
+// when the hold has ended and the deposit must not be charged, and closes the order. An order already
+// `approved` stays open: a capture was attempted with no known outcome, so the sweep keeps asking
+// until PayPal reports what became of it.
+export async function closeDepositIfHoldEnded(
+  db: Db,
+  order: OrderRow,
+  now: Date = new Date(),
+): Promise<boolean> {
+  if (order.kind !== "booking_deposit") {
+    return false;
+  }
+  return db.transaction(async (tx) => {
+    const [booking] = await tx
+      .select({ status: bookings.status, holdExpiresAt: bookings.holdExpiresAt })
+      .from(bookings)
+      .where(eq(bookings.orderId, order.id))
+      .for("update");
+    if (booking?.status === "held" && isHoldLive(booking.holdExpiresAt, now)) {
+      return false;
+    }
+    // Marked first, because closing the order would release a hold still marked held as cancelled.
+    await tx
+      .update(bookings)
+      .set({ status: "expired" })
+      .where(and(eq(bookings.orderId, order.id), eq(bookings.status, "held")));
+    await tx
+      .update(orders)
+      .set({ paymentStatus: "cancelled" })
+      .where(and(eq(orders.id, order.id), eq(orders.paymentStatus, "pending")));
+    return true;
+  });
+}
+
 // Runs in the transaction that marks a deposit order paid, once per order. A capture inside the hold
-// confirms. Anything else is a late capture: the time may belong to someone else by now, so the
-// booking goes to review with the capture on record, for a person to refund or rebook. It claims no
-// time in that state and so can never double-book, and it does not throw, because the money has
-// moved and the order has to say so.
+// confirms. Nothing is captured once a hold has ended, so anything else is a capture PayPal had
+// already made: one on its way as the hold ended, or one whose answer was lost. The time may belong
+// to someone else by now, so the booking goes to review with the capture on record, for a person to
+// refund or rebook. It claims no time in that state and so can never double-book, and it does not
+// throw, because the money has moved and the order has to say so.
 export async function confirmBookingPayment(
   tx: Tx,
   order: OrderRow,

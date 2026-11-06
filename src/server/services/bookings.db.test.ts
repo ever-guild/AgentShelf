@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
   book,
+  captureAcrossExpiry,
   createBookingHarness,
   createWorkshop,
   minutes,
@@ -869,11 +870,11 @@ describe("a verified deposit", () => {
   });
 });
 
-describe("a late capture", () => {
+describe("an approval after the hold has ended", () => {
   it.each([
     ["while the expired hold is still marked held", false],
     ["after the hold was marked expired", true],
-  ])("goes to review with the money on record, %s", async (_name, swept) => {
+  ])("charges nothing and closes the order, %s", async (_name, swept) => {
     const { held, paypalOrderId, slotId, service } = await holdNoon();
     harness.advance(HOLD_MS);
     if (swept) {
@@ -883,6 +884,195 @@ describe("a late capture", () => {
 
     await settle(held.orderId);
 
+    expect(harness.paypal.charges()).toBe(0);
+    const order = await readOrder(getDb(), held.orderId);
+    expect(order.paymentStatus).toBe("cancelled");
+    expect(order.paypalCaptureId).toBeNull();
+    expect(await readBooking(getDb(), held.bookingId)).toMatchObject({
+      status: "expired",
+      depositCaptureId: null,
+      reviewReason: null,
+    });
+    // The time is free to be sold again.
+    await book(getDb(), harness, slotId, service.id);
+    expect(await liveBookings()).toHaveLength(1);
+  });
+
+  it("counts the exact moment of expiry as ended", async () => {
+    const { held, paypalOrderId } = await holdNoon();
+    harness.setNow(new Date(held.expiresAt));
+    harness.paypal.approve(paypalOrderId);
+
+    await settle(held.orderId);
+
+    expect(harness.paypal.charges()).toBe(0);
+    expect((await readBooking(getDb(), held.bookingId)).status).toBe("expired");
+  });
+
+  it("still charges and confirms just before expiry", async () => {
+    const { held, paypalOrderId } = await holdNoon();
+    harness.setNow(new Date(new Date(held.expiresAt).getTime() - 1));
+    harness.paypal.approve(paypalOrderId);
+
+    await settle(held.orderId);
+
+    expect(harness.paypal.charges()).toBe(1);
+    expect((await readBooking(getDb(), held.bookingId)).status).toBe("confirmed");
+  });
+
+  it("stays uncharged however often and from wherever it is asked about", async () => {
+    const { held, paypalOrderId } = await holdNoon();
+    harness.advance(HOLD_MS);
+    harness.paypal.approve(paypalOrderId);
+    await getDb()
+      .update(orders)
+      .set({ createdAt: sql`now() - interval '10 minutes'` })
+      .where(eq(orders.id, held.orderId));
+
+    await sweepOpenOrders(getDb(), harness.reconcileDeps);
+    await settle(held.orderId);
+    await settle(held.orderId);
+    await sweepOpenOrders(getDb(), harness.reconcileDeps);
+
+    expect(harness.paypal.charges()).toBe(0);
+    expect((await readOrder(getDb(), held.orderId)).paymentStatus).toBe("cancelled");
+  });
+
+  it("closes an order nobody approved, and a later approval charges nothing", async () => {
+    const { held, paypalOrderId } = await holdNoon();
+    harness.advance(HOLD_MS);
+
+    await settle(held.orderId);
+
+    expect((await readOrder(getDb(), held.orderId)).paymentStatus).toBe("cancelled");
+    expect((await readBooking(getDb(), held.bookingId)).status).toBe("expired");
+
+    harness.paypal.approve(paypalOrderId);
+    await settle(held.orderId);
+
+    expect(harness.paypal.charges()).toBe(0);
+    expect((await readOrder(getDb(), held.orderId)).paymentStatus).toBe("cancelled");
+  });
+
+  it("charges only the buyer who holds the time when the slot is sold again", async () => {
+    const { held, paypalOrderId, slotId, service } = await holdNoon();
+    harness.advance(HOLD_MS);
+    const second = await book(getDb(), harness, slotId, service.id);
+    harness.paypal.approve(await paypalIdOf(getDb(), second.orderId));
+    await settle(second.orderId);
+
+    harness.paypal.approve(paypalOrderId);
+    await settle(held.orderId);
+
+    expect(harness.paypal.charges()).toBe(1);
+    expect((await readBooking(getDb(), held.bookingId)).status).toBe("expired");
+    expect((await readBooking(getDb(), second.bookingId)).status).toBe("confirmed");
+    expect(await liveBookings()).toHaveLength(1);
+  });
+
+  it("does not try again when a capture was attempted before the hold ended", async () => {
+    const { held, paypalOrderId } = await holdNoon();
+    harness.paypal.approve(paypalOrderId);
+    harness.paypal.nextCapture({ type: "timeout", captured: false });
+    await settle(held.orderId).catch(() => {});
+    expect((await readOrder(getDb(), held.orderId)).paymentStatus).toBe("approved");
+
+    harness.advance(HOLD_MS);
+    await settle(held.orderId);
+
+    expect(harness.paypal.charges()).toBe(0);
+    // Its outcome is still open, so the sweep keeps asking rather than closing it.
+    expect((await readOrder(getDb(), held.orderId)).paymentStatus).toBe("approved");
+    expect((await readBooking(getDb(), held.bookingId)).status).toBe("expired");
+  });
+
+  it("does not try again after PayPal refused the capture and the time was released", async () => {
+    const { held, paypalOrderId } = await holdNoon();
+    harness.paypal.approve(paypalOrderId);
+    harness.paypal.nextCapture({
+      type: "respond",
+      status: 422,
+      body: { name: "UNPROCESSABLE_ENTITY", details: [{ issue: "INSTRUMENT_DECLINED" }] },
+    });
+    await settle(held.orderId);
+    expect((await readOrder(getDb(), held.orderId)).paymentStatus).toBe("failed");
+    expect((await readBooking(getDb(), held.bookingId)).status).toBe("cancelled");
+
+    await settle(held.orderId);
+
+    expect(harness.paypal.charges()).toBe(0);
+    expect((await readOrder(getDb(), held.orderId)).paymentStatus).toBe("failed");
+  });
+
+  it("is what the running service does, with its default dependencies", async () => {
+    const { held, paypalOrderId } = await holdNoon();
+    await getDb()
+      .update(bookings)
+      .set({ holdExpiresAt: new Date(Date.now() - 1000) })
+      .where(eq(bookings.id, held.bookingId));
+    harness.paypal.approve(paypalOrderId);
+
+    await reconcileOrder(getDb(), held.orderId, {
+      ...defaultReconcileDeps,
+      paypalFor: harness.reconcileDeps.paypalFor,
+    });
+
+    expect(harness.paypal.charges()).toBe(0);
+    expect((await readOrder(getDb(), held.orderId)).paymentStatus).toBe("cancelled");
+  });
+
+  it("is settled one of the known ways however an approval and an expiry race", async () => {
+    for (let round = 0; round < 6; round += 1) {
+      const workshop = await createWorkshop(getDb(), {
+        paypalMerchantId: `RACEMERCHANT${round}`,
+      });
+      const charged = harness.paypal.charges();
+      const { held, paypalOrderId } = await holdNoon(workshop);
+      harness.paypal.approve(paypalOrderId);
+
+      // The capture reads its clock inside the hold, and the sweep's clock is already past it.
+      await Promise.all([
+        settle(held.orderId),
+        expireHolds(getDb(), new Date(new Date(held.expiresAt).getTime() + 1)),
+      ]);
+
+      const order = await readOrder(getDb(), held.orderId);
+      const booking = await readBooking(getDb(), held.bookingId);
+      if (harness.paypal.charges() === charged) {
+        expect(order.paymentStatus).toBe("cancelled");
+        expect(booking.status).toBe("expired");
+      } else {
+        expect(order.paymentStatus).toBe("paid");
+        expect(booking.depositCaptureId).toBe(order.paypalCaptureId);
+        expect(["confirmed", "review_required"]).toContain(booking.status);
+      }
+    }
+  });
+
+  it("reports what happened through the status tool", async () => {
+    const { held, paypalOrderId } = await holdNoon();
+    harness.advance(HOLD_MS);
+    harness.paypal.approve(paypalOrderId);
+    await settle(held.orderId);
+
+    const status = await getOrderStatus(
+      getDb(),
+      { orderId: held.orderId, statusToken: held.statusToken },
+      harness.now(),
+    );
+
+    expect(status.paymentStatus).toBe("cancelled");
+    expect(status.booking).toMatchObject({ status: "expired", depositMinor: 2000 });
+  });
+});
+
+describe("a capture PayPal had already made when the hold ended", () => {
+  it("goes to review with the money on record, if the hold ended during it", async () => {
+    const { held, slotId, service } = await holdNoon();
+
+    await captureAcrossExpiry(getDb(), harness, held.orderId, HOLD_MS);
+
+    expect(harness.paypal.charges()).toBe(1);
     const order = await readOrder(getDb(), held.orderId);
     expect(order.paymentStatus).toBe("paid");
     expect(order.paypalCaptureId).toBeTruthy();
@@ -896,30 +1086,40 @@ describe("a late capture", () => {
     expect(await liveBookings()).toHaveLength(1);
   });
 
-  it("counts a capture at the exact moment of expiry as late", async () => {
+  it("goes to review if its answer was lost until after the hold ended", async () => {
     const { held, paypalOrderId } = await holdNoon();
-    harness.setNow(new Date(held.expiresAt));
     harness.paypal.approve(paypalOrderId);
-    await settle(held.orderId);
-    expect((await readBooking(getDb(), held.bookingId)).status).toBe("review_required");
-  });
+    harness.paypal.nextCapture({ type: "timeout", captured: true });
+    harness.paypal.nextRead({ type: "change", change: (order) => order });
+    harness.paypal.nextRead({ type: "timeout" });
+    await settle(held.orderId).catch(() => {});
+    expect((await readOrder(getDb(), held.orderId)).paymentStatus).toBe("approved");
 
-  it("counts a capture just before expiry as on time", async () => {
-    const { held, paypalOrderId } = await holdNoon();
-    harness.setNow(new Date(new Date(held.expiresAt).getTime() - 1));
-    harness.paypal.approve(paypalOrderId);
+    harness.advance(HOLD_MS);
     await settle(held.orderId);
-    expect((await readBooking(getDb(), held.bookingId)).status).toBe("confirmed");
+
+    expect(harness.paypal.charges()).toBe(1);
+    const order = await readOrder(getDb(), held.orderId);
+    expect(order.paymentStatus).toBe("paid");
+    expect(await readBooking(getDb(), held.bookingId)).toMatchObject({
+      status: "review_required",
+      reviewReason: "late_capture",
+      depositCaptureId: order.paypalCaptureId,
+    });
   });
 
   it("never double-books when someone else has paid for the slot meanwhile", async () => {
     const { held, paypalOrderId, slotId, service } = await holdNoon();
+    harness.paypal.approve(paypalOrderId);
+    harness.paypal.nextCapture({ type: "timeout", captured: true });
+    harness.paypal.nextRead({ type: "change", change: (order) => order });
+    harness.paypal.nextRead({ type: "timeout" });
+    await settle(held.orderId).catch(() => {});
+
     harness.advance(HOLD_MS);
     const second = await book(getDb(), harness, slotId, service.id);
     harness.paypal.approve(await paypalIdOf(getDb(), second.orderId));
     await settle(second.orderId);
-
-    harness.paypal.approve(paypalOrderId);
     await settle(held.orderId);
 
     expect((await readOrder(getDb(), held.orderId)).paymentStatus).toBe("paid");
@@ -929,33 +1129,27 @@ describe("a late capture", () => {
     expect(harness.paypal.charges()).toBe(2);
   });
 
-  it("is settled the same way however a capture and an expiry race", async () => {
-    for (let round = 0; round < 6; round += 1) {
-      const workshop = await createWorkshop(getDb(), {
-        paypalMerchantId: `RACEMERCHANT${round}`,
-      });
-      const { held, paypalOrderId } = await holdNoon(workshop);
-      harness.paypal.approve(paypalOrderId);
+  it("names a capture that arrives after a cancel as its own reason", async () => {
+    const { held } = await holdNoon();
+    await settle(held.orderId, { buyerCancelled: true });
+    const [order] = await getDb()
+      .update(orders)
+      .set({ paymentStatus: "paid", paypalCaptureId: "CAPTURE1" })
+      .where(eq(orders.id, held.orderId))
+      .returning();
 
-      // The capture reads its clock inside the hold, and the sweep's clock is already past it.
-      await Promise.all([
-        settle(held.orderId),
-        expireHolds(getDb(), new Date(new Date(held.expiresAt).getTime() + 1)),
-      ]);
+    await getDb().transaction((tx) => confirmBookingPayment(tx, order, harness.now()));
 
-      const order = await readOrder(getDb(), held.orderId);
-      const booking = await readBooking(getDb(), held.bookingId);
-      expect(order.paymentStatus).toBe("paid");
-      expect(booking.depositCaptureId).toBe(order.paypalCaptureId);
-      expect(["confirmed", "review_required"]).toContain(booking.status);
-    }
+    expect(await readBooking(getDb(), held.bookingId)).toMatchObject({
+      status: "review_required",
+      reviewReason: "captured_after_cancel",
+      depositCaptureId: "CAPTURE1",
+    });
   });
 
   it("reports what happened through the status tool, without the capture", async () => {
     const { held, paypalOrderId } = await holdNoon();
-    harness.advance(HOLD_MS);
-    harness.paypal.approve(paypalOrderId);
-    await settle(held.orderId);
+    await captureAcrossExpiry(getDb(), harness, held.orderId, HOLD_MS);
 
     const status = await getOrderStatus(
       getDb(),
@@ -1005,19 +1199,21 @@ describe("cancellation", () => {
     ).toBe("BOOKING_HOLD_ENDED");
   });
 
-  it("sends a payment made after cancelling to review, inside the hold's time too", async () => {
+  it("charges nothing for an approval after cancelling, inside the hold's time too", async () => {
     const { held, paypalOrderId } = await holdNoon();
     await settle(held.orderId, { buyerCancelled: true });
 
     harness.paypal.approve(paypalOrderId);
     await settle(held.orderId);
 
+    expect(harness.paypal.charges()).toBe(0);
     const order = await readOrder(getDb(), held.orderId);
-    expect(order.paymentStatus).toBe("paid");
+    expect(order.paymentStatus).toBe("cancelled");
+    expect(order.paypalCaptureId).toBeNull();
     expect(await readBooking(getDb(), held.bookingId)).toMatchObject({
-      status: "review_required",
-      reviewReason: "captured_after_cancel",
-      depositCaptureId: order.paypalCaptureId,
+      status: "cancelled",
+      depositCaptureId: null,
+      reviewReason: null,
     });
   });
 
@@ -1160,9 +1356,7 @@ describe("getShopSchedule", () => {
       await slotAt(getDb(), harness, workshop, ONE_PM_SLOT),
       workshop.service.id,
     );
-    harness.advance(HOLD_MS);
-    harness.paypal.approve(late.paypalOrderId);
-    await settle(late.held.orderId);
+    await captureAcrossExpiry(getDb(), harness, late.held.orderId, HOLD_MS);
 
     const { bookings: views } = await getShopSchedule(
       getDb(),

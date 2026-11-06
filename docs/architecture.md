@@ -180,7 +180,7 @@ A buyer's assistant holds a technician's time and the buyer pays a deposit in Pa
 | --- | --- | --- |
 | Hold lifetime | 15 minutes from `book_slot` | Long enough to open PayPal and approve, short enough that an abandoned hold soon frees the time |
 | Deposit | The service's own `deposit_minor`, set by the seller | The rest of the price is paid at the shop. Both are fixed on the booking, so a later price edit changes nothing for it |
-| Late payment | The deposit is kept on record, the booking goes to `review_required`, and a person refunds or rebooks | No automatic refund, because a refund is a payment decision for the seller |
+| Late approval | Nothing is charged once a hold has ended. The booking reads `expired`, the order closes, and the buyer's assistant can find another time | A buyer never pays for a time that is no longer held for them |
 | Slot step | 30 minutes from the start of a working window | |
 | Lead time | A slot starting within 60 minutes is not offered | Always longer than a hold, so a hold ends before its appointment starts |
 
@@ -196,13 +196,15 @@ A buyer's assistant holds a technician's time and the buyer pays a deposit in Pa
 | --- | --- | --- | --- | --- |
 | `held` | Waiting for the deposit | Yes, until `hold_expires_at` | `book_slot` | Same booking and link |
 | `confirmed` | Deposit verified | Yes | A verified capture before `hold_expires_at`, in the transaction that marks the order paid | Same booking and link |
-| `expired` | Nobody paid in time | No | The sweep, or the next hold on that technician | `BOOKING_HOLD_ENDED` |
+| `expired` | Nobody paid in time | No | The sweep, the next hold on that technician, or a reconciliation that finds the hold has ended | `BOOKING_HOLD_ENDED` |
 | `cancelled` | The order was cancelled or failed | No | The `orders_release_hold` trigger | `BOOKING_HOLD_ENDED`, or `PAYMENT_DECLINED` if PayPal refused the order |
-| `review_required` | The deposit arrived after the hold ended | No | A verified capture at or after `hold_expires_at`, or after a cancel | Same booking and link |
+| `review_required` | PayPal had already taken the deposit as the hold ended | No | A verified capture at or after `hold_expires_at`, or after a cancel | Same booking and link |
 
-**Time decides expiry, not the sweep.** A hold ends at the exact instant of `hold_expires_at`. Every read treats a hold past that as `expired`, and a capture after it as late, whether or not the row has been marked yet. Marking only matters because the exclusion constraint counts rows still marked `held`, so it happens in the sweep and before every new hold. Slots ask the same clock, so a stale hold's time is offered straight away.
+**Time decides expiry, not the sweep.** A hold ends at the exact instant of `hold_expires_at`. Every read treats a hold past that as `expired`, no capture starts after it, and a capture reported after it is late, whether or not the row has been marked yet. Marking only matters because the exclusion constraint counts rows still marked `held`, so it happens in the sweep and before every new hold. Slots ask the same clock, so a stale hold's time is offered straight away.
 
-**A late capture never loses money or double-books.** PayPal cannot be told to stop a link it has issued, so a buyer can still approve after a hold ends. The order becomes `paid`, because that is the truth about the money. The booking becomes `review_required` with `deposit_capture_id` and `review_reason` set: `late_capture` after expiry, `captured_after_cancel` after a cancel. A booking in review claims no time, so someone else may already have that slot, or may still take it. The buyer's result page and `get_order_status` say the appointment is not confirmed. The seller has to refund or rebook, and the schedule keeps showing it until a seller tool exists for that, which is outside this issue. A hold whose order goes to `review_required` for another reason just runs out, and the order's own state says a person has to look.
+**A deposit is not charged once its hold has ended.** PayPal cannot be told to stop a link it has issued, so a buyer can still approve after a hold ends or after cancelling, and the return, a webhook or the sweep will still ask about that order. An approval moves no money until it is captured, so `closeDepositIfHoldEnded` runs before every capture of a deposit. With no live hold nothing is captured, the booking reads `expired` (or stays `cancelled`), and a `pending` order closes as `cancelled`, so it stops counting as awaiting payment. An order that is already `approved` had a capture attempted with no known outcome, so it is not tried again and stays open, and the sweep keeps asking as it does for any such order.
+
+**A capture PayPal has already made never loses money or double-books.** The check and the capture cannot be one step, so a hold can end while a capture is on its way, and a capture's answer can be lost until after the hold has ended. The order becomes `paid`, because that is the truth about the money. The booking becomes `review_required` with `deposit_capture_id` and `review_reason` set: `late_capture` after expiry, `captured_after_cancel` after a cancel. A booking in review claims no time, so someone else may already have that slot, or may still take it. The buyer's result page and `get_order_status` say the appointment is not confirmed. The seller has to refund or rebook, and the schedule keeps showing it until a seller tool exists for that, which is outside this issue. A hold whose order goes to `review_required` for another reason just runs out, and the order's own state says a person has to look.
 
 **Errors:** beyond the ones listed under [Checkout](#checkout):
 

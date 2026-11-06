@@ -15,7 +15,7 @@ import {
   type PayPalProvider,
   type PayPalSellerApi,
 } from "../paypal/orders";
-import { confirmBookingPayment } from "./bookings";
+import { closeDepositIfHoldEnded, confirmBookingPayment } from "./bookings";
 
 // The one place that decides what a PayPal order means for a stored order. The buyer's return, a
 // verified webhook and the sweep are all only reasons to ask: each calls reconcileOrder, which
@@ -30,14 +30,20 @@ export type Tx = Parameters<Parameters<Db["transaction"]>[0]>[0];
 // database changes, and must record a problem rather than throw for an order it cannot fulfil.
 export type PaymentConfirmedHook = (tx: Tx, order: OrderRow) => Promise<void>;
 
+// Asked before anything is captured. True means this order must not be charged, and the hook has
+// recorded that. It runs only while PayPal reports that no money has moved.
+export type CaptureGuard = (db: Db, order: OrderRow) => Promise<boolean>;
+
 export type ReconcileDeps = {
   paypalFor: PayPalProvider;
   onPaymentConfirmed: PaymentConfirmedHook;
+  closeIfHoldEnded: CaptureGuard;
 };
 
 export const defaultReconcileDeps: ReconcileDeps = {
   paypalFor,
   onPaymentConfirmed: (tx, order) => confirmBookingPayment(tx, order),
+  closeIfHoldEnded: (db, order) => closeDepositIfHoldEnded(db, order),
 };
 
 const unavailable = () =>
@@ -208,12 +214,14 @@ async function applyReading(
 
 export type ReconcileOptions = {
   // The buyer came back from PayPal through the cancel link. This counts only if PayPal agrees
-  // that the order was not approved, and a later approval still wins.
+  // that the order was not approved. A later approval still wins for a product, while a deposit's
+  // time has been released by then, so it is not charged.
   buyerCancelled?: boolean;
 };
 
 // Brings a stored order in line with PayPal. Safe to call at any time and from anywhere: it only
-// asks PayPal to capture an order PayPal reports as approved, which a person did in PayPal.
+// asks PayPal to capture an order PayPal reports as approved, which a person did in PayPal, and a
+// deposit only while its hold is live.
 // Throws a ServiceError if the outcome stays unknown, and the order then keeps its state.
 export async function reconcileOrder(
   db: Db,
@@ -247,6 +255,13 @@ export async function reconcileOrder(
     });
 
   let reading = await read();
+  if (
+    order.paymentStatus !== "paid" &&
+    (reading.outcome === "ready_to_capture" || reading.outcome === "awaiting_buyer") &&
+    (await deps.closeIfHoldEnded(db, order))
+  ) {
+    return (await loadOrder(db, order.id))?.order;
+  }
   if (reading.outcome === "ready_to_capture" && order.paymentStatus !== "paid") {
     await db
       .update(orders)
