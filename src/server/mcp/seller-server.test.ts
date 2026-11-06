@@ -43,7 +43,7 @@ describe("seller MCP capability registration", () => {
       identity: { createShopForAuthorizedAgent: vi.fn() },
       authorizeShop: vi.fn(),
       shopIdFromRequest: () => "5f4b2190-f88b-4d19-bef6-cc11e71bb6f1",
-      stock: { read: vi.fn(), adjust: vi.fn() },
+      stock: { read: vi.fn(), adjust: vi.fn(), setMode: vi.fn() },
       catalog: { supportedActions: ["list", "edit"], run: vi.fn() },
     };
     expect(availableSellerAgentTools(services)).toEqual(["createShop", "manageCatalog", "manageStock"]);
@@ -83,6 +83,14 @@ describe("seller MCP capability registration", () => {
           reserved: 1,
           available: 4,
           version: 3,
+        }),
+        setMode: async (_principal, input) => ({
+          productId: input.productId,
+          mode: input.mode,
+          onHand: input.mode === "tracked" ? (input.onHand ?? 0) : null,
+          reserved: input.mode === "tracked" ? 0 : null,
+          available: input.mode === "tracked" ? (input.onHand ?? 0) : null,
+          version: 1,
         }),
       },
       catalog: {

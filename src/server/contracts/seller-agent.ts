@@ -1,5 +1,7 @@
 import { z } from "zod";
 
+import { importRowPatch } from "./imports";
+
 // Seller-agent inputs deliberately omit shopId, prices, PayPal recipients, and credentials. The
 // caller's seller grant selects the tenant; persisted shop data supplies all consequential values.
 export const sellerAgentCreateShopInput = z.strictObject({
@@ -28,8 +30,7 @@ export const sellerAgentShopResult = z.strictObject({
 export const sellerAgentImportInput = z.strictObject({
   fileName: z.string().trim().min(1).max(200),
   contentType: z.enum(["text/csv", "application/vnd.ms-excel", "image/jpeg", "image/png", "image/webp"]),
-  contentBase64: z.string().min(1).max(8_000_000),
-  idempotencyKey: z.uuid(),
+  contentBase64: z.string().min(1).max(9_333_336).regex(/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/),
 });
 
 export const sellerAgentImportResult = z.strictObject({
@@ -40,8 +41,20 @@ export const sellerAgentImportResult = z.strictObject({
 });
 
 export const sellerAgentReviewInput = z.strictObject({
+  action: z.enum(["get", "edit_row", "remove_row", "accept_clean", "set_missing_currency", "publish"]),
   importId: z.uuid(),
-  action: z.enum(["get", "accept_clean", "publish"]),
+  rowId: z.uuid().optional(),
+  patch: importRowPatch.optional(),
+}).superRefine((input, ctx) => {
+  if (input.action === "edit_row" && (!input.rowId || !input.patch || Object.keys(input.patch).length === 0)) {
+    ctx.addIssue({ code: "custom", message: "Editing a row requires its ID and a non-empty patch." });
+  }
+  if (input.action === "remove_row" && (!input.rowId || input.patch)) {
+    ctx.addIssue({ code: "custom", message: "Removing a row requires its ID and no patch." });
+  }
+  if (!["edit_row", "remove_row"].includes(input.action) && (input.rowId !== undefined || input.patch !== undefined)) {
+    ctx.addIssue({ code: "custom", message: "This import action does not accept row fields." });
+  }
 });
 
 export const sellerAgentReviewRow = z.strictObject({
@@ -71,12 +84,12 @@ export const sellerAgentReviewResult = z.strictObject({
   importId: z.uuid(),
   status: z.enum(["queued", "running", "needs_review", "failed", "completed"]),
   rows: z.array(sellerAgentReviewRow),
-  publishedProductIds: z.array(z.uuid()),
+  publishedCount: z.number().int().nonnegative(),
   reviewUrl: z.string().url(),
 });
 
 export const sellerAgentCatalogInput = z.strictObject({
-  action: z.enum(["list", "create", "edit", "publish", "unpublish"]),
+  action: z.enum(["list", "edit", "publish", "unpublish"]),
   productId: z.uuid().optional(),
   product: z.strictObject({
     kind: z.enum(["product", "service"]),
@@ -90,9 +103,6 @@ export const sellerAgentCatalogInput = z.strictObject({
 }).superRefine((input, ctx) => {
   const hasProduct = input.product !== undefined;
   const hasPatch = input.patch !== undefined;
-  if (input.action === "create" && (!hasProduct || input.productId !== undefined || hasPatch)) {
-    ctx.addIssue({ code: "custom", message: "Create requires a new product and cannot include a product ID or patch." });
-  }
   if (["edit", "publish", "unpublish"].includes(input.action) && (!input.productId || hasProduct || (input.action === "edit" ? !hasPatch : hasPatch))) {
     ctx.addIssue({ code: "custom", message: "This action requires a product ID and only accepts its relevant fields." });
   }
@@ -127,18 +137,26 @@ export const sellerAgentCatalogResult = z.strictObject({
 });
 
 export const sellerAgentStockInput = z.strictObject({
-  action: z.enum(["read", "adjust"]),
+  action: z.enum(["read", "adjust", "set_mode"]),
   productId: z.uuid(),
   delta: z.number().int().min(-1_000_000).max(1_000_000).optional(),
   expectedVersion: z.number().int().nonnegative().optional(),
+  mode: z.enum(["tracked", "untracked"]).optional(),
+  onHand: z.number().int().nonnegative().max(1_000_000).optional(),
   reason: z.string().trim().min(3).max(500).optional(),
   idempotencyKey: z.string().regex(/^[A-Za-z0-9._:-]{16,128}$/).optional(),
 }).superRefine((input, ctx) => {
   if (input.action === "adjust" && (input.delta === undefined || input.delta === 0 || input.expectedVersion === undefined || !input.reason || !input.idempotencyKey)) {
     ctx.addIssue({ code: "custom", message: "A non-zero delta, expected version, reason and idempotency key are required to adjust stock." });
   }
-  if (input.action === "read" && (input.delta !== undefined || input.expectedVersion !== undefined || input.reason !== undefined || input.idempotencyKey !== undefined)) {
+  if (input.action === "set_mode" && (!input.mode || !input.reason || !input.idempotencyKey || (input.mode === "tracked" && input.onHand === undefined) || (input.mode === "untracked" && input.onHand !== undefined) || input.delta !== undefined || input.expectedVersion !== undefined)) {
+    ctx.addIssue({ code: "custom", message: "Setting inventory mode requires an explicit mode, reason and idempotency key; tracked mode also requires on-hand quantity." });
+  }
+  if (input.action === "read" && (input.delta !== undefined || input.expectedVersion !== undefined || input.mode !== undefined || input.onHand !== undefined || input.reason !== undefined || input.idempotencyKey !== undefined)) {
     ctx.addIssue({ code: "custom", message: "Stock reads cannot include an adjustment." });
+  }
+  if (input.action === "adjust" && (input.mode !== undefined || input.onHand !== undefined)) {
+    ctx.addIssue({ code: "custom", message: "Quantity adjustments cannot change inventory mode." });
   }
 });
 

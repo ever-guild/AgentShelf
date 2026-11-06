@@ -87,7 +87,7 @@ describe("seller agent contracts", () => {
       descriptionLv: null,
       issues: [],
     };
-    expect(sellerAgentReviewResult.safeParse({ importId: row.id, status: "needs_review", rows: [row], publishedProductIds: [], reviewUrl: "https://example.test/review" }).success).toBe(true);
-    expect(sellerAgentReviewResult.safeParse({ importId: row.id, status: "needs_review", rows: [{ ...row, rawSource: "private provider payload" }], publishedProductIds: [], reviewUrl: "https://example.test/review" }).success).toBe(false);
+    expect(sellerAgentReviewResult.safeParse({ importId: row.id, status: "needs_review", rows: [row], publishedCount: 0, reviewUrl: "https://example.test/review" }).success).toBe(true);
+    expect(sellerAgentReviewResult.safeParse({ importId: row.id, status: "needs_review", rows: [{ ...row, rawSource: "private provider payload" }], publishedCount: 0, reviewUrl: "https://example.test/review" }).success).toBe(false);
   });
 });

@@ -13,11 +13,11 @@ The Identity integration contract being implemented separately uses `create_shop
 | Tool | Operation | Contract rule |
 | --- | --- | --- |
 | `seller_create_shop` | Create a shop with idempotency under owner-level `create_shop` authorization | Shop data only; no shop ID, seller ID, merchant, credentials or payee |
-| `seller_import_price_list` | Upload CSV/photo for AI extraction to a review draft | Does not publish; import idempotency required |
-| `seller_review_import` | Read review, accept clean rows, or publish a completed review | Seller review remains explicit before publication |
-| `seller_manage_catalog` | List/create/edit/publish/unpublish catalog entries | `inputSchema.action` and description are narrowed to adapter-supported actions at server construction |
-| `seller_manage_stock` | Read quantities or make versioned stock adjustments | Read requires `read_shop`; adjustment requires `manage_inventory`, expected version, reason and idempotency key |
-| `seller_connect_paypal` | Start sandbox seller consent with an idempotency key | Returns public connection status/next action and a validated HTTPS `*.sandbox.paypal.com` human-action link when available. The owner completes PayPal consent. No payment approval, capture or refund operation exists here |
+| `seller_import_price_list` | Upload CSV/photo for AI extraction to a review draft | Does not publish; each upload creates a new job, so retry after a lost response can duplicate a draft |
+| `seller_review_import` | Read/edit/remove rows, accept clean rows, set missing currency, or publish a completed review | Seller review remains explicit before publication |
+| `seller_manage_catalog` | List/edit/publish/unpublish catalog entries | Direct create is omitted until the catalog service adds it; CSV/photo import plus review publishes new products. `inputSchema.action` and description are narrowed to adapter-supported actions at server construction |
+| `seller_manage_stock` | Read quantities, configure tracked/untracked mode, or make versioned stock adjustments | Read requires `read_shop`; mode setup and adjustment require `manage_inventory`, explicit reason/idempotency key; adjustments also require expected version |
+| `seller_connect_paypal` | Start sandbox seller consent with an idempotency key | Returns public connection status/next action and a validated PayPal Sandbox Partner Referrals action link when available. The owner completes PayPal consent. No payment approval, capture or refund operation exists here |
 
 Only a capability with an injected service adapter and the required grant resolver is registered. A production composition root must provide adapters only for operations with implemented backend support. `availableSellerAgentTools` reports what that composition can actually expose. This prevents a mock or a tool name from being treated as backend readiness.
 
