@@ -53,7 +53,9 @@ describe("inventory Postgres module", () => {
     const second = await createProduct(db, seller.shopId);
     await chooseTracked(productId, 1);
     await chooseTracked(productId, 1);
-    expect(await stockAdapter.read(seller, productId)).toMatchObject({ onHand: 1, version: 0 });
+    const initialLevel = await stockAdapter.read(seller, productId);
+    expect(initialLevel).toMatchObject({ onHand: 1, version: 0 });
+    expect(initialLevel.updatedAt).toBeInstanceOf(Date);
     await chooseTracked(second.id, 0, "inventory-decision-key-0002");
     const noDecision = await createProduct(db, seller.shopId);
     await expect(reserveInventory(pool, seller.shopId, "reservation-key-0001", [{ productId: noDecision.id, quantity: 1 }], new Date(Date.now() + 60_000))).rejects.toMatchObject({ code: "CONFLICT" });

@@ -14,6 +14,7 @@ type StockRow = QueryResultRow & {
   on_hand: number | null;
   reserved: number | null;
   version: number;
+  updated_at: Date;
 };
 const MAX_STOCK = 1_000_000;
 
@@ -62,13 +63,14 @@ function rowToLevel(row: StockRow): StockLevel {
     reserved: row.reserved,
     available: row.mode === "tracked" ? Number(row.on_hand) - Number(row.reserved) : null,
     version: Number(row.version),
+    updatedAt: row.updated_at,
   };
 }
 
 export async function readStock(pool: Pool, principal: InventoryPrincipal, productId: string): Promise<StockLevel> {
   assertPrincipal(principal);
   const result = await pool.query<StockRow>(
-    `SELECT product_id, mode, on_hand, reserved, version FROM inventory_stock
+    `SELECT product_id, mode, on_hand, reserved, version, updated_at FROM inventory_stock
      WHERE shop_id = $1 AND product_id = $2`,
     [principal.shopId, productId],
   );
@@ -99,7 +101,7 @@ export async function setInventoryMode(
     );
     if (priorDecision.rowCount) {
       if (priorDecision.rows[0].request_hash !== requestHash) throw new InventoryError("CONFLICT", "Idempotency key was already used for another inventory action.");
-      const current = await client.query<StockRow>("SELECT product_id, mode, on_hand, reserved, version FROM inventory_stock WHERE shop_id=$1 AND product_id=$2", [principal.shopId, productId]);
+      const current = await client.query<StockRow>("SELECT product_id, mode, on_hand, reserved, version, updated_at FROM inventory_stock WHERE shop_id=$1 AND product_id=$2", [principal.shopId, productId]);
       if (!current.rowCount) throw new InventoryError("NOT_FOUND", "Inventory record was not found.");
       return rowToLevel(current.rows[0]);
     }
@@ -109,7 +111,7 @@ export async function setInventoryMode(
     );
     if (!product.rowCount) throw new InventoryError("NOT_FOUND", "Product was not found in this shop.");
     const existing = await client.query<StockRow>(
-      "SELECT product_id, mode, on_hand, reserved, version FROM inventory_stock WHERE shop_id = $1 AND product_id = $2 FOR UPDATE",
+      "SELECT product_id, mode, on_hand, reserved, version, updated_at FROM inventory_stock WHERE shop_id = $1 AND product_id = $2 FOR UPDATE",
       [principal.shopId, productId],
     );
     if (existing.rowCount) throw new InventoryError("CONFLICT", "Inventory policy is already set; change tracked quantities with an adjustment.");
@@ -117,7 +119,7 @@ export async function setInventoryMode(
     const inserted = await client.query<StockRow>(
       `INSERT INTO inventory_stock (shop_id, product_id, mode, on_hand, reserved, version, updated_at)
        VALUES ($1, $2, $3, $4, 0, 0, now())
-       RETURNING product_id, mode, on_hand, reserved, version`,
+       RETURNING product_id, mode, on_hand, reserved, version, updated_at`,
       [principal.shopId, productId, decision.mode, onHand],
     );
     await client.query("INSERT INTO inventory_adjustments (shop_id, idempotency_key, request_hash, result_version) VALUES ($1,$2,$3,0)", [principal.shopId, decision.idempotencyKey, requestHash]);
@@ -138,7 +140,7 @@ export async function adjustInventory(pool: Pool, principal: InventoryPrincipal,
   return transaction(pool, async (client) => {
     await client.query("SELECT pg_advisory_xact_lock(hashtextextended($1 || ':' || $2, 0))", [principal.shopId, input.idempotencyKey]);
     const found = await client.query<StockRow>(
-      `SELECT s.product_id, s.mode, s.on_hand, s.reserved, s.version
+      `SELECT s.product_id, s.mode, s.on_hand, s.reserved, s.version, s.updated_at
        FROM inventory_stock s JOIN products p ON p.id=s.product_id AND p.shop_id=s.shop_id
        WHERE s.shop_id=$1 AND s.product_id=$2 FOR UPDATE OF s`,
       [principal.shopId, input.productId],
@@ -152,7 +154,7 @@ export async function adjustInventory(pool: Pool, principal: InventoryPrincipal,
     const hash = createHash("sha256").update(JSON.stringify({ productId: input.productId, delta: input.delta, expectedVersion: input.expectedVersion, reason: input.reason })).digest("hex");
     if (existing.rowCount) {
       if (existing.rows[0].request_hash !== hash) throw new InventoryError("CONFLICT", "Idempotency key was already used for another adjustment.");
-      const current = await client.query<StockRow>("SELECT product_id, mode, on_hand, reserved, version FROM inventory_stock WHERE shop_id=$1 AND product_id=$2", [principal.shopId, input.productId]);
+      const current = await client.query<StockRow>("SELECT product_id, mode, on_hand, reserved, version, updated_at FROM inventory_stock WHERE shop_id=$1 AND product_id=$2", [principal.shopId, input.productId]);
       return rowToLevel(current.rows[0]);
     }
     if (row.mode !== "tracked" || row.on_hand === null) throw new InventoryError("CONFLICT", "Untracked inventory cannot be adjusted as a quantity.");
@@ -162,7 +164,7 @@ export async function adjustInventory(pool: Pool, principal: InventoryPrincipal,
     if (next > MAX_STOCK) throw new InventoryError("INVALID", "On-hand quantity cannot exceed 1,000,000.");
     const updated = await client.query<StockRow>(
       `UPDATE inventory_stock SET on_hand=$3, version=version+1, updated_at=now()
-       WHERE shop_id=$1 AND product_id=$2 RETURNING product_id, mode, on_hand, reserved, version`,
+       WHERE shop_id=$1 AND product_id=$2 RETURNING product_id, mode, on_hand, reserved, version, updated_at`,
       [principal.shopId, input.productId, next],
     );
     await client.query("INSERT INTO inventory_adjustments (shop_id, idempotency_key, request_hash, result_version) VALUES ($1,$2,$3,$4)", [principal.shopId, input.idempotencyKey, hash, updated.rows[0].version]);
@@ -178,7 +180,7 @@ export async function adjustInventory(pool: Pool, principal: InventoryPrincipal,
 async function lockStock(client: Queryable, shopId: string, lines: readonly InventoryLine[]): Promise<Map<string, StockRow>> {
   const ids = lines.map((line) => line.productId).sort();
   const result = await client.query<StockRow>(
-    `SELECT s.product_id, s.mode, s.on_hand, s.reserved, s.version
+    `SELECT s.product_id, s.mode, s.on_hand, s.reserved, s.version, s.updated_at
      FROM inventory_stock s JOIN products p ON p.id=s.product_id AND p.shop_id=s.shop_id
      WHERE s.shop_id=$1 AND p.kind='product' AND s.product_id = ANY($2::uuid[]) ORDER BY s.product_id FOR UPDATE OF s`,
     [shopId, ids],

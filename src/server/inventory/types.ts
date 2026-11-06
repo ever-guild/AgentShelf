@@ -8,6 +8,7 @@ export type StockLevel = Readonly<{
   reserved: number | null;
   available: number | null;
   version: number;
+  updatedAt: Date;
 }>;
 
 export type ReservationLine = Readonly<{ productId: string; quantity: number }>;
