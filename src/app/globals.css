@@ -1,14 +1,22 @@
 @import "tailwindcss";
 
 :root {
+  color-scheme: light dark;
   --background: #ffffff;
-  --foreground: #171717;
-  /* Seller screens: the blue of a carbon-copy receipt book, for what the source said and for the
-     main action, and three states a row can be in. */
+  --foreground: #18181b;
+  /* The blue of a carbon-copy receipt book, for what the source said and for the main action, and
+     three states a row can be in. Each one reaches 4.5 to 1 on every zinc surface of its theme. */
   --ink: #2438a6;
   --blocked: #b42318;
   --doubt: #92560a;
   --accepted: #12704a;
+}
+
+@theme {
+  /* One curve and one feedback duration, so a plain `transition-colors` already has both. */
+  --ease-out: cubic-bezier(0.22, 1, 0.36, 1);
+  --default-transition-duration: 150ms;
+  --default-transition-timing-function: var(--ease-out);
 }
 
 @theme inline {
@@ -24,8 +32,8 @@
 
 @media (prefers-color-scheme: dark) {
   :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
+    --background: #09090b;
+    --foreground: #f4f4f5;
     --ink: #a9b8ff;
     --blocked: #ff9c8f;
     --doubt: #eebb6a;
@@ -36,26 +44,57 @@
 body {
   background: var(--background);
   color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
 }
 
-/* The one moving thing in the seller screens: a line passing over a photo while it is being read. */
+@layer base {
+  :focus-visible {
+    outline: 2px solid var(--ink);
+    outline-offset: 2px;
+  }
+
+  ::selection {
+    background: color-mix(in srgb, var(--ink) 24%, transparent);
+  }
+
+  /* The browser's default placeholder falls short of 4.5 to 1. */
+  ::placeholder {
+    color: var(--color-zinc-500);
+  }
+
+  @media (prefers-color-scheme: dark) {
+    ::placeholder {
+      color: var(--color-zinc-400);
+    }
+  }
+}
+
+/* The one moving thing in the seller screens: a line passing over a photo while it is being read.
+   The whole layer moves, because a transform stays smooth where animating `top` does not. The
+   neutral edge keeps a pale line visible on a pale photo. */
 @keyframes reading-sweep {
   from {
-    top: 0;
+    transform: translateY(0);
   }
   to {
-    top: 100%;
+    transform: translateY(calc(100% - 2px));
   }
 }
 
 .reading-line {
   position: absolute;
+  inset: 0;
+  pointer-events: none;
+  animation: reading-sweep 2.4s ease-in-out infinite alternate;
+}
+
+.reading-line::before {
+  content: "";
+  position: absolute;
   inset-inline: 0;
+  top: 0;
   height: 2px;
   background: var(--ink);
-  box-shadow: 0 0 12px 2px var(--ink);
-  animation: reading-sweep 2.4s ease-in-out infinite alternate;
+  box-shadow: 0 0 0 1px rgb(9 9 11 / 0.32);
 }
 
 @media (prefers-reduced-motion: reduce) {

@@ -1,10 +1,22 @@
 "use client";
 
 import Link from "next/link";
-import { useRouter } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
+
+const LINKS = [
+  { href: "/seller/imports", label: "Price lists" },
+  { href: "/seller/catalog", label: "Catalog" },
+  { href: "/seller/schedule", label: "Schedule" },
+  { href: "/seller/dashboard", label: "Dashboard" },
+];
+
+const ITEM =
+  "inline-flex h-9 items-center rounded-lg px-2 transition-colors hover:bg-zinc-100 hover:text-foreground dark:hover:bg-zinc-800";
+const SECONDARY_TEXT = "text-zinc-600 dark:text-zinc-400";
 
 export function SellerHeader({ shopName }: { shopName: string }) {
   const router = useRouter();
+  const pathname = usePathname();
 
   async function signOut() {
     await fetch("/api/seller/session", { method: "DELETE" });
@@ -13,27 +25,33 @@ export function SellerHeader({ shopName }: { shopName: string }) {
   }
 
   return (
-    <header className="flex flex-wrap items-center justify-between gap-x-6 gap-y-1 border-b border-zinc-200 px-4 py-3 text-sm dark:border-zinc-800 sm:px-6">
-      <Link href="/seller/imports" className="font-semibold tracking-tight">
+    // On a phone the links fill their own row, with the shop name and sign out above them.
+    <header className="grid min-h-14 grid-cols-[minmax(0,1fr)_auto] items-center gap-x-4 border-b border-zinc-200 px-4 py-2 text-sm sm:flex sm:px-6 dark:border-zinc-800">
+      <Link href="/seller/imports" className="min-w-0 font-medium break-words sm:mr-auto">
         {shopName}
       </Link>
-      <nav className="flex flex-wrap items-center gap-x-4 gap-y-1 text-zinc-600 dark:text-zinc-400">
-        <Link href="/seller/imports" className="underline-offset-4 hover:underline">
-          Price lists
-        </Link>
-        <Link href="/seller/catalog" className="underline-offset-4 hover:underline">
-          Catalog
-        </Link>
-        <Link href="/seller/schedule" className="underline-offset-4 hover:underline">
-          Schedule
-        </Link>
-        <Link href="/seller/dashboard" className="underline-offset-4 hover:underline">
-          Dashboard
-        </Link>
-        <button type="button" onClick={signOut} className="underline-offset-4 hover:underline">
-          Sign out
-        </button>
+      <nav aria-label="Seller" className="col-span-2 row-start-2 -mx-2 flex flex-wrap sm:mx-0">
+        {LINKS.map(({ href, label }) => {
+          const current = pathname === href || pathname.startsWith(`${href}/`);
+          return (
+            <Link
+              key={href}
+              href={href}
+              aria-current={current ? "page" : undefined}
+              className={`${ITEM} ${current ? "bg-zinc-100 font-medium text-foreground dark:bg-zinc-800" : SECONDARY_TEXT}`}
+            >
+              {label}
+            </Link>
+          );
+        })}
       </nav>
+      <button
+        type="button"
+        onClick={signOut}
+        className={`${ITEM} ${SECONDARY_TEXT} col-start-2 row-start-1 -mr-2 sm:mr-0`}
+      >
+        Sign out
+      </button>
     </header>
   );
 }

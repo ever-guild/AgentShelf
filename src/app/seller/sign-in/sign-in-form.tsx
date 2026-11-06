@@ -4,7 +4,16 @@ import { useRouter } from "next/navigation";
 import { useState, type FormEvent } from "react";
 
 const fieldClass =
-  "w-full rounded-md border border-zinc-300 bg-transparent px-3 py-2 text-base focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-ink dark:border-zinc-700";
+  "h-11 w-full rounded-lg border border-zinc-300 bg-transparent px-3 text-base font-normal focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-ink dark:border-zinc-700";
+
+function signInError(code: string | undefined, message: string | undefined): string {
+  if (code === "UNAUTHORIZED") {
+    return `${message ?? "This shop and access code do not match."} Check both and try again.`;
+  }
+  return code === "INVALID_INPUT"
+    ? "Enter a shop name and an access code."
+    : "Signing in did not work on our side. Try again in a moment.";
+}
 
 export function SignInForm() {
   const router = useRouter();
@@ -33,11 +42,7 @@ export function SignInForm() {
       const body = (await response.json().catch(() => null)) as {
         error?: { code?: string; message?: string };
       } | null;
-      setError(
-        body?.error?.code === "UNAUTHORIZED"
-          ? (body.error.message ?? "This shop and access code do not match.")
-          : "Enter a shop name and an access code.",
-      );
+      setError(signInError(body?.error?.code, body?.error?.message));
     } catch {
       setError("The server did not answer. Check your connection and try again.");
     }
@@ -77,7 +82,7 @@ export function SignInForm() {
       <button
         type="submit"
         disabled={busy}
-        className="rounded-md bg-ink px-4 py-2 font-medium text-white disabled:opacity-60 dark:text-zinc-950"
+        className="h-11 rounded-lg bg-ink px-4 font-medium text-background transition-[background-color,transform] hover:bg-ink/90 active:scale-[0.98] disabled:opacity-60"
       >
         {busy ? "Signing in" : "Sign in"}
       </button>

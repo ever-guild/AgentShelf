@@ -15,7 +15,7 @@ const geistMono = Geist_Mono({
 export const metadata: Metadata = {
   title: "AgentShelf",
   description:
-    "Make any small shop buyable by AI agents in 5 minutes, with payment through PayPal.",
+    "A small shop with no online store photographs its price list, and buyers' assistants can find it and order. The buyer confirms payment in PayPal. PayPal sandbox only.",
 };
 
 export default function RootLayout({ children }: LayoutProps<"/">) {

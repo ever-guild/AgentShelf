@@ -8,5 +8,5 @@ export const metadata: Metadata = {
 };
 
 export default function SellerLayout({ children }: { children: ReactNode }) {
-  return <div className="flex flex-1 flex-col font-sans">{children}</div>;
+  return <div className="flex flex-1 flex-col">{children}</div>;
 }
