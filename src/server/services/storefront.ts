@@ -13,6 +13,7 @@ import { orderLines, orders, products, shops } from "../db/schema";
 import { ServiceError, parseInput } from "../errors";
 import { errorResponse, readBodyWithin } from "../http";
 import { paypalFor as defaultPayPalFor, type PayPalProvider } from "../paypal/orders";
+import { merchantEligibilityPool, resolveShopPayPalRoute } from "../paypal/merchant-eligibility";
 import { createCheckout, type CheckoutDeps } from "./checkout";
 import { getOrderStatus } from "./order-status";
 
@@ -171,10 +172,10 @@ function publicShop(shop: Awaited<ReturnType<typeof findShop>>): StorefrontShop 
 }
 
 function browserClientId(
-  shop: Awaited<ReturnType<typeof findShop>>,
+  route: Awaited<ReturnType<typeof resolveShopPayPalRoute>>,
   paypalFor: PayPalProvider,
 ): string | null {
-  return shop.merchantId ? (paypalFor(shop.credentialRef)?.clientId ?? null) : null;
+  return route ? (paypalFor(route.credentialRef, route.payeeMerchantId)?.clientId ?? null) : null;
 }
 
 export async function getStorefrontShop(db: Db, slug: string): Promise<StorefrontShop> {
@@ -188,6 +189,11 @@ export async function getStorefront(
   paypalFor: PayPalProvider = defaultPayPalFor,
 ): Promise<Storefront> {
   const shop = await findShop(db, slug);
+  const paymentRoute = await resolveShopPayPalRoute(merchantEligibilityPool(db), {
+    shopId: shop.id,
+    credentialRef: shop.credentialRef,
+    legacyMerchantId: shop.merchantId,
+  });
   const rows = (await db
     .select({ ...productColumns, ...reviewedTextColumns() })
     .from(products)
@@ -195,7 +201,7 @@ export async function getStorefront(
     .orderBy(asc(products.availability), asc(products.title), asc(products.id))) as ProductRow[];
   return {
     shop: publicShop(shop),
-    acceptsPayment: browserClientId(shop, paypalFor) !== null,
+    acceptsPayment: browserClientId(paymentRoute, paypalFor) !== null,
     hasLatvian: rows.some((row) => Boolean(row.descriptionLv?.trim())),
     products: rows.map((row) => toStorefrontProduct(row, shop.currency, language)),
   };
@@ -229,10 +235,15 @@ export async function getStorefrontProduct(
   if (!row) {
     throw notFound();
   }
+  const paymentRoute = await resolveShopPayPalRoute(merchantEligibilityPool(db), {
+    shopId: shop.id,
+    credentialRef: shop.credentialRef,
+    legacyMerchantId: shop.merchantId,
+  });
   return {
     shop: publicShop(shop),
     product: toStorefrontProduct(row, shop.currency, language),
-    paypalClientId: browserClientId(shop, paypalFor),
+    paypalClientId: browserClientId(paymentRoute, paypalFor),
   };
 }
 

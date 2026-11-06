@@ -11,6 +11,10 @@ import {
   sumMinor,
 } from "../domain/money";
 import { ServiceError, parseInput } from "../errors";
+import {
+  merchantEligibilityPool,
+  resolveShopPayPalRoute,
+} from "../paypal/merchant-eligibility";
 
 export type CheckoutQuoteLine = {
   productId: string;
@@ -105,7 +109,12 @@ export async function quoteCheckout(
       `Currency ${currency} is not supported.`,
     );
   }
-  if (!merchantId) {
+  const paymentRoute = await resolveShopPayPalRoute(merchantEligibilityPool(db), {
+    shopId,
+    credentialRef,
+    legacyMerchantId: merchantId,
+  });
+  if (!paymentRoute) {
     throw new ServiceError(
       "PAYMENT_NOT_CONFIGURED",
       "This shop cannot take payments yet.",
@@ -125,7 +134,7 @@ export async function quoteCheckout(
     currency,
     totalMinor: sumMinor(lines.map((line) => line.lineTotalMinor)),
     lines,
-    payeeMerchantId: merchantId,
-    paypalCredentialRef: credentialRef,
+    payeeMerchantId: paymentRoute.payeeMerchantId,
+    paypalCredentialRef: paymentRoute.credentialRef,
   };
 }
