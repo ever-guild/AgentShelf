@@ -9,9 +9,9 @@ A client is marked working only after a real connection to it.
 | Check | Result |
 | --- | --- |
 | SDK client over HTTP against a local production build | **PASS**: initialize, list tools, find the seeded product, reject bad input |
-| SDK client over HTTPS from outside | **BLOCKED**: the service is not deployed yet |
-| Claude | **Not tested**: needs the HTTPS URL |
-| ChatGPT | **Not tested**: needs the HTTPS URL |
+| SDK client over HTTPS from outside | **PASS** for initialize, list tools and rejecting bad input. **BLOCKED** for finding the seeded product, because the deployed database is [not seeded yet](deployment.md#seed-the-demo-data) |
+| Claude | **Not tested**: needs the seeded database |
+| ChatGPT | **Not tested**: needs the seeded database |
 
 ## Tools
 
@@ -47,7 +47,7 @@ Each `POST` creates its own server and transport and returns JSON. Nothing has t
 Follow [Add a connector that isn't in the directory](https://claude.com/docs/connectors/custom/remote-mcp). Claude connects from Anthropic's cloud, so the URL must be publicly reachable over HTTPS.
 
 1. Go to **Customize > Connectors** and click **Add custom connector**. On Team and Enterprise plans, an Owner adds it under **Organization settings > Connectors**. The Free plan allows one custom connector.
-2. Enter `https://YOUR-SERVICE.onrender.com/mcp`.
+2. Enter `https://agentshelf-e5bk.onrender.com/mcp`.
 3. If asked about authentication, choose **No sign-in**.
 4. In a chat, turn the connector on from **+ > Connectors**, then ask for something like "find an iPhone 13 screen protector in Liepaja under 15 euros".
 
@@ -58,7 +58,7 @@ Claude's documented limits are about 150,000 characters per tool result and 240 
 Follow [Connect and test your plugin](https://developers.openai.com/plugins/deploy/connect-chatgpt). Account and workspace policies can restrict custom servers.
 
 1. Go to [ChatGPT Plugins](https://chatgpt.com/plugins), select the plus button, then **Add custom MCP server**.
-2. Enter a name and description, and under **Connection** enter `https://YOUR-SERVICE.onrender.com/mcp`.
+2. Enter a name and description, and under **Connection** enter `https://agentshelf-e5bk.onrender.com/mcp`.
 3. Set authentication to **No authentication**, review the warning and confirm, then select **Create as a plugin**.
 4. Review the discovered tools. In a new conversation, type `@`, select the plugin and ask the same question.
 5. After a server change, select **Refresh** on the connection and start a new conversation.
