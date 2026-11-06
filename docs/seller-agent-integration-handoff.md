@@ -20,7 +20,7 @@ Booking hold capture prevention is implemented in [commit db9293c](https://githu
 
 The shared app shell, navigation, header, sign-in, and home design pass tracked in [issue #39](https://github.com/ever-guild/AgentShelf/issues/39) is present in [commit 1a589d7](https://github.com/ever-guild/AgentShelf/commit/1a589d718d19e20f72fac6d68dedcda5372896b1), the new owner registration interface still needs to be designed and checked against that shell
 
-These are branch-local drafts and must be rechecked after integration, none is evidence of a merged or deployed capability
+These are independent module contracts, the exact candidate must still be checked for runtime routes, service wiring, automated test execution, and deployment evidence
 
 In the reviewed worktrees, seller tools have a server contract and a separate transport file, while the current `/mcp` route still constructs the buyer server; inventory has database operations but checkout and buyer MCP do not yet call its reservation service; PayPal has a merchant-connection domain module but no platform consent API route is wired
 

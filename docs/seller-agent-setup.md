@@ -67,7 +67,7 @@ See [architecture local setup](architecture.md#local-setup) for database require
 
 Shop registration and owner identity are tracked in [issue #34](https://github.com/ever-guild/AgentShelf/issues/34), seller-agent MCP is tracked in [issue #37](https://github.com/ever-guild/AgentShelf/issues/37), shared-screen design is tracked in [issue #39](https://github.com/ever-guild/AgentShelf/issues/39), follow their merged UI and MCP contracts when available, do not infer endpoints or tool names from this guide
 
-For a clean onboarding run, create a separate empty database and do not run `db:seed`, register one shop through the shipped owner UI or owner-authorized agent path, then obtain an explicit owner-issued management grant for that shop before using seller tools, verify both persist after restart, and keep a second independent shop for isolation checks
+For a clean local onboarding run, keep `RENDER` unset, create a separate empty database and do not run `db:seed`, register one shop through the shipped owner UI or owner-authorized agent path, then obtain an explicit owner-issued management grant for that shop before using seller tools, verify both persist after restart, and keep a second independent shop for isolation checks
 
 Record the shop IDs only in local test notes, use non-sensitive synthetic shop names and catalog data, and verify owner authorization before granting any external agent access
 

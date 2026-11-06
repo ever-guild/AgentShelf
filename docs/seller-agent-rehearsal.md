@@ -8,7 +8,7 @@ The target scenario is owner-authorized shop setup, seller-side catalog and stoc
 
 ## Snapshot and status
 
-The current-code baseline is [commit db9293c](https://github.com/ever-guild/AgentShelf/commit/db9293c77dc7dd48026276f6cb5efd43a3e240ad), run this matrix again against the exact candidate commit before reporting release readiness
+The current-code baseline is [commit 9c84906](https://github.com/ever-guild/AgentShelf/commit/9c84906620c3ab6729beaa7995bfca45d6e7731a), run this matrix again against the exact candidate commit before reporting release readiness
 
 Use these results consistently
 
@@ -25,7 +25,7 @@ Report implementation, automated test execution, runtime wiring, and public depl
 
 ## Safe current-code baseline
 
-Use a disposable PostgreSQL 17 database for local rehearsal, the demo seed is repeatable but smoke searches add demand events to the database
+Use a disposable PostgreSQL 17 database for local rehearsal with `RENDER` unset, Render starts seed an empty database automatically while local seeding remains an explicit step, smoke searches add demand events to the database
 
 Set up the app using [architecture local setup](architecture.md#local-setup), then migrate, seed, and start the app
 
