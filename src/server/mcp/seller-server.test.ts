@@ -174,7 +174,7 @@ describe("seller MCP capability registration", () => {
       });
       expect(start).toHaveBeenCalledWith(
         { shopId, actorId: "owner-1", shareDataConsent: true, shareDataConsentAt },
-        { shopId, idempotencyKey: "seller-connect-0001", shareDataConsent: true },
+        { shopId, idempotencyKey: "seller-connect-0001" },
       );
     } finally {
       await client.close();

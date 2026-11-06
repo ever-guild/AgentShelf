@@ -61,7 +61,7 @@ export type SellerAgentServices = {
     setMode: (principal: SellerAgentGrant, input: SellerAgentStockInput & { mode: "tracked" | "untracked"; onHand?: number; idempotencyKey: string; reason: string }) => Promise<z.infer<typeof sellerAgentStockResult>>;
   };
   paypalConnection?: {
-    start: (principal: SellerAgentGrant, input: { shopId: string; idempotencyKey: string; shareDataConsent: true }) => Promise<{
+    start: (principal: SellerAgentGrant, input: { shopId: string; idempotencyKey: string }) => Promise<{
       connection: { shopId: string; status: z.infer<typeof sellerAgentPayPalConnectResult>["status"]; nextAction?: z.infer<typeof sellerAgentPayPalConnectResult>["nextAction"] };
       actionUrl?: string;
     }>;
@@ -205,7 +205,6 @@ export function createSellerMcpServer(services: SellerAgentServices): McpServer 
       const started = await services.paypalConnection!.start(principal, {
         shopId: principal.shopId,
         idempotencyKey: input.idempotencyKey,
-        shareDataConsent: true,
       });
       return {
         status: started.connection.status,
