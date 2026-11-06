@@ -8,6 +8,7 @@ import {
   createShopForAuthorizedAgent,
   listOwnerShops,
   registerOwnerAndShop,
+  registerOwner,
   requireOwnerShop,
   requireSellerShopPrincipal,
   resolveAuthorizedSellerAgent,
@@ -28,13 +29,31 @@ class TestStore implements IdentityStore {
   shops = new Map<string, ShopRecord>();
   memberships = new Map<string, string>();
   sessions = new Map<string, { ownerId: string; expiresAt: Date; revokedAt?: Date }>();
-  grants = new Map<string, { ownerId: string; shopId: string | null; scopes: import("../contracts/seller-identity").SellerAgentScope[]; expiresAt: Date; revokedAt?: Date; usedKey?: string }>();
+  grants = new Map<string, { ownerId: string; shopId: string | null; scopes: import("../contracts/seller-identity").SellerAgentScope[]; expiresAt: Date; shareDataConsent: boolean; revokedAt?: Date; usedKey?: string }>();
   registrationKeys = new Map<string, { registration: OwnerShopRegistration; requestKey: string }>();
+  ownerRegistrationKeys = new Map<string, { ownerId: string; username: string }>();
   shopKeys = new Map<string, ShopRecord>();
   agentShopKeys = new Map<string, { ownerId: string; shop: ShopRecord }>();
 
   async findOwnerByUsername(username: string) {
     return [...this.owners.values()].find((owner) => owner.username === username) ?? null;
+  }
+  async findOwnerById(ownerId: string) {
+    const owner = this.owners.get(ownerId);
+    return owner ? { id: owner.id, username: owner.username } : null;
+  }
+  async registerOwnerAtomic(input: { username: string; passwordHash: string; idempotencyKey: string }) {
+    const prior = this.ownerRegistrationKeys.get(input.idempotencyKey);
+    if (prior) {
+      if (prior.username !== input.username) throw new IdentityStoreConflict("idempotency conflict");
+      const owner = this.owners.get(prior.ownerId)!;
+      return { owner: { id: owner.id, username: owner.username }, storedPasswordHash: owner.passwordHash, replayed: true };
+    }
+    if (await this.findOwnerByUsername(input.username)) throw new IdentityStoreConflict("duplicate username");
+    const owner = { id: randomUUID(), username: input.username, passwordHash: input.passwordHash };
+    this.owners.set(owner.id, owner);
+    this.ownerRegistrationKeys.set(input.idempotencyKey, { ownerId: owner.id, username: input.username });
+    return { owner: { id: owner.id, username: owner.username }, storedPasswordHash: owner.passwordHash, replayed: false };
   }
   async registerOwnerAndShopAtomic(input: { username: string; passwordHash: string; shop: ShopRegistration; idempotencyKey: string }) {
     const requestKey = JSON.stringify({ username: input.username, shop: input.shop });
@@ -82,13 +101,13 @@ class TestStore implements IdentityStore {
     const row = this.sessions.get(key);
     if (row) row.revokedAt = now;
   }
-  async createAgentGrant(input: { ownerId: string; shopId: string | null; scopes: import("../contracts/seller-identity").SellerAgentScope[]; tokenHash: string; expiresAt: Date }) {
+  async createAgentGrant(input: { ownerId: string; shopId: string | null; scopes: import("../contracts/seller-identity").SellerAgentScope[]; tokenHash: string; expiresAt: Date; shareDataConsentAt: Date | null }) {
     if (input.shopId && !this.memberships.has(`${input.ownerId}:${input.shopId}`)) throw new Error("not a member");
-    this.grants.set(input.tokenHash, { ownerId: input.ownerId, shopId: input.shopId, scopes: input.scopes, expiresAt: input.expiresAt });
+    this.grants.set(input.tokenHash, { ownerId: input.ownerId, shopId: input.shopId, scopes: input.scopes, expiresAt: input.expiresAt, shareDataConsent: input.shareDataConsentAt !== null });
   }
   async findActiveAgentGrant(key: string, now: Date) {
     const row = this.grants.get(key);
-    return row && !row.revokedAt && row.expiresAt > now ? { actorId: row.ownerId, shopId: row.shopId, scopes: row.scopes, expiresAt: row.expiresAt } : null;
+    return row && !row.revokedAt && row.expiresAt > now ? { actorId: row.ownerId, shopId: row.shopId, scopes: row.scopes, expiresAt: row.expiresAt, shareDataConsent: row.shareDataConsent } : null;
   }
   async revokeAgentGrant(key: string, ownerId: string, now: Date) {
     const row = this.grants.get(key);
@@ -193,6 +212,22 @@ describe("seller identity service", () => {
     await expect(createShopForAuthorizedAgent(store, grant.grantToken, request, "https://example.test/seller/authorize", grant.expiresAt)).rejects.toMatchObject({ code: "UNAUTHORIZED" });
   });
 
+  it("registers an account without a shop so its owner can authorize first-shop creation", async () => {
+    const store = new TestStore();
+    const limiter = new TestLimiter();
+    const request = { username: "FirstOwner", password: "correct horse battery staple", idempotencyKey: randomUUID() };
+    const owner = await registerOwner(store, limiter, request, "ip:first");
+    expect(owner.owner.username).toBe("firstowner");
+    expect(await listOwnerShops(store, { ownerId: owner.owner.id, expiresAt: owner.expiresAt })).toEqual([]);
+    const replay = await registerOwner(store, limiter, request, "ip:first");
+    expect(replay.owner.id).toBe(owner.owner.id);
+    await expect(registerOwner(store, limiter, { ...request, password: "wrong password" }, "ip:first")).rejects.toMatchObject({ code: "UNAUTHORIZED" });
+    const grant = await authorizeSellerAgent(store, { ownerId: owner.owner.id, expiresAt: owner.expiresAt }, null, ["create_shop"]);
+    const result = await createShopForAuthorizedAgent(store, grant.grantToken, { shop: input("first-agent-shop").shop, idempotencyKey: randomUUID() }, "https://example.test/seller/authorize");
+    expect(result.shop.slug).toBe("first-agent-shop");
+    expect(await listOwnerShops(store, { ownerId: owner.owner.id, expiresAt: owner.expiresAt })).toHaveLength(1);
+  });
+
   it("issues management grants only for owned shops and resolves exact scope and tenant", async () => {
     const store = new TestStore();
     const limiter = new TestLimiter();
@@ -205,5 +240,8 @@ describe("seller identity service", () => {
     await expect(resolveAuthorizedSellerAgent(store, grant.grantToken, "manage_catalog", owner.shop.id, new Date("2026-11-06T12:02:00Z"))).rejects.toMatchObject({ code: "UNAUTHORIZED" });
     await expect(resolveAuthorizedSellerAgent(store, grant.grantToken, "read_shop", other.shop.id, new Date("2026-11-06T12:02:00Z"))).rejects.toMatchObject({ code: "UNAUTHORIZED" });
     await expect(resolveAuthorizedSellerAgent(store, grant.grantToken, "read_shop", owner.shop.id, grant.expiresAt)).rejects.toMatchObject({ code: "UNAUTHORIZED" });
+    await expect(authorizeSellerAgent(store, authOwner, owner.shop.id, ["connect_paypal"])).rejects.toMatchObject({ code: "INVALID_INPUT" });
+    const paypalGrant = await authorizeSellerAgent(store, authOwner, owner.shop.id, ["connect_paypal"], new Date("2026-11-06T12:03:00Z"), true);
+    await expect(resolveAuthorizedSellerAgent(store, paypalGrant.grantToken, "connect_paypal", owner.shop.id, new Date("2026-11-06T12:04:00Z"))).resolves.toMatchObject({ actorId: owner.owner.id, shopId: owner.shop.id, shareDataConsent: true });
   });
 });

@@ -1,5 +1,5 @@
--- Draft only: merge with the next numbered migration after coordination.
--- This migration deliberately adds tables without changing the existing seller session.
+-- Review draft only. Coordinate before registering as a numbered migration.
+-- Adds durable owner identity without changing the existing seller session.
 CREATE TABLE seller_owners (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   username text NOT NULL,
@@ -43,6 +43,7 @@ CREATE TABLE seller_agent_grants (
   owner_id uuid NOT NULL REFERENCES seller_owners(id) ON DELETE CASCADE,
   shop_id uuid,
   scopes text[] NOT NULL,
+  share_data_consent_at timestamptz,
   expires_at timestamptz NOT NULL,
   consumed_at timestamptz,
   consumed_idempotency_key uuid,
@@ -53,6 +54,9 @@ CREATE TABLE seller_agent_grants (
   CONSTRAINT seller_agent_grants_scope CHECK (
     (shop_id IS NULL AND scopes = ARRAY['create_shop']::text[]) OR
     (shop_id IS NOT NULL AND cardinality(scopes) > 0 AND scopes <@ ARRAY['read_shop', 'manage_catalog', 'manage_inventory', 'connect_paypal']::text[])
+  ),
+  CONSTRAINT seller_agent_grants_paypal_consent CHECK (
+    NOT ('connect_paypal' = ANY(scopes)) OR share_data_consent_at IS NOT NULL
   ),
   CONSTRAINT seller_agent_grants_consumed_key CHECK ((consumed_at IS NULL) = (consumed_idempotency_key IS NULL))
 );
@@ -65,9 +69,13 @@ CREATE TABLE seller_identity_operations (
   shop_id uuid REFERENCES shops(id) ON DELETE RESTRICT,
   request_hash text NOT NULL,
   created_at timestamptz NOT NULL DEFAULT now(),
-  CONSTRAINT seller_identity_operations_kind CHECK (operation IN ('register_owner_shop', 'create_shop')),
+  CONSTRAINT seller_identity_operations_kind CHECK (operation IN ('register_owner', 'register_owner_shop', 'create_shop')),
   CONSTRAINT seller_identity_operations_request_hash CHECK (request_hash ~ '^[a-f0-9]{64}$'),
-  CONSTRAINT seller_identity_operations_result_pair CHECK ((owner_id IS NULL) = (shop_id IS NULL))
+  CONSTRAINT seller_identity_operations_result_shape CHECK (
+    (owner_id IS NULL AND shop_id IS NULL) OR
+    (operation = 'register_owner' AND owner_id IS NOT NULL AND shop_id IS NULL) OR
+    (operation IN ('register_owner_shop', 'create_shop') AND owner_id IS NOT NULL AND shop_id IS NOT NULL)
+  )
 );
 
 CREATE TABLE seller_identity_attempt_windows (

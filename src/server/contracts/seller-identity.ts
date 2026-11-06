@@ -22,6 +22,19 @@ export const ownerRegistrationInput = z.strictObject({
   idempotencyKey: z.string().uuid(),
 });
 
+export const ownerAccountRegistrationInput = z.strictObject({
+  username: z.string().trim().min(3).max(64).regex(/^[a-zA-Z0-9_.-]+$/),
+  password: z.string().min(12).max(128),
+  idempotencyKey: z.string().uuid(),
+});
+
+export const ownerRegistrationRequestInput = z.strictObject({
+  username: z.string().trim().min(3).max(64).regex(/^[a-zA-Z0-9_.-]+$/),
+  password: z.string().min(12).max(128),
+  idempotencyKey: z.string().uuid(),
+  shop: shopRegistrationInput.optional(),
+});
+
 export const ownerSignInInput = z.strictObject({
   username: z.string().trim().min(3).max(64).regex(/^[a-zA-Z0-9_.-]+$/),
   password: z.string().min(1).max(128),
@@ -31,6 +44,14 @@ export const ownerCreateShopInput = z.strictObject({
   shop: shopRegistrationInput,
   idempotencyKey: z.string().uuid(),
 });
+
+export const ownerShopSelectionInput = z.strictObject({ shopId: z.uuid() });
+export const ownerAgentGrantInput = z.strictObject({
+  shopId: z.uuid().nullable(),
+  scopes: z.array(z.enum(["create_shop", "read_shop", "manage_catalog", "manage_inventory", "connect_paypal"])).min(1).max(4),
+  shareDataConsent: z.boolean().optional(),
+});
+export const ownerAgentGrantRevokeInput = z.strictObject({ grantToken: z.string().min(32).max(128) });
 
 export type ShopRegistration = z.infer<typeof shopRegistrationInput>;
 /** Seller MCP `create_shop` input; authorization is supplied out-of-band by server auth. */
@@ -50,7 +71,7 @@ export type SellerAgentCreateShopResult = {
 /** Server-authenticated context; never deserialize this from a request body. */
 export type AuthenticatedOwner = { ownerId: string; expiresAt: Date };
 /** Tenant boundary for seller services after membership has been checked. */
-export type SellerShopPrincipal = { actorId: string; shopId: string };
+export type SellerShopPrincipal = { actorId: string; shopId: string; shareDataConsent?: true };
 export const SELLER_AGENT_SCOPES = [
   "create_shop",
   "read_shop",
@@ -64,4 +85,5 @@ export type SellerAgentGrantPrincipal = {
   shopId: string | null;
   scopes: SellerAgentScope[];
   expiresAt: Date;
+  shareDataConsent: boolean;
 };
