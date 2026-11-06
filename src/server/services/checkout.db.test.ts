@@ -11,6 +11,7 @@ import {
 import { createFakePayPal } from "../../../test/paypal-fake";
 import { verifyOrderStatusToken } from "../auth/order-status-token";
 import type { Db } from "../db/client";
+import { DEMO_PRODUCT_ID, DEMO_SHOP_ID, seedDemoData } from "../db/seed";
 import { orderLines, orders, products } from "../db/schema";
 import { ServiceError, type ServiceErrorCode } from "../errors";
 import { createSellerInventoryAdapter } from "../inventory/seller-adapter";
@@ -94,6 +95,40 @@ async function codeOf(attempt: Promise<unknown>): Promise<ServiceErrorCode> {
 }
 
 describe("createCheckout", () => {
+  it("checks out a freshly seeded demo product using its existing direct-seller route", async () => {
+    await seedDemoData(getDb(), { DEMO_PHONE_WORKSHOP_PAYPAL_MERCHANT_ID: MERCHANT_ID });
+    const demoDeps: CheckoutDeps = {
+      paypalFor: createPayPalProvider(
+        {
+          PAYPAL_CLIENT_ID_DEMO_PHONE_WORKSHOP: "demo-client-id",
+          PAYPAL_CLIENT_SECRET_DEMO_PHONE_WORKSHOP: CLIENT_SECRET,
+        },
+        paypal.adapter,
+      ),
+    };
+
+    const result = await createCheckout(
+      getDb(),
+      cart(DEMO_PRODUCT_ID, 1, KEY),
+      demoDeps,
+    );
+
+    const [order] = await getDb().select().from(orders).where(eq(orders.id, result.orderId));
+    expect(order).toMatchObject({
+      shopId: DEMO_SHOP_ID,
+      kind: "purchase",
+      paypalCredentialRef: "DEMO_PHONE_WORKSHOP",
+      payeeMerchantId: MERCHANT_ID,
+      paymentStatus: "pending",
+    });
+    const pool = (getDb() as Db & { $client: Pool }).$client;
+    const stock = await pool.query<{ on_hand: number; reserved: number }>(
+      "SELECT on_hand, reserved FROM inventory_stock WHERE shop_id=$1 AND product_id=$2",
+      [DEMO_SHOP_ID, DEMO_PRODUCT_ID],
+    );
+    expect(stock.rows[0]).toEqual({ on_hand: 10, reserved: 1 });
+  });
+
   it("stores a pending order from stored data and returns the approval link", async () => {
     const { shop, product } = await createSellableProduct(990);
     const cable = await createProduct(getDb(), shop.id, {
