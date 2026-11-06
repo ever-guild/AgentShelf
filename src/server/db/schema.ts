@@ -13,6 +13,7 @@ import {
   text,
   timestamp,
   unique,
+  uniqueIndex,
   uuid,
 } from "drizzle-orm/pg-core";
 
@@ -773,5 +774,157 @@ export const sellerAiCalls = pgTable(
   (t) => [
     primaryKey({ columns: [t.shopId, t.hour] }),
     check("seller_ai_calls_positive", sql`${t.calls} > 0`),
+  ],
+);
+
+// Seller owner identity and owner-consented external-agent grants. These tables remain separate
+// from the demo access-code session so deployment can enable the new flow after migration.
+export const sellerOwners = pgTable(
+  "seller_owners",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    username: text("username").notNull(),
+    passwordHash: text("password_hash").notNull(),
+    createdAt: createdAt(),
+  },
+  (t) => [
+    check(
+      "seller_owners_username_format",
+      sql`${t.username} ~ '^[a-z0-9_.-]{3,64}$'`,
+    ),
+    check(
+      "seller_owners_password_hash_format",
+      sql`split_part(${t.passwordHash}, '$', 1) = 'scrypt' AND
+        split_part(${t.passwordHash}, '$', 2) = '16384' AND
+        split_part(${t.passwordHash}, '$', 3) = '8' AND
+        split_part(${t.passwordHash}, '$', 4) = '1' AND
+        split_part(${t.passwordHash}, '$', 5) ~ '^[A-Za-z0-9_-]{22}$' AND
+        split_part(${t.passwordHash}, '$', 6) ~ '^[A-Za-z0-9_-]{43}$' AND
+        split_part(${t.passwordHash}, '$', 7) = ''`,
+    ),
+    uniqueIndex("seller_owners_username_unique").on(sql`lower(${t.username})`),
+  ],
+);
+
+export const shopMemberships = pgTable(
+  "shop_memberships",
+  {
+    ownerId: uuid("owner_id")
+      .notNull()
+      .references(() => sellerOwners.id, { onDelete: "cascade" }),
+    shopId: uuid("shop_id")
+      .notNull()
+      .references(() => shops.id, { onDelete: "restrict" }),
+    role: text("role").notNull().default("owner"),
+    createdAt: createdAt(),
+  },
+  (t) => [
+    primaryKey({ columns: [t.ownerId, t.shopId] }),
+    index("shop_memberships_shop_idx").on(t.shopId),
+    check("shop_memberships_owner_role", sql`${t.role} = 'owner'`),
+  ],
+);
+
+export const ownerSessions = pgTable(
+  "owner_sessions",
+  {
+    tokenHash: text("token_hash").primaryKey(),
+    ownerId: uuid("owner_id")
+      .notNull()
+      .references(() => sellerOwners.id, { onDelete: "cascade" }),
+    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+    revokedAt: timestamp("revoked_at", { withTimezone: true }),
+    createdAt: createdAt(),
+  },
+  (t) => [
+    index("owner_sessions_owner_idx").on(t.ownerId),
+    check("owner_sessions_token_hash_format", sql`${t.tokenHash} ~ '^[a-f0-9]{64}$'`),
+  ],
+);
+
+export const sellerAgentGrants = pgTable(
+  "seller_agent_grants",
+  {
+    tokenHash: text("token_hash").primaryKey(),
+    ownerId: uuid("owner_id")
+      .notNull()
+      .references(() => sellerOwners.id, { onDelete: "cascade" }),
+    shopId: uuid("shop_id"),
+    scopes: text("scopes").array().notNull(),
+    shareDataConsentAt: timestamp("share_data_consent_at", { withTimezone: true }),
+    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+    consumedAt: timestamp("consumed_at", { withTimezone: true }),
+    consumedIdempotencyKey: uuid("consumed_idempotency_key"),
+    revokedAt: timestamp("revoked_at", { withTimezone: true }),
+    createdAt: createdAt(),
+  },
+  (t) => [
+    foreignKey({
+      name: "seller_agent_grants_membership_fk",
+      columns: [t.ownerId, t.shopId],
+      foreignColumns: [shopMemberships.ownerId, shopMemberships.shopId],
+    }).onDelete("cascade"),
+    index("seller_agent_grants_owner_idx").on(t.ownerId),
+    check("seller_agent_grants_hash_format", sql`${t.tokenHash} ~ '^[a-f0-9]{64}$'`),
+    check(
+      "seller_agent_grants_scope",
+      sql`(${t.shopId} IS NULL AND ${t.scopes} = ARRAY['create_shop']::text[]) OR
+        (${t.shopId} IS NOT NULL AND cardinality(${t.scopes}) > 0 AND
+         ${t.scopes} <@ ARRAY['read_shop', 'manage_catalog', 'manage_inventory', 'connect_paypal']::text[])`,
+    ),
+    check(
+      "seller_agent_grants_paypal_consent",
+      sql`NOT ('connect_paypal' = ANY(${t.scopes})) OR ${t.shareDataConsentAt} IS NOT NULL`,
+    ),
+    check(
+      "seller_agent_grants_consumed_key",
+      sql`(${t.consumedAt} IS NULL) = (${t.consumedIdempotencyKey} IS NULL)`,
+    ),
+  ],
+);
+
+export const sellerIdentityOperations = pgTable(
+  "seller_identity_operations",
+  {
+    idempotencyKey: uuid("idempotency_key").primaryKey(),
+    operation: text("operation").notNull(),
+    ownerId: uuid("owner_id").references(() => sellerOwners.id, {
+      onDelete: "cascade",
+    }),
+    shopId: uuid("shop_id").references(() => shops.id, {
+      onDelete: "restrict",
+    }),
+    requestHash: text("request_hash").notNull(),
+    createdAt: createdAt(),
+  },
+  (t) => [
+    check(
+      "seller_identity_operations_kind",
+      sql`${t.operation} IN ('register_owner', 'register_owner_shop', 'create_shop')`,
+    ),
+    check(
+      "seller_identity_operations_request_hash",
+      sql`${t.requestHash} ~ '^[a-f0-9]{64}$'`,
+    ),
+    check(
+      "seller_identity_operations_result_shape",
+      sql`(${t.ownerId} IS NULL AND ${t.shopId} IS NULL) OR
+        (${t.operation} = 'register_owner' AND ${t.ownerId} IS NOT NULL AND ${t.shopId} IS NULL) OR
+        (${t.operation} IN ('register_owner_shop', 'create_shop') AND ${t.ownerId} IS NOT NULL AND ${t.shopId} IS NOT NULL)`,
+    ),
+  ],
+);
+
+export const sellerIdentityAttemptWindows = pgTable(
+  "seller_identity_attempt_windows",
+  {
+    keyHash: text("key_hash").primaryKey(),
+    windowStartedAt: timestamp("window_started_at", { withTimezone: true }).notNull(),
+    attempts: integer("attempts").notNull(),
+  },
+  (t) => [
+    index("seller_identity_attempt_window_idx").on(t.windowStartedAt),
+    check("seller_identity_attempts_bounded", sql`${t.attempts} BETWEEN 0 AND 1000`),
+    check("seller_identity_attempt_key_format", sql`${t.keyHash} ~ '^[a-f0-9]{64}$'`),
   ],
 );
