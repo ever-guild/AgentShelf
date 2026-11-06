@@ -149,6 +149,7 @@ describe("product summary", () => {
       kind: "product",
       title: "Cable",
       description: "",
+      descriptionLv: null,
       priceMinor: 990,
       currency: "EUR",
       availability: "available",

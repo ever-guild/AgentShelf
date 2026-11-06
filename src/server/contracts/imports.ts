@@ -120,6 +120,8 @@ export type ImportSummaryView = {
   status: ImportStatus;
   createdAt: string;
   rowCount: number;
+  // Products made from this import. Their drafts are gone by then.
+  publishedCount: number;
 };
 
 export type ImportView = Omit<ImportSummaryView, "rowCount"> & {

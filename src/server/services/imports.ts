@@ -11,7 +11,7 @@ import type {
   ImportView,
 } from "../contracts/imports";
 import type { Db } from "../db/client";
-import { importJobs, importRows, importSources } from "../db/schema";
+import { importJobs, importRows, importSources, products } from "../db/schema";
 import { ServiceError, parseInput } from "../errors";
 import { parsePriceListCsv } from "../imports/csv";
 import {
@@ -179,7 +179,7 @@ async function buildView(
   shop: SellerShop,
   job: typeof importJobs.$inferSelect,
 ): Promise<ImportView> {
-  const [rows, sources] = await Promise.all([
+  const [rows, sources, [published]] = await Promise.all([
     db
       .select()
       .from(importRows)
@@ -189,6 +189,10 @@ async function buildView(
       .select({ jobId: importSources.jobId })
       .from(importSources)
       .where(and(eq(importSources.jobId, job.id), eq(importSources.shopId, shop.id))),
+    db
+      .select({ value: count() })
+      .from(products)
+      .where(and(eq(products.importJobId, job.id), eq(products.shopId, shop.id))),
   ]);
   const hasSource = sources.length > 0;
   const duplicates = findDuplicateTitles(rows);
@@ -208,6 +212,7 @@ async function buildView(
     promptVersion: job.promptVersion,
     ignoredColumns: result?.ignoredColumns ?? [],
     rows: views,
+    publishedCount: published.value,
     counts: {
       total: views.length,
       blocked: live.filter((row) => hasBlocker(row.issues)).length,
@@ -231,6 +236,7 @@ export async function listImports(db: Db, shop: SellerShop): Promise<ImportSumma
       status: importJobs.status,
       createdAt: importJobs.createdAt,
       rowCount: sql<number>`count(${importRows.id}) FILTER (WHERE ${importRows.status} <> 'removed')::int`,
+      publishedCount: sql<number>`(SELECT count(*) FROM ${products} WHERE ${products.importJobId} = ${importJobs.id})::int`,
     })
     .from(importJobs)
     .leftJoin(importRows, eq(importRows.jobId, importJobs.id))
@@ -245,6 +251,7 @@ export async function listImports(db: Db, shop: SellerShop): Promise<ImportSumma
     status: job.status,
     createdAt: job.createdAt.toISOString(),
     rowCount: job.rowCount,
+    publishedCount: job.publishedCount,
   }));
 }
 

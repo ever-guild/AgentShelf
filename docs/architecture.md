@@ -50,6 +50,8 @@ Most of these are database constraints, so they hold however a row gets written.
 | A published product has a price, and a published service also has a duration and deposit | Check constraints. A draft may leave these unknown |
 | An order cannot be `paid` without a capture ID | `orders_paid_requires_capture` |
 | An order's amount, currency and recipient never change, and its lines are never edited or deleted | `orders_terms_immutable` and `order_lines_immutable` triggers |
+| One product per draft of an import, and never another shop's import | `products_import_job_id_position_unique`, `products_import_job_shop_fk` |
+| A product is not `synced` without a PayPal record and a time | `products_synced_requires_record` |
 | One technician cannot have overlapping held or confirmed bookings | `bookings_technician_no_overlap` exclusion constraint |
 | A booking cannot be `confirmed` without the capture recorded on its own order | `bookings_confirmed_requires_capture`, `bookings_order_capture_fk` |
 
@@ -63,7 +65,7 @@ The Zod schemas in [`src/server/contracts/commerce.ts`](../src/server/contracts/
 
 | Tool | Input | Result | Implemented in |
 | --- | --- | --- | --- |
-| `search_products` | `query`, `location?`, `maxPriceMinor?`, `currency?`, `limit?` | `products[]`: `productId`, `shopId`, `shopName`, `location`, `kind`, `title`, `description`, `priceMinor`, `currency`, `availability`, `serviceDurationMinutes`, `depositMinor` | [#5](https://github.com/ever-guild/AgentShelf/issues/5), [#10](https://github.com/ever-guild/AgentShelf/issues/10) |
+| `search_products` | `query`, `location?`, `maxPriceMinor?`, `currency?`, `limit?` | `products[]`: `productId`, `shopId`, `shopName`, `location`, `kind`, `title`, `description`, `descriptionLv`, `priceMinor`, `currency`, `availability`, `serviceDurationMinutes`, `depositMinor` | [#5](https://github.com/ever-guild/AgentShelf/issues/5), [#10](https://github.com/ever-guild/AgentShelf/issues/10) |
 | `get_slots` | `shopId`, `serviceId`, `from`, `to` | `slots[]`: `slotId`, `technicianId`, `startsAt`, `endsAt`, `timezone` | [#12](https://github.com/ever-guild/AgentShelf/issues/12) |
 | `book_slot` | `slotId`, `serviceId`, `idempotencyKey` | `bookingId`, `orderId`, `expiresAt`, `approvalUrl`, `depositMinor`, `remainingMinor`, `currency`, `statusToken` | [#12](https://github.com/ever-guild/AgentShelf/issues/12) |
 | `create_checkout` | `items[]`: `productId`, `quantity`; `idempotencyKey` | `orderId`, `totalMinor`, `currency`, `approvalUrl`, `statusToken` | [#6](https://github.com/ever-guild/AgentShelf/issues/6) |
@@ -78,6 +80,7 @@ These server pieces already exist for the issues above to build on:
 - `createCheckout` is the one checkout entry point for MCP and the [storefront](#storefront). See [Checkout](#checkout).
 - `reconcileOrder` is the one place that decides what a PayPal order means for a stored one. See [Payment reconciliation](#payment-reconciliation).
 - `createImport` and the review functions around it turn a price list into accepted draft rows. See [Catalog import](#catalog-import).
+- `publishImport` and the functions around it turn accepted rows into products and keep their PayPal Catalog records. See [Catalog publication](#catalog-publication).
 - `getOrderStatus` reads an order's stored state for the holder of its capability.
 - `quoteCheckout` resolves a cart to authoritative lines, total and recipient, and rejects mixed shops and products that are not on sale.
 - `searchProducts` matches text across all shops, and `getPublishedProduct` and `listPublishedProducts` read the public catalog.
@@ -173,7 +176,7 @@ The public shop link at `/shops/<slug>`, for [#16](https://github.com/ever-guild
 
 **Services** are not sold here. Their rows and pages point to booking through an assistant, because booking has one flow, in [#12](https://github.com/ever-guild/AgentShelf/issues/12).
 
-**Descriptions:** `chooseDescription` shows the seller's reviewed English or Latvian text, then the source's own words, and translates nothing itself. It reads `description_en` and `description_lv` on `products` if those columns exist. Until publication in [#9](https://github.com/ever-guild/AgentShelf/issues/9) adds them, every shop shows `description` and offers no language choice. Titles are not translated.
+**Descriptions:** `chooseDescription` shows the seller's reviewed English or Latvian text, then the source's own words, and translates nothing itself. It reads `description_en` and `description_lv` on `products`, which [publication](#catalog-publication) fills. A shop with no reviewed Latvian shows `description` and offers no language choice. Titles are not translated.
 
 **What a page can see:** [`storefront.ts`](../src/server/services/storefront.ts) returns explicit fields, so a new column stays private until someone adds it. A page never receives a merchant ID, a credential reference, a PayPal product ID or a draft.
 
@@ -208,8 +211,6 @@ The seller's way in, for [#8](https://github.com/ever-guild/AgentShelf/issues/8)
 - `import_rows_accepted_is_complete` and its neighbours hold accepted rows to a published product's rules, so a row with no price cannot be `accepted` whatever code writes it.
 - A priced option becomes its own row, because a product has one price and an order line names one product.
 
-**For [#9](https://github.com/ever-guild/AgentShelf/issues/9):** publication reads the `accepted` rows of a `completed` import. A row holds a title, kind, price in the shop's currency, and for a service its duration and deposit. `description` is the source's words, and `description_en` and `description_lv` are the seller's chosen text. Rows are drafts, to be deleted once published.
-
 **One result, whatever happens to a run.** A background run receives only a job ID, and the job names its shop. Composite foreign keys stop a row or a photo from sitting under another shop's job.
 
 | What happens | Result |
@@ -228,6 +229,39 @@ The seller's way in, for [#8](https://github.com/ever-guild/AgentShelf/issues/8)
 **Suggestions:** a seller can ask for English and Latvian descriptions, in batches of 25. They are generated from the row's own words and stored as editable text, and never overwrite what a seller wrote. A suggestion with a number the row does not contain, such as `5000 mAh`, is dropped and the row says so. That catches the checkable inventions, and the seller reads the rest.
 
 **Sessions:** the cookie is `SameSite=Lax`, so another site cannot send these requests with it. Every query is scoped to the shop in the session, and an import in another shop gets the same `IMPORT_NOT_FOUND` as one that does not exist.
+
+## Catalog publication
+
+The accepted rows of a finished review become products, for [#9](https://github.com/ever-guild/AgentShelf/issues/9). [`seller-catalog.ts`](../src/server/services/seller-catalog.ts) holds the rules, [`paypal/catalog.ts`](../src/server/paypal/catalog.ts) the PayPal calls, and sellers work at `/seller/catalog`.
+
+**Status:** tested with the real SDK against a stand-in for PayPal, which follows PayPal's published schema. No real Catalog record has been created, because the credentials from [#33](https://github.com/ever-guild/AgentShelf/issues/33) do not exist yet. That the sandbox accepts an ID chosen by the caller, and refuses a repeat with `DUPLICATE_RESOURCE_IDENTIFIER`, comes from the documentation and has not been seen.
+
+**The rule for what buyers can find:** a product is discoverable once its status is `published`, and only then. Search, the public catalog, checkout and the storefront all read that one column, and it does not depend on PayPal Catalog. Orders v2 does not need a Catalog record, so a failure there never stops a sale. [#12](https://github.com/ever-guild/AgentShelf/issues/12)'s `get_slots` and `book_slot` must hold to the same rule.
+
+**A Catalog record is not a listing.** It holds a name, a description and a type. Creating one does not prove or cause listing in Store Sync, Agent Ready or any other shopping search, and nothing here claims so. Price, stock, variants and duration stay local, because a record has nowhere to put them.
+
+**Publishing** is one transaction holding the import's job. Each accepted row is checked again against the shop's current settings, because they can change after a review. Rows that pass become products and their drafts are deleted, along with the removed rows. A row that no longer passes stays as a draft showing what is wrong, and the seller puts it in a new upload, since a review does not reopen.
+
+A repeat, at the same time or later, finds nothing left to do. `products_import_job_id_position_unique` stops a second product from the same draft whatever code writes it. A second upload of the same list is new work, not a retry, so it does make new products, and the seller unpublishes what they do not want.
+
+**Text:** `products.description` holds the English the seller chose, or the source's words if they chose none, and it is what search and assistants read. `description_en` and `description_lv` are set only when a seller reviewed that language, so the storefront knows which language it is showing. Search also covers the Latvian, and `ProductSummary` returns it. The source's words are not kept once English replaces them.
+
+**One PayPal record per product.** `paypal_sync_status` is per product, and sending happens after publishing has committed.
+
+| State | Means | Way out |
+| --- | --- | --- |
+| `pending` | Waiting to be sent, including rows from before this existed | `/seller/catalog` sends it when opened |
+| `synced` | PayPal holds the record named in `paypal_product_id`, as of `paypal_synced_at` | Stays. It is never sent again |
+| `failed` | PayPal refused or did not answer. `paypal_sync_error` holds a short code, and the seller sees what to do | **Try again** on the row, or send them all |
+| `not_configured` | The shop has no credentials on this server | The same, once they exist |
+
+Two things are fixed per product, so no number of retries can make a second record. `PayPal-Request-Id` is the product's ID, and a repeat within PayPal's 72 hours returns the first answer. The record's own ID is `AS-<product ID>`, chosen here, so a repeat after that is refused as a duplicate, and the record that names is read and adopted. An answer naming any other ID is not stored.
+
+A batch is 10 products, and the page asks for one after another, so a closed tab loses nothing. A timeout, an unknown failure or refused credentials ends the batch, since the next request would only repeat them. A refusal of one record does not. Unpublished products are not sent.
+
+**Edits and unpublishing:** a seller can change a price and a service's deposit, unpublish and publish again. None of these call PayPal, because a record holds no price and PayPal has no delete. An unpublished product's record stays at PayPal, and renaming would not reach it either, because PayPal cannot change a record's name. The next checkout reads the new price or refuses the product. An existing order keeps the amounts it was created with, and an approval link already issued can still be paid at that amount.
+
+**Search:** `onCatalogChange` in `CatalogDeps` runs inside the transaction of every publish, edit and unpublish, with the product IDs and the kind of change. It does nothing yet, and it is the one place [#10](https://github.com/ever-guild/AgentShelf/issues/10) needs to index from. If it throws, the change does not happen, so slow work belongs in a queue it writes to.
 
 ## Seller demo session
 

@@ -30,6 +30,9 @@ type OrderStep =
 type TokenStep = Respond | { type: "timeout" };
 type ReadStep = Respond | Change | { type: "timeout" };
 type VerifyStep = Respond | { type: "timeout" };
+// The request either never arrives or arrives and its answer is lost.
+type CatalogCreateStep = Respond | { type: "timeout"; recordCreated: boolean };
+type CatalogReadStep = Respond | { type: "timeout" };
 type CaptureStep =
   | Respond
   | { type: "timeout"; captured: boolean }
@@ -38,6 +41,8 @@ type CaptureStep =
 const CREATE_PATH = "/v2/checkout/orders";
 const TOKEN_PATH = "/v1/oauth2/token";
 const VERIFY_PATH = "/v1/notifications/verify-webhook-signature";
+const CATALOG_PATH = "/v1/catalogs/products";
+const CATALOG_TYPES = new Set(["PHYSICAL", "DIGITAL", "SERVICE"]);
 const WEBHOOK_EVENT_MARKER = ',"webhook_event":';
 
 function headerOf(config: AdapterConfig, name: string): string | undefined {
@@ -93,6 +98,10 @@ export function createFakePayPal() {
   const readSteps: ReadStep[] = [];
   const captureSteps: CaptureStep[] = [];
   const verifySteps: VerifyStep[] = [];
+  const catalogRecords = new Map<string, Json>();
+  const catalogRecordsByRequestId = new Map<string, Json>();
+  const catalogCreateSteps: CatalogCreateStep[] = [];
+  const catalogReadSteps: CatalogReadStep[] = [];
   let charges = 0;
 
   const findOrder = (id: string) =>
@@ -278,6 +287,85 @@ export function createFakePayPal() {
     });
   };
 
+  // Follows the published schema: name and type are required, the lengths are PayPal's, a caller may
+  // choose the ID, and an ID in use is refused. Once a key's 72 hours have passed, only that refusal
+  // stands between a repeat and a second record.
+  const invalidCatalogField = (body: Json) => {
+    const inRange = (value: unknown, min: number, max: number) =>
+      typeof value === "string" && value.length >= min && value.length <= max;
+    if (!inRange(body.name, 1, 127)) return "name";
+    if (!CATALOG_TYPES.has(String(body.type))) return "type";
+    if (body.id !== undefined && !inRange(body.id, 6, 50)) return "id";
+    if (body.description !== undefined && !inRange(body.description, 1, 256)) {
+      return "description";
+    }
+    return undefined;
+  };
+
+  const answerCatalogCreate = (config: AdapterConfig) => {
+    const step = catalogCreateSteps.shift();
+    if (step?.type === "respond") {
+      return reply(config, step.status, step.body);
+    }
+    if (step?.type === "timeout" && !step.recordCreated) {
+      throw timedOut(config);
+    }
+    if (headerOf(config, "content-type")?.split(";")[0] !== "application/json") {
+      return reply(config, 415, { name: "UNSUPPORTED_MEDIA_TYPE" });
+    }
+
+    const requestId = headerOf(config, "paypal-request-id");
+    const body = JSON.parse(config.data ?? "{}") as Json;
+    const earlier = requestId ? catalogRecordsByRequestId.get(requestId) : undefined;
+    if (!earlier) {
+      const field = invalidCatalogField(body);
+      if (field) {
+        return reply(config, 400, {
+          name: "INVALID_REQUEST",
+          debug_id: "fake-debug-id",
+          details: [{ field, issue: "INVALID_PARAMETER_VALUE" }],
+        });
+      }
+      if (typeof body.id === "string" && catalogRecords.has(body.id)) {
+        return refused(config, "DUPLICATE_RESOURCE_IDENTIFIER");
+      }
+    }
+
+    const record =
+      earlier ??
+      ({
+        id: body.id ?? `PROD-${randomBytes(6).toString("hex").toUpperCase()}`,
+        name: body.name,
+        type: body.type,
+        ...(body.description === undefined ? {} : { description: body.description }),
+      } as Json);
+    catalogRecords.set(record.id as string, record);
+    if (requestId) {
+      catalogRecordsByRequestId.set(requestId, record);
+    }
+    if (step?.type === "timeout") {
+      throw timedOut(config);
+    }
+    const representation = headerOf(config, "prefer") === "return=representation";
+    return reply(
+      config,
+      earlier ? 200 : 201,
+      representation ? record : { id: record.id, name: record.name },
+    );
+  };
+
+  const answerCatalogRead = (config: AdapterConfig, id: string) => {
+    const step = catalogReadSteps.shift();
+    if (step?.type === "respond") {
+      return reply(config, step.status, step.body);
+    }
+    if (step?.type === "timeout") {
+      throw timedOut(config);
+    }
+    const record = catalogRecords.get(id);
+    return record ? reply(config, 200, record) : notFound(config);
+  };
+
   const requestsTo = (matches: (config: AdapterConfig, path: string) => boolean) => () =>
     requests.filter((config) => matches(config, new URL(config.url).pathname));
 
@@ -295,6 +383,13 @@ export function createFakePayPal() {
       }
       if (method === "post" && pathname === VERIFY_PATH) {
         return answerVerify(config);
+      }
+      if (method === "post" && pathname === CATALOG_PATH) {
+        return answerCatalogCreate(config);
+      }
+      const catalogRead = /^\/v1\/catalogs\/products\/([^/]+)$/.exec(pathname);
+      if (method === "get" && catalogRead) {
+        return answerCatalogRead(config, catalogRead[1]);
       }
       const capture = /^\/v2\/checkout\/orders\/([^/]+)\/capture$/.exec(pathname);
       if (method === "post" && capture) {
@@ -316,6 +411,19 @@ export function createFakePayPal() {
       (config, path) =>
         config.method.toLowerCase() === "get" && path.startsWith(`${CREATE_PATH}/`),
     ),
+    catalogCreateRequests: requestsTo(
+      (config, path) => config.method.toLowerCase() === "post" && path === CATALOG_PATH,
+    ),
+    catalogReadRequests: requestsTo(
+      (config, path) =>
+        config.method.toLowerCase() === "get" && path.startsWith(`${CATALOG_PATH}/`),
+    ),
+    // What exists at PayPal, however many requests were made.
+    catalogRecords: () => [...catalogRecords.values()],
+    // What 72 hours do to the idempotency keys.
+    forgetCatalogRequestIds: () => catalogRecordsByRequestId.clear(),
+    nextCatalogCreate: (step: CatalogCreateStep) => catalogCreateSteps.push(step),
+    nextCatalogRead: (step: CatalogReadStep) => catalogReadSteps.push(step),
     bodyOf: (request: AdapterConfig) => JSON.parse(request.data ?? "{}"),
     requestIdOf: (request: AdapterConfig) => headerOf(request, "paypal-request-id"),
     createdOrders: () => [...ordersByRequestId.values()],

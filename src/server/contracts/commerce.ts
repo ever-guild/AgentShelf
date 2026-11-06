@@ -53,6 +53,8 @@ export const productSummary = z.strictObject({
   kind: productKindValue,
   title: z.string(),
   description: z.string(),
+  // Reviewed by the seller. Null when they chose none, and `description` is then all there is.
+  descriptionLv: z.string().nullable(),
   priceMinor: minorAmount,
   currency: currencyCode,
   availability: availabilityValue,

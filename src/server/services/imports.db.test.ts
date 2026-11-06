@@ -781,6 +781,7 @@ describe("one shop cannot reach another's import", () => {
         "ignoredColumns",
         "model",
         "promptVersion",
+        "publishedCount",
         "rows",
         "shopCurrency",
         "sourceKind",
@@ -790,7 +791,7 @@ describe("one shop cannot reach another's import", () => {
     );
     expect(Object.keys(view.rows[0])).not.toContain("shopId");
     expect(Object.keys((await listImports(getDb(), shop))[0]).sort()).toEqual(
-      ["createdAt", "id", "rowCount", "sourceKind", "sourceName", "status"].sort(),
+      ["createdAt", "id", "publishedCount", "rowCount", "sourceKind", "sourceName", "status"].sort(),
     );
     expect(jobId).toBe(view.id);
   });

@@ -13,6 +13,11 @@ import {
 } from "@paypal/paypal-server-sdk";
 
 import { minorToDecimal } from "../domain/money";
+import {
+  createCatalogRecord,
+  readCatalogRecord,
+  type CatalogRecord,
+} from "./catalog";
 
 // Everything the payment services need to know about PayPal. The environment is fixed to sandbox
 // here, and no setting can change it.
@@ -49,6 +54,11 @@ export type PayPalSellerApi = Pick<
     signature: WebhookSignature,
     rawBody: string,
   ) => Promise<boolean>;
+  createCatalogRecord: (
+    record: CatalogRecord,
+    requestId: string,
+  ) => Promise<{ id?: string }>;
+  readCatalogRecord: (id: string) => Promise<{ id?: string }>;
 };
 
 // Resolves a shop's `paypal_credential_ref` to its seller's own REST app. This is the merchant
@@ -155,6 +165,10 @@ export function createPayPalProvider(
         withClient(({ client }) =>
           verifySignature(client, webhookId, signature, rawBody),
         ),
+      createCatalogRecord: (record, requestId) =>
+        withClient(({ client }) => createCatalogRecord(client, record, requestId)),
+      readCatalogRecord: (id) =>
+        withClient(({ client }) => readCatalogRecord(client, id)),
     };
   };
 }

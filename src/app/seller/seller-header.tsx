@@ -17,13 +17,17 @@ export function SellerHeader({ shopName }: { shopName: string }) {
       <Link href="/seller/imports" className="font-semibold tracking-tight">
         {shopName}
       </Link>
-      <button
-        type="button"
-        onClick={signOut}
-        className="text-zinc-600 underline-offset-4 hover:underline dark:text-zinc-400"
-      >
-        Sign out
-      </button>
+      <nav className="flex flex-wrap items-center gap-x-4 gap-y-1 text-zinc-600 dark:text-zinc-400">
+        <Link href="/seller/imports" className="underline-offset-4 hover:underline">
+          Price lists
+        </Link>
+        <Link href="/seller/catalog" className="underline-offset-4 hover:underline">
+          Catalog
+        </Link>
+        <button type="button" onClick={signOut} className="underline-offset-4 hover:underline">
+          Sign out
+        </button>
+      </nav>
     </header>
   );
 }

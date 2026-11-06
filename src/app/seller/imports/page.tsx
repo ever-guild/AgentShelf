@@ -20,7 +20,7 @@ const STATUS_TEXT: Record<ImportStatus, string> = {
   running: "Being read",
   needs_review: "Ready to check",
   failed: "Could not be read",
-  completed: "Checked",
+  completed: "Checked, not published yet",
 };
 
 async function ImportList() {
@@ -63,7 +63,9 @@ async function ImportList() {
                   >
                     <span className="min-w-0 break-words font-medium">{entry.sourceName}</span>
                     <span className="text-sm text-zinc-600 dark:text-zinc-400">
-                      {STATUS_TEXT[entry.status]}
+                      {entry.publishedCount > 0
+                        ? `Published, ${entry.publishedCount} ${entry.publishedCount === 1 ? "product" : "products"}`
+                        : STATUS_TEXT[entry.status]}
                       {entry.rowCount > 0
                         ? `, ${entry.rowCount} ${entry.rowCount === 1 ? "row" : "rows"}`
                         : ""}

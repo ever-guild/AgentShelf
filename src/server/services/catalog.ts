@@ -21,6 +21,7 @@ const summaryColumns = {
   kind: products.kind,
   title: products.title,
   description: products.description,
+  descriptionLv: products.descriptionLv,
   priceMinor: products.priceMinor,
   currency: shops.currency,
   availability: products.availability,
@@ -132,7 +133,7 @@ export async function searchProducts(
   }
 
   const searchable = foldedColumn(
-    sql`concat_ws(' ', ${products.title}, ${products.description}, ${shops.name}, ${shops.location})`,
+    sql`concat_ws(' ', ${products.title}, ${products.description}, ${products.descriptionLv}, ${shops.name}, ${shops.location})`,
   );
   const location = foldedColumn(sql`coalesce(${shops.location}, '')`);
   const title = foldedColumn(products.title);

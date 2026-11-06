@@ -199,7 +199,9 @@ export function ImportReview({
   const canFinish = reviewing && view.counts.pending === 0 && view.counts.accepted > 0;
   const working = busy !== null || suggesting !== null;
 
-  const showTable = reviewing || finished;
+  // Every live row of a finished review is accepted, and a draft is gone once it is published.
+  const publishable = finished ? view.counts.accepted - view.counts.blocked : 0;
+  const showTable = reviewing || (finished && view.rows.length > 0);
 
   return (
     <div
@@ -254,10 +256,47 @@ export function ImportReview({
           </div>
         ) : null}
 
-        {finished ? (
+        {finished && view.publishedCount > 0 ? (
           <p className="max-w-prose border-l-4 border-accepted pl-4">
-            Review finished. {plural(view.counts.accepted, "row is", "rows are")} ready for your
-            catalog. Nothing has been published yet.
+            {plural(view.publishedCount, "product")} from this list{" "}
+            {view.publishedCount === 1 ? "is" : "are"} published, and buyers&apos; assistants can find
+            them.{" "}
+            <Link href="/seller/catalog" className="underline underline-offset-4">
+              Open your catalog
+            </Link>
+          </p>
+        ) : null}
+
+        {finished && publishable > 0 ? (
+          <div className="flex flex-col items-start gap-3 border-l-4 border-accepted pl-4">
+            <p className="max-w-prose">
+              Review finished. {plural(publishable, "row is", "rows are")} ready for your catalog.
+              Nothing is on sale until you publish.
+            </p>
+            <button
+              type="button"
+              disabled={working}
+              onClick={() =>
+                act("publish", async () => {
+                  const next = await post("publish");
+                  if (next.counts.accepted === 0) {
+                    router.push("/seller/catalog");
+                  }
+                  return next;
+                })
+              }
+              className="rounded-md bg-ink px-4 py-2 font-medium text-white focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ink disabled:opacity-60 dark:text-zinc-950"
+            >
+              {busy === "publish" ? "Publishing" : `Publish ${plural(publishable, "product")}`}
+            </button>
+          </div>
+        ) : null}
+
+        {finished && view.counts.blocked > 0 ? (
+          <p role="status" className="max-w-prose border-l-4 border-blocked pl-4">
+            {plural(view.counts.blocked, "row")} cannot be published, because of what each one shows
+            below. This review is closed, so put {view.counts.blocked === 1 ? "it" : "them"} in a new
+            upload.
           </p>
         ) : null}
 

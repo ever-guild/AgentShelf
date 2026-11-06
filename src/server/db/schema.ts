@@ -48,6 +48,14 @@ export const productAvailability = pgEnum("product_availability", [
   "unavailable",
 ]);
 
+// Where a product's PayPal Catalog record stands. It has no bearing on whether the product sells.
+export const catalogSyncStatus = pgEnum("catalog_sync_status", [
+  "pending",
+  "synced",
+  "failed",
+  "not_configured",
+]);
+
 export const orderKind = pgEnum("order_kind", ["purchase", "booking_deposit"]);
 
 export const paymentStatus = pgEnum("payment_status", [
@@ -135,7 +143,11 @@ export const products = pgTable(
     kind: productKind("kind").notNull(),
     status: productStatus("status").notNull().default("draft"),
     title: text("title").notNull(),
+    // What search and assistants read: the English a seller chose, or the source's own words, in
+    // whatever language those are. The next two are set only when a seller reviewed that language.
     description: text("description").notNull().default(""),
+    descriptionEn: text("description_en"),
+    descriptionLv: text("description_lv"),
     // Null only on an unpublished row whose price is still unknown. Currency comes from the shop.
     priceMinor: integer("price_minor"),
     availability: productAvailability("availability")
@@ -144,12 +156,39 @@ export const products = pgTable(
     serviceDurationMinutes: integer("service_duration_minutes"),
     depositMinor: integer("deposit_minor"),
     paypalProductId: text("paypal_product_id").unique(),
+    paypalSyncStatus: catalogSyncStatus("paypal_sync_status")
+      .notNull()
+      .default("pending"),
+    // A stable code. The message shown to a seller comes from the service.
+    paypalSyncError: text("paypal_sync_error"),
+    paypalSyncedAt: timestamp("paypal_synced_at", { withTimezone: true }),
+    // The draft this came from. A draft is deleted once published, so its job and position are what
+    // stop a repeated publication from adding a second product.
+    importJobId: uuid("import_job_id"),
+    importPosition: integer("import_position"),
     createdAt: createdAt(),
     updatedAt: updatedAt(),
   },
   (t) => [
     unique("products_id_shop_id_unique").on(t.id, t.shopId),
+    unique("products_import_job_id_position_unique").on(
+      t.importJobId,
+      t.importPosition,
+    ),
+    foreignKey({
+      name: "products_import_job_shop_fk",
+      columns: [t.importJobId, t.shopId],
+      foreignColumns: [importJobs.id, importJobs.shopId],
+    }).onDelete("restrict"),
     index("products_shop_id_status_idx").on(t.shopId, t.status),
+    check(
+      "products_import_source_complete",
+      sql`(${t.importJobId} IS NULL) = (${t.importPosition} IS NULL)`,
+    ),
+    check(
+      "products_synced_requires_record",
+      sql`${t.paypalSyncStatus} <> 'synced' OR (${t.paypalProductId} IS NOT NULL AND ${t.paypalSyncedAt} IS NOT NULL)`,
+    ),
     check("products_title_not_blank", sql`btrim(${t.title}) <> ''`),
     check(
       "products_price_positive",

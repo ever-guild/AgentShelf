@@ -29,6 +29,13 @@
       "when": 1793958437052,
       "tag": "0003_import_review",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1793966259316,
+      "tag": "0004_catalog_publication",
+      "breakpoints": true
     }
   ]
 }
