@@ -928,3 +928,94 @@ export const sellerIdentityAttemptWindows = pgTable(
     check("seller_identity_attempt_key_format", sql`${t.keyHash} ~ '^[a-f0-9]{64}$'`),
   ],
 );
+
+// Sandbox Partner Referrals connection state. Consent belongs to a current shop owner and stays
+// attached to the connection for audit even after the merchant revokes it.
+export const paypalMerchantConnections = pgTable(
+  "paypal_merchant_connections",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    shopId: uuid("shop_id")
+      .notNull()
+      .references(() => shops.id, { onDelete: "cascade" }),
+    status: text("status").notNull(),
+    trackingId: text("tracking_id").notNull().unique(),
+    requestKeyHash: text("request_key_hash").notNull(),
+    consentedByOwnerId: uuid("consented_by_owner_id").notNull(),
+    shareDataConsentAt: timestamp("share_data_consent_at", { withTimezone: true }).notNull(),
+    referralSelfUrl: text("referral_self_url"),
+    sellerMerchantId: text("seller_merchant_id"),
+    statusEvidence: jsonb("status_evidence"),
+    errorCode: text("error_code"),
+    createdAt: createdAt(),
+    updatedAt: updatedAt(),
+  },
+  (t) => [
+    unique("paypal_merchant_connections_shop_request_key_unique").on(
+      t.shopId,
+      t.requestKeyHash,
+    ),
+    foreignKey({
+      name: "paypal_merchant_connections_consent_owner_membership_fk",
+      columns: [t.consentedByOwnerId, t.shopId],
+      foreignColumns: [shopMemberships.ownerId, shopMemberships.shopId],
+    }).onDelete("restrict"),
+    uniqueIndex("paypal_merchant_connections_one_active_per_shop")
+      .on(t.shopId)
+      .where(sql`${t.status} IN ('pending', 'ready') OR (${t.status} = 'error' AND (${t.errorCode} = 'status_unavailable' OR ${t.referralSelfUrl} IS NOT NULL))`),
+    index("paypal_merchant_connections_shop_latest").on(t.shopId, t.createdAt),
+    uniqueIndex("paypal_merchant_connections_active_merchant_unique")
+      .on(t.sellerMerchantId)
+      .where(sql`${t.status} IN ('pending', 'ready') AND ${t.sellerMerchantId} IS NOT NULL`),
+    check(
+      "paypal_merchant_connections_status",
+      sql`${t.status} IN ('pending', 'ready', 'revoked', 'error')`,
+    ),
+    check(
+      "paypal_merchant_connections_tracking_id_format",
+      sql`${t.trackingId} ~ '^[A-Za-z0-9_-]{40,64}$'`,
+    ),
+    check(
+      "paypal_merchant_connections_request_key_hash_format",
+      sql`${t.requestKeyHash} ~ '^[a-f0-9]{64}$'`,
+    ),
+    check(
+      "paypal_merchant_connections_seller_merchant_id_format",
+      sql`${t.sellerMerchantId} IS NULL OR ${t.sellerMerchantId} ~ '^[A-Za-z0-9_-]{3,128}$'`,
+    ),
+    check(
+      "paypal_merchant_connections_status_evidence_object",
+      sql`${t.statusEvidence} IS NULL OR jsonb_typeof(${t.statusEvidence}) = 'object'`,
+    ),
+    check(
+      "paypal_merchant_connections_error_code",
+      sql`${t.errorCode} IS NULL OR ${t.errorCode} IN ('referral_rejected', 'provider_outcome_unknown', 'status_unavailable')`,
+    ),
+  ],
+);
+
+export const paypalMerchantConnectionWebhookEvents = pgTable(
+  "paypal_merchant_connection_webhook_events",
+  {
+    eventId: text("event_id").primaryKey(),
+    connectionId: uuid("connection_id").references(() => paypalMerchantConnections.id, {
+      onDelete: "cascade",
+    }),
+    sellerMerchantId: text("seller_merchant_id").notNull(),
+    receivedAt: timestamp("received_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    index("paypal_merchant_connection_events_merchant_received_idx").on(
+      t.sellerMerchantId,
+      t.receivedAt,
+    ),
+    check(
+      "paypal_merchant_connection_webhook_event_id_length",
+      sql`length(${t.eventId}) BETWEEN 1 AND 200`,
+    ),
+    check(
+      "paypal_merchant_connection_webhook_seller_merchant_id_format",
+      sql`${t.sellerMerchantId} ~ '^[A-Za-z0-9_-]{3,128}$'`,
+    ),
+  ],
+);
