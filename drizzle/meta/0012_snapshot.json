@@ -1,5 +1,5 @@
 {
-  "id": "4ef6a051-1970-4e55-a890-f112f2878220",
+  "id": "f78929d5-2ae6-49be-994b-df65f6cc0808",
   "prevId": "8a170342-46b8-4266-bc79-1e6136f4a4e3",
   "version": "7",
   "dialect": "postgresql",
@@ -1243,8 +1243,8 @@
         }
       },
       "indexes": {
-        "paypal_merchant_connection_events_merchant_received_idx": {
-          "name": "paypal_merchant_connection_events_merchant_received_idx",
+        "paypal_merchant_connection_webhook_merchant_received_idx": {
+          "name": "paypal_merchant_connection_webhook_merchant_received_idx",
           "columns": [
             {
               "expression": "seller_merchant_id",
@@ -1276,7 +1276,7 @@
           "columnsTo": [
             "id"
           ],
-          "onDelete": "cascade",
+          "onDelete": "set null",
           "onUpdate": "no action"
         }
       },
@@ -1419,8 +1419,8 @@
           "method": "btree",
           "with": {}
         },
-        "paypal_merchant_connections_active_merchant_unique": {
-          "name": "paypal_merchant_connections_active_merchant_unique",
+        "paypal_merchant_connections_one_active_seller": {
+          "name": "paypal_merchant_connections_one_active_seller",
           "columns": [
             {
               "expression": "seller_merchant_id",
@@ -1430,7 +1430,7 @@
             }
           ],
           "isUnique": true,
-          "where": "\"paypal_merchant_connections\".\"status\" IN ('pending', 'ready') AND \"paypal_merchant_connections\".\"seller_merchant_id\" IS NOT NULL",
+          "where": "\"paypal_merchant_connections\".\"seller_merchant_id\" IS NOT NULL AND (\"paypal_merchant_connections\".\"status\" IN ('pending', 'ready') OR (\"paypal_merchant_connections\".\"status\" = 'error' AND (\"paypal_merchant_connections\".\"error_code\" = 'status_unavailable' OR \"paypal_merchant_connections\".\"referral_self_url\" IS NOT NULL)))",
           "concurrently": false,
           "method": "btree",
           "with": {}
@@ -1450,8 +1450,8 @@
           "onDelete": "cascade",
           "onUpdate": "no action"
         },
-        "paypal_merchant_connections_consent_owner_membership_fk": {
-          "name": "paypal_merchant_connections_consent_owner_membership_fk",
+        "paypal_merchant_connections_consent_membership_fk": {
+          "name": "paypal_merchant_connections_consent_membership_fk",
           "tableFrom": "paypal_merchant_connections",
           "tableTo": "shop_memberships",
           "columnsFrom": [

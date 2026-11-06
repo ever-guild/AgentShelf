@@ -956,7 +956,7 @@ export const paypalMerchantConnections = pgTable(
       t.requestKeyHash,
     ),
     foreignKey({
-      name: "paypal_merchant_connections_consent_owner_membership_fk",
+      name: "paypal_merchant_connections_consent_membership_fk",
       columns: [t.consentedByOwnerId, t.shopId],
       foreignColumns: [shopMemberships.ownerId, shopMemberships.shopId],
     }).onDelete("restrict"),
@@ -964,9 +964,9 @@ export const paypalMerchantConnections = pgTable(
       .on(t.shopId)
       .where(sql`${t.status} IN ('pending', 'ready') OR (${t.status} = 'error' AND (${t.errorCode} = 'status_unavailable' OR ${t.referralSelfUrl} IS NOT NULL))`),
     index("paypal_merchant_connections_shop_latest").on(t.shopId, t.createdAt),
-    uniqueIndex("paypal_merchant_connections_active_merchant_unique")
+    uniqueIndex("paypal_merchant_connections_one_active_seller")
       .on(t.sellerMerchantId)
-      .where(sql`${t.status} IN ('pending', 'ready') AND ${t.sellerMerchantId} IS NOT NULL`),
+      .where(sql`${t.sellerMerchantId} IS NOT NULL AND (${t.status} IN ('pending', 'ready') OR (${t.status} = 'error' AND (${t.errorCode} = 'status_unavailable' OR ${t.referralSelfUrl} IS NOT NULL)))`),
     check(
       "paypal_merchant_connections_status",
       sql`${t.status} IN ('pending', 'ready', 'revoked', 'error')`,
@@ -999,13 +999,13 @@ export const paypalMerchantConnectionWebhookEvents = pgTable(
   {
     eventId: text("event_id").primaryKey(),
     connectionId: uuid("connection_id").references(() => paypalMerchantConnections.id, {
-      onDelete: "cascade",
+      onDelete: "set null",
     }),
     sellerMerchantId: text("seller_merchant_id").notNull(),
     receivedAt: timestamp("received_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [
-    index("paypal_merchant_connection_events_merchant_received_idx").on(
+    index("paypal_merchant_connection_webhook_merchant_received_idx").on(
       t.sellerMerchantId,
       t.receivedAt,
     ),
