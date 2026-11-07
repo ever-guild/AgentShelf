@@ -1,6 +1,13 @@
 import { describe, expect, it } from "vitest";
 
-import { depositText, effectiveStatus, longDate, shiftDate, statusLabel } from "./schedule-labels";
+import {
+  barStateForms,
+  depositText,
+  effectiveStatus,
+  longDate,
+  shiftDate,
+  statusLabel,
+} from "./schedule-labels";
 
 const booking = {
   paymentStatus: "pending",
@@ -47,6 +54,50 @@ describe("statusLabel", () => {
     }
     expect(statusLabel("expired", "cancelled")).toBe("Expired");
     expect(statusLabel("cancelled", "failed")).toBe("Cancelled");
+  });
+});
+
+describe("barStateForms", () => {
+  const statuses = ["held", "confirmed", "expired", "cancelled", "review_required"] as const;
+  const payments = ["pending", "approved", "paid", "cancelled", "failed", "review_required"] as const;
+
+  it("starts with the list's own words, so a bar with room says exactly what the list says", () => {
+    for (const status of statuses) {
+      for (const paymentStatus of payments) {
+        expect(barStateForms(status, paymentStatus)[0]).toBe(statusLabel(status, paymentStatus));
+      }
+    }
+  });
+
+  it("keeps a payment to check saying so however short the bar", () => {
+    for (const [status, paymentStatus] of [
+      ["confirmed", "review_required"],
+      ["expired", "paid"],
+      ["cancelled", "approved"],
+    ] as const) {
+      expect(barStateForms(status, paymentStatus)).toEqual([
+        statusLabel(status, paymentStatus),
+        "Check payment",
+        "Check",
+      ]);
+    }
+  });
+
+  it("gives each settled state a shorter word that keeps its meaning", () => {
+    expect(barStateForms("held", "pending")).toEqual(["Held"]);
+    expect(barStateForms("confirmed", "paid")).toEqual(["Confirmed", "Booked"]);
+    expect(barStateForms("expired", "cancelled")).toEqual(["Expired", "Free again"]);
+    expect(barStateForms("cancelled", "failed")).toEqual(["Cancelled", "Free again"]);
+    expect(barStateForms("review_required", "paid")).toEqual(["Needs review"]);
+  });
+
+  it("never asks for a check when the list does not", () => {
+    for (const status of statuses) {
+      for (const paymentStatus of payments) {
+        const asks = barStateForms(status, paymentStatus).some((form) => form.includes("heck"));
+        expect(asks).toBe(statusLabel(status, paymentStatus).includes("check payment"));
+      }
+    }
   });
 });
 

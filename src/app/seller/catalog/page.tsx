@@ -3,7 +3,7 @@ import { Suspense } from "react";
 
 import { currentSellerOrSignIn } from "@/server/auth/current-seller";
 import { getDb } from "@/server/db";
-import { getSellerCatalog } from "@/server/services/seller-catalog";
+import { canSendToPayPalCatalog, getSellerCatalog } from "@/server/services/seller-catalog";
 
 import { SellerHeader } from "../seller-header";
 import { CatalogManager } from "./catalog-manager";
@@ -15,11 +15,15 @@ export const metadata: Metadata = {
 
 async function Catalog() {
   const shop = await currentSellerOrSignIn();
-  const view = await getSellerCatalog(getDb(), shop);
+  // Sending asks the same rule again, so this only decides what the page offers.
+  const [view, canSend] = await Promise.all([
+    getSellerCatalog(getDb(), shop),
+    canSendToPayPalCatalog(getDb(), shop),
+  ]);
   return (
     <>
       <SellerHeader shopName={shop.name} />
-      <CatalogManager initial={view} timezone={shop.timezone} />
+      <CatalogManager initial={view} timezone={shop.timezone} canSendAtStart={canSend} />
     </>
   );
 }

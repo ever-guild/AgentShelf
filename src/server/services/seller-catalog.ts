@@ -111,6 +111,41 @@ function toProductView(row: ProductRecord): CatalogProductView {
 const notFound = () =>
   new ServiceError("PRODUCT_NOT_FOUND", "This product is not in your catalog.");
 
+type ShopPayPalAccount = { shopId: string; credentialRef: string; merchantId: string | null };
+
+// The one rule for whether a record can go to PayPal Catalog: a route to the shop's PayPal account,
+// through a ready merchant connection or the shop's own app, and credentials for it on this server.
+// Publishing, sending and the catalog page all ask it, so what the page offers is what sending does.
+async function catalogSender(
+  db: Db,
+  account: ShopPayPalAccount,
+  paypalFor: PayPalProvider,
+): Promise<PayPalSellerApi | undefined> {
+  const route = await resolveShopPayPalRoute(merchantEligibilityPool(db), {
+    shopId: account.shopId,
+    credentialRef: account.credentialRef,
+    legacyMerchantId: account.merchantId,
+  });
+  return route ? paypalFor(route.credentialRef, route.payeeMerchantId) : undefined;
+}
+
+// Whether sending this shop's products to PayPal Catalog can work right now. It sends nothing.
+export async function canSendToPayPalCatalog(
+  db: Db,
+  shop: SellerShop,
+  deps: Pick<CatalogDeps, "paypalFor"> = defaultCatalogDeps,
+): Promise<boolean> {
+  const [account] = await db
+    .select({
+      shopId: shops.id,
+      credentialRef: shops.paypalCredentialRef,
+      merchantId: shops.paypalMerchantId,
+    })
+    .from(shops)
+    .where(eq(shops.id, shop.id));
+  return account ? (await catalogSender(db, account, deps.paypalFor)) !== undefined : false;
+}
+
 export async function getSellerCatalog(db: Db, shop: SellerShop): Promise<CatalogView> {
   const ofThisShop = and(eq(products.shopId, shop.id), ne(products.status, "draft"));
   const [rows, [tally]] = await Promise.all([
@@ -186,18 +221,12 @@ export async function publishImport(
     const ready = accepted.filter((row) => !hasBlocker(rowIssues(row, owner.currency)));
 
     if (ready.length > 0) {
-      const paymentRoute = await resolveShopPayPalRoute(
-        merchantEligibilityPool(db),
-        {
-          shopId: shop.id,
-          credentialRef: owner.credentialRef,
-          legacyMerchantId: owner.merchantId,
-        },
+      const sender = await catalogSender(
+        db,
+        { shopId: shop.id, credentialRef: owner.credentialRef, merchantId: owner.merchantId },
+        deps.paypalFor,
       );
-      const paypalSyncStatus =
-        paymentRoute && deps.paypalFor(paymentRoute.credentialRef, paymentRoute.payeeMerchantId)
-          ? "pending"
-          : "not_configured";
+      const paypalSyncStatus = sender ? "pending" : "not_configured";
       const published = await tx
         .insert(products)
         .values(
@@ -413,14 +442,8 @@ export async function syncCatalog(
     .where(eq(shops.id, shop.id));
   let stopped = false;
 
-  const paymentRoute = owner
-    ? await resolveShopPayPalRoute(merchantEligibilityPool(db), {
-        shopId: owner.shopId,
-        credentialRef: owner.credentialRef,
-        legacyMerchantId: owner.merchantId,
-      })
-    : undefined;
-  if (!paymentRoute || !deps.paypalFor(paymentRoute.credentialRef, paymentRoute.payeeMerchantId)) {
+  const sender = owner ? await catalogSender(db, owner, deps.paypalFor) : undefined;
+  if (!owner || !sender) {
     await db
       .update(products)
       .set({ paypalSyncStatus: "not_configured", paypalSyncError: null })
@@ -435,15 +458,8 @@ export async function syncCatalog(
     for (const row of batch) {
       // Recheck immediately before each external write so a revoked connection cannot be reused
       // for a later item in the same batch.
-      const currentRoute = await resolveShopPayPalRoute(merchantEligibilityPool(db), {
-        shopId: owner.shopId,
-        credentialRef: owner.credentialRef,
-        legacyMerchantId: owner.merchantId,
-      });
-      const paypal = currentRoute
-        ? deps.paypalFor(currentRoute.credentialRef, currentRoute.payeeMerchantId)
-        : undefined;
-      if (!currentRoute || !paypal) {
+      const paypal = await catalogSender(db, owner, deps.paypalFor);
+      if (!paypal) {
         await db
           .update(products)
           .set({ paypalSyncStatus: "not_configured", paypalSyncError: null })

@@ -12,6 +12,7 @@ import type {
 } from "@/server/contracts/seller-schedule";
 
 import {
+  barStateForms,
   depositText,
   effectiveStatus,
   longDate,
@@ -231,7 +232,7 @@ export function ScheduleBoard({ initial }: { initial: ScheduleView }) {
     };
   });
   const timelineData = JSON.stringify(
-    display.map(({ booking, stateClass, label, detail }): TimelineBooking => ({
+    display.map(({ booking, status, stateClass, label, detail }): TimelineBooking => ({
       id: booking.bookingId,
       resourceId: booking.technicianId,
       startDate: booking.startsLocal,
@@ -239,6 +240,7 @@ export function ScheduleBoard({ initial }: { initial: ScheduleView }) {
       name: booking.serviceTitle,
       stateClass,
       label,
+      barForms: barStateForms(status, booking.paymentStatus),
       detail,
       start: timeOnDay(booking.startsLocal, view.date),
       times: timeRange(booking, view.date),

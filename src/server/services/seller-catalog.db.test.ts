@@ -33,6 +33,7 @@ import {
   updateImportRow,
 } from "./imports";
 import {
+  canSendToPayPalCatalog,
   getSellerCatalog,
   publishImport,
   syncCatalog,
@@ -700,6 +701,91 @@ describe("the PayPal Catalog record", () => {
     const answer = await syncCatalog(getDb(), shop, { retryFailed: true }, deps);
     expect(answer.view.counts.unsent).toBe(0);
     expect(paypal.catalogRecords()).toHaveLength(3);
+  });
+
+  it("says sending can work exactly when sending works, and sends nothing to say so", async () => {
+    // What the catalog page is told must match what a press of its button would do.
+    const agrees = async (shop: Awaited<ReturnType<typeof createShop>>, withDeps: CatalogDeps) => {
+      const before = paypal.requests.length;
+      const said = await canSendToPayPalCatalog(getDb(), shop, withDeps);
+      expect(paypal.requests.length).toBe(before);
+      await createProduct(getDb(), shop.id, { title: `Sent or not ${randomUUID()}` });
+      const answer = await syncCatalog(getDb(), shop, { retryFailed: true }, withDeps);
+      expect(answer.view.counts.unsent === 0).toBe(said);
+      return said;
+    };
+
+    const legacy = await createShop(getDb(), { paypalMerchantId: MERCHANT_ID });
+    expect(await agrees(legacy, noCredentials())).toBe(false);
+    expect(await agrees(legacy, deps)).toBe(true);
+
+    const noMerchant = await createShop(getDb(), { paypalMerchantId: null });
+    expect(await agrees(noMerchant, deps)).toBe(false);
+
+    const unconfigured = await createShop(getDb(), {
+      paypalCredentialRef: "UNCONFIGURED",
+      paypalMerchantId: "STALE_LEGACY_SELLER",
+    });
+    expect(await agrees(unconfigured, deps)).toBe(false);
+  });
+
+  it("says a shop that sells through a merchant connection can send only once it is ready", async () => {
+    const platformPayPal = createFakePayPal();
+    const platformDeps: CatalogDeps = {
+      ...deps,
+      paypalFor: createPayPalProvider({
+        PAYPAL_PLATFORM_CLIENT_ID: "sandbox-platform-client-id",
+        PAYPAL_PLATFORM_CLIENT_SECRET: "sandbox-platform-client-secret",
+        PAYPAL_PARTNER_ATTRIBUTION_ID: "AGENT_SHELF_BN_CODE",
+      }, platformPayPal.adapter),
+    };
+    const shop = await createShop(getDb(), {
+      paypalCredentialRef: "PAYPAL_PLATFORM",
+      paypalMerchantId: "STALE_LEGACY_SELLER",
+    });
+    expect(await canSendToPayPalCatalog(getDb(), shop, platformDeps)).toBe(false);
+
+    const ownerId = randomUUID();
+    const trackingId = "verified-tracking-id-1234567890-abcdefghijklmno";
+    const sellerMerchantId = "CONNECTEDSELLER456";
+    const now = new Date("2026-11-07T12:00:00Z");
+    await getDb().insert(sellerOwners).values({
+      id: ownerId,
+      username: `owner-${randomUUID().slice(0, 8)}`,
+      passwordHash: `scrypt$16384$8$1$${"A".repeat(22)}$${"B".repeat(43)}`,
+    });
+    await getDb().insert(shopMemberships).values({ ownerId, shopId: shop.id });
+    await getDb().insert(paypalMerchantConnections).values({
+      shopId: shop.id,
+      consentedByOwnerId: ownerId,
+      shareDataConsentAt: now,
+      status: "ready",
+      trackingId,
+      requestKeyHash: "2".repeat(64),
+      sellerMerchantId,
+      statusEvidence: {
+        merchantId: sellerMerchantId,
+        trackingId,
+        paymentsReceivable: true,
+        primaryEmailConfirmed: true,
+        consentGranted: true,
+        activeProducts: ["EXPRESS_CHECKOUT"],
+        grantedScopes: ["https://uri.paypal.com/services/payments/payment/authcapture"],
+      },
+      createdAt: now,
+      updatedAt: now,
+    });
+
+    expect(await canSendToPayPalCatalog(getDb(), shop, platformDeps)).toBe(true);
+    // The connection is ready, but this server has no platform credentials to use it with.
+    expect(await canSendToPayPalCatalog(getDb(), shop, deps)).toBe(false);
+    expect(platformPayPal.requests).toEqual([]);
+
+    await getDb()
+      .update(paypalMerchantConnections)
+      .set({ status: "revoked" })
+      .where(eq(paypalMerchantConnections.shopId, shop.id));
+    expect(await canSendToPayPalCatalog(getDb(), shop, platformDeps)).toBe(false);
   });
 
   it("does not send an unpublished product, and keeps the record of one taken off sale", async () => {

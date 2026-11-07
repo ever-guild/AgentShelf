@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useId, useRef, useState } from "react";
 
 import type {
   CatalogProductPatch,
@@ -11,6 +11,7 @@ import type {
   CatalogView,
 } from "@/server/contracts/seller-catalog";
 
+import { AMOUNT_HINT } from "../amount-hint";
 import { RequestFailed, request } from "../imports/[id]/request";
 
 const inputClass =
@@ -34,6 +35,22 @@ function plural(count: number, one: string, many = `${one}s`) {
   return `${count} ${count === 1 ? one : many}`;
 }
 
+type SendRequest = { productId?: string; retryFailed?: true };
+
+// A retry sets what it covers waiting again and sending asks the rule afresh, so one of those left
+// not connected afterwards means the connection went after the page loaded.
+function connectionLost(view: CatalogView, request: SendRequest): boolean {
+  if (!request.productId && !request.retryFailed) {
+    return false;
+  }
+  return view.products.some(
+    (product) =>
+      (!request.productId || product.id === request.productId) &&
+      product.status === "published" &&
+      product.sync.status === "not_configured",
+  );
+}
+
 // The key follows the server's text, so a saved value that was rewritten, such as 12,5 to 12.50,
 // replaces what was typed, and a refused one stays for correcting.
 function AmountField({
@@ -54,6 +71,9 @@ function AmountField({
   onCommit: (text: string) => void;
 }) {
   const current = value ?? "";
+  const hintId = useId();
+  // Every product here was published with its amounts, so this is only for one that has lost one.
+  const hint = value === null ? hintId : undefined;
   return (
     <label className={`flex min-w-0 flex-col gap-1 text-xs ${SECONDARY_TEXT}`}>
       {/* From tablet width up, the heading above the rows says this. */}
@@ -63,6 +83,7 @@ function AmountField({
       <input
         key={current}
         aria-label={`${label} in ${currency}: ${product}`}
+        aria-describedby={hint}
         aria-invalid={invalid || undefined}
         defaultValue={current}
         inputMode="decimal"
@@ -74,6 +95,11 @@ function AmountField({
           }
         }}
       />
+      {hint ? (
+        <span id={hint} className="text-zinc-500 tabular-nums md:text-right dark:text-zinc-400">
+          {AMOUNT_HINT}
+        </span>
+      ) : null}
     </label>
   );
 }
@@ -82,11 +108,13 @@ function SyncStatus({
   product,
   timezone,
   disabled,
+  canSend,
   onRetry,
 }: {
   product: CatalogProductView;
   timezone: string;
   disabled: boolean;
+  canSend: boolean;
   onRetry: () => void;
 }) {
   const { sync } = product;
@@ -121,17 +149,23 @@ function SyncStatus({
     <div className="flex flex-col items-start gap-2">
       <p className="text-sm">
         <span className="text-blocked">Not in PayPal Catalog.</span>{" "}
-        <span className={SECONDARY_TEXT}>{sync.problem}</span>
+        <span className={SECONDARY_TEXT}>
+          {canSend ? sync.problem : "It can be sent once the shop is connected to PayPal."}
+        </span>
       </p>
-      <button
-        type="button"
-        disabled={disabled}
-        aria-label={`Try again: ${product.title}`}
-        onClick={onRetry}
-        className={quietButton}
-      >
-        Try again
-      </button>
+      {/* Without a connection a retry could only end as not connected, so the note above the
+          list says what to do instead. */}
+      {canSend ? (
+        <button
+          type="button"
+          disabled={disabled}
+          aria-label={`Try again: ${product.title}`}
+          onClick={onRetry}
+          className={quietButton}
+        >
+          Try again
+        </button>
+      ) : null}
     </div>
   );
 }
@@ -142,6 +176,7 @@ function ProductRow({
   timezone,
   withDeposit,
   busy,
+  canSend,
   onSave,
   onRetry,
 }: {
@@ -150,6 +185,7 @@ function ProductRow({
   timezone: string;
   withDeposit: boolean;
   busy: boolean;
+  canSend: boolean;
   onSave: (patch: CatalogProductPatch) => Promise<void>;
   onRetry: () => void;
 }) {
@@ -232,7 +268,13 @@ function ProductRow({
         </p>
       </div>
       <div className="min-w-0 md:pt-2">
-        <SyncStatus product={product} timezone={timezone} disabled={busy} onRetry={onRetry} />
+        <SyncStatus
+          product={product}
+          timezone={timezone}
+          disabled={busy}
+          canSend={canSend}
+          onRetry={onRetry}
+        />
       </div>
       <div className="md:justify-self-end">
         <button
@@ -249,8 +291,18 @@ function ProductRow({
   );
 }
 
-export function CatalogManager({ initial, timezone }: { initial: CatalogView; timezone: string }) {
+export function CatalogManager({
+  initial,
+  timezone,
+  canSendAtStart,
+}: {
+  initial: CatalogView;
+  timezone: string;
+  // The server's answer, by the rule sending itself follows, to whether anything can go now.
+  canSendAtStart: boolean;
+}) {
   const [view, setView] = useState(initial);
+  const [canSend, setCanSend] = useState(canSendAtStart);
   const [sending, setSending] = useState<string | null>(null);
   const [problem, setProblem] = useState<string | null>(null);
   const latest = useRef(0);
@@ -300,7 +352,7 @@ export function CatalogManager({ initial, timezone }: { initial: CatalogView; ti
   // One batch at a time, so progress shows and a closed tab loses nothing. A batch that leaves the
   // count where it was has nothing more to offer.
   const send = useCallback(
-    async (first: { productId?: string; retryFailed?: true } = {}) => {
+    async (first: SendRequest = {}) => {
       setSending(first.productId ?? "all");
       setProblem(null);
       const sync = async (body: object) => {
@@ -325,6 +377,9 @@ export function CatalogManager({ initial, timezone }: { initial: CatalogView; ti
             "PayPal is not answering, so the rest are still waiting. Your products stay on sale. Try again in a few minutes.",
           );
         }
+        if (connectionLost(answer.view, first)) {
+          setCanSend(false);
+        }
       } catch (error) {
         setProblem(error instanceof Error ? error.message : "Something went wrong. Try again.");
       } finally {
@@ -345,9 +400,6 @@ export function CatalogManager({ initial, timezone }: { initial: CatalogView; ti
 
   const { published, unpublished, waiting, unsent } = view.counts;
   const working = sending !== null;
-  const notConnected = view.products.find(
-    (product) => product.status === "published" && product.sync.status === "not_configured",
-  );
   const withDeposit = view.products.some((product) => product.kind === "service");
   const columns = withDeposit ? COLUMNS.withDeposit : COLUMNS.priceOnly;
 
@@ -358,7 +410,8 @@ export function CatalogManager({ initial, timezone }: { initial: CatalogView; ti
         <p aria-live="polite" className={`tabular-nums ${SECONDARY_TEXT}`}>
           {plural(published, "product")} on sale
           {unpublished > 0 ? `, ${unpublished} unpublished` : ""}
-          {sending === "all" && waiting > 0 ? `. Sending to PayPal Catalog, ${waiting} left` : ""}
+          {/* Without a connection the waiting ones are only marked not connected, so nothing is sent. */}
+          {sending === "all" && waiting > 0 && canSend ? `. Sending to PayPal Catalog, ${waiting} left` : ""}
         </p>
         <p className={`max-w-prose text-sm ${SECONDARY_TEXT}`}>
           Buyers&apos; assistants read prices and what is on sale from here. A PayPal Catalog record is
@@ -369,16 +422,21 @@ export function CatalogManager({ initial, timezone }: { initial: CatalogView; ti
       </header>
 
       <div className="flex flex-col items-start gap-3 empty:hidden">
-        {notConnected ? (
-          <p className="max-w-prose border-l-4 border-doubt pl-4">{notConnected.sync.problem}</p>
+        {/* Sending is offered only when it can work, since otherwise it could only mark the same
+            products not connected again. The page says what would let them go instead. */}
+        {unsent > 0 && !canSend ? (
+          <p className="max-w-prose border-l-4 border-doubt pl-4">
+            This shop has no working PayPal connection, so nothing can go to PayPal Catalog yet.
+            Buyers can still find your products. To send them,{" "}
+            <Link href="/seller/paypal-connection" className="underline underline-offset-4">
+              connect PayPal Sandbox
+            </Link>{" "}
+            from the shop owner&apos;s account, then come back here.
+          </p>
         ) : null}
 
-        {unsent > 0 && !working ? (
-          <button
-            type="button"
-            onClick={() => send({ retryFailed: true })}
-            className={notConnected ? quietButton : mainButton}
-          >
+        {unsent > 0 && canSend && !working ? (
+          <button type="button" onClick={() => send({ retryFailed: true })} className={mainButton}>
             Send {plural(unsent, "product")} to PayPal Catalog
           </button>
         ) : null}
@@ -419,6 +477,7 @@ export function CatalogManager({ initial, timezone }: { initial: CatalogView; ti
                 timezone={timezone}
                 withDeposit={withDeposit}
                 busy={working}
+                canSend={canSend}
                 onSave={(patch) => saveProduct(product.id, patch)}
                 onRetry={() => void send({ productId: product.id })}
               />

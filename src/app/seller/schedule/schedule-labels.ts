@@ -51,6 +51,28 @@ export function statusLabel(
     : STATUS_LABELS[status];
 }
 
+// What a timeline bar may say for a state, longest first. The first is the list's own words, and a
+// bar too short for them takes the first shorter form that fits whole. Each keeps the meaning: a
+// confirmed booking is booked, a released time is free again, and a payment to check still says so.
+export function barStateForms(
+  status: ScheduleStatus,
+  paymentStatus: ScheduleBooking["paymentStatus"],
+): string[] {
+  const full = statusLabel(status, paymentStatus);
+  if (paymentToCheck(status, paymentStatus)) {
+    return [full, "Check payment", "Check"];
+  }
+  switch (status) {
+    case "confirmed":
+      return [full, "Booked"];
+    case "expired":
+    case "cancelled":
+      return [full, "Free again"];
+    default:
+      return [full];
+  }
+}
+
 function money(minor: number, currency: string): string {
   return `${minorToDecimal(minor, currency)} ${currency}`;
 }

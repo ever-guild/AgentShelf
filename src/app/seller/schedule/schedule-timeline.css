@@ -83,6 +83,12 @@
   outline-offset: -5px;
 }
 
+/* A narrow bar's text sits 4 px in, so its ring stays nearer the edge to keep clear of it. */
+.schedule-timeline .b-sch-event-wrap:focus-visible .booking-bar-narrow,
+.schedule-timeline .b-sch-event-wrap.b-active .booking-bar-narrow {
+  outline-offset: -2px;
+}
+
 /* An entry reads as a diary line does: when, what, and how it stands. The inset allows for the
    border, so the text of every state starts on the same line. */
 .booking-bar.booking-state {
@@ -98,8 +104,13 @@
   line-height: 16px;
 }
 
-.booking-bar-time,
-.booking-bar-state {
+/* A bar too short for its words at the usual inset takes this one before it gives up a word.
+   timeline-size.ts counts on both. */
+.booking-bar.booking-state.booking-bar-narrow {
+  padding-inline: calc(4px - var(--state-edge));
+}
+
+.booking-bar-time {
   flex: none;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -117,24 +128,25 @@
   font-weight: 500;
 }
 
-/* The state sits on the bar's bottom edge, so a row's states line up however long the titles are. */
+/* The state sits on the bar's bottom edge, so a row's states line up however long the titles are.
+   The timeline measures its words at this size and weight and gives it lines that fit whole, so
+   nothing here wraps or cuts them. */
 .booking-bar-state {
+  flex: none;
   margin-top: auto;
   color: var(--state-color);
   font-weight: 500;
 }
 
-/* A state ending in "check payment" is too long for a bar's line, and the half that says what to
-   do must not be cut off, so it takes two lines and the name gives one back. */
-.booking-state-unsettled .booking-bar-name {
-  -webkit-line-clamp: 1;
+.booking-bar-state > span {
+  display: block;
+  overflow: hidden;
+  white-space: nowrap;
 }
 
-.booking-state-unsettled .booking-bar-state {
-  display: -webkit-box;
-  white-space: normal;
-  -webkit-box-orient: vertical;
-  -webkit-line-clamp: 2;
+/* A state that takes two lines, such as one ending in "check payment", has the name give one back. */
+.booking-bar-long-state .booking-bar-name {
+  -webkit-line-clamp: 1;
 }
 
 /* What fell through is crossed out, as it would be in a diary, and its time is free again. */

@@ -1,10 +1,11 @@
 "use client";
 
-import { useState, type ReactNode } from "react";
+import { useId, useState, type ReactNode } from "react";
 
 import type { ImportRowPatch, ImportRowView, ImportView } from "@/server/contracts/imports";
 import type { RowField } from "@/server/imports/draft-rows";
 
+import { AMOUNT_HINT } from "../../amount-hint";
 import { RequestFailed } from "./request";
 
 const SECONDARY_TEXT = "text-zinc-600 dark:text-zinc-400";
@@ -13,7 +14,7 @@ const MUTED_TEXT = "text-zinc-500 dark:text-zinc-400";
 // `@[42rem]` is the width at which five columns fit. It follows the table's own width and not the
 // window's, because the photo beside the table takes its share. Below it a row is a small grid.
 const fieldChrome =
-  "min-w-0 rounded-lg border border-zinc-300 bg-transparent px-2 text-base transition-colors enabled:hover:border-zinc-400 disabled:border-transparent disabled:px-0 disabled:opacity-100 disabled:placeholder:text-transparent @[42rem]:text-sm dark:border-zinc-700 dark:enabled:hover:border-zinc-600";
+  "min-w-0 rounded-lg border border-zinc-300 bg-transparent px-2 text-base transition-colors enabled:hover:border-zinc-400 disabled:border-transparent disabled:px-0 disabled:opacity-100 @[42rem]:text-sm dark:border-zinc-700 dark:enabled:hover:border-zinc-600";
 const controlClass = `${fieldChrome} h-11 disabled:appearance-none @[42rem]:h-9`;
 const quietAction =
   "inline-flex min-h-11 items-center underline underline-offset-4 transition-colors hover:text-foreground @[42rem]:min-h-6";
@@ -63,14 +64,14 @@ function TextField({
   value,
   onCommit,
   inputMode,
-  placeholder,
+  describedBy,
   className = "",
 }: {
   label: string;
   value: string | null;
   onCommit: (text: string) => void;
   inputMode?: "decimal" | "numeric";
-  placeholder?: string;
+  describedBy?: string;
   className?: string;
 }) {
   const current = value ?? "";
@@ -78,9 +79,9 @@ function TextField({
     <input
       key={current}
       aria-label={label}
+      aria-describedby={describedBy}
       defaultValue={current}
       inputMode={inputMode}
-      placeholder={placeholder}
       className={`w-full ${controlClass} ${className}`}
       onBlur={(event) => {
         if (event.target.value.trim() !== current) {
@@ -153,6 +154,7 @@ export function RowEditor({
 }) {
   const [refused, setRefused] = useState<{ field: string | null; message: string } | null>(null);
   const [saving, setSaving] = useState(false);
+  const hintId = useId();
 
   async function save(patch: ImportRowPatch) {
     setSaving(true);
@@ -176,6 +178,15 @@ export function RowEditor({
   const hasDescription = Boolean(row.description) || hasSuggestion;
   // With no price, the blocker already quotes what the list says.
   const showsPrinted = row.price !== null && row.priceText !== null && row.priceText !== row.price;
+  // An empty amount field says what to enter under itself, and a filled one shows it by its value.
+  // Nothing inside the field could pass for an amount, and a removed row asks for nothing. A refusal
+  // under the field already says what to enter, so the hint gives way to it.
+  const asksFor = (field: "price" | "deposit", value: string | null) =>
+    !readOnly && !removed && value === null && refused?.field !== field
+      ? `${hintId}-${field}`
+      : undefined;
+  const priceHint = asksFor("price", row.price);
+  const depositHint = asksFor("deposit", row.deposit);
   const fieldNote = (field: RowField) =>
     refused?.field === field ? (
       <p role="alert" className="mt-1 text-xs text-blocked">
@@ -233,7 +244,7 @@ export function RowEditor({
                 label={`Price, ${row.sourceRef}`}
                 value={row.price}
                 inputMode="decimal"
-                placeholder="0.00"
+                describedBy={priceHint}
                 className="tabular-nums"
                 onCommit={(text) => save({ price: text })}
               />
@@ -255,6 +266,11 @@ export function RowEditor({
           {showsPrinted ? (
             <p className={`mt-1 text-xs wrap-anywhere ${SECONDARY_TEXT}`}>
               Your list says <span className="text-sm text-ink tabular-nums">{row.priceText}</span>
+            </p>
+          ) : null}
+          {priceHint ? (
+            <p id={priceHint} className={`mt-1 text-xs tabular-nums ${MUTED_TEXT}`}>
+              {AMOUNT_HINT}
             </p>
           ) : null}
           {fieldNote("price")}
@@ -286,17 +302,26 @@ export function RowEditor({
                     }}
                   />
                 </label>
-                <label className={`flex flex-col gap-1 text-xs @[42rem]:flex-row @[42rem]:items-center ${SECONDARY_TEXT}`}>
-                  <span className="flex-none @[42rem]:w-12">Deposit</span>
-                  <TextField
-                    label={`Deposit, ${row.sourceRef}`}
-                    value={row.deposit}
-                    inputMode="decimal"
-                    placeholder="0.00"
-                    className={`tabular-nums ${removed ? "" : "text-foreground"}`}
-                    onCommit={(text) => save({ deposit: text })}
-                  />
-                </label>
+                <div className="flex flex-col gap-1">
+                  <label className={`flex flex-col gap-1 text-xs @[42rem]:flex-row @[42rem]:items-center ${SECONDARY_TEXT}`}>
+                    <span className="flex-none @[42rem]:w-12">Deposit</span>
+                    <TextField
+                      label={`Deposit, ${row.sourceRef}`}
+                      value={row.deposit}
+                      inputMode="decimal"
+                      describedBy={depositHint}
+                      className={`tabular-nums ${removed ? "" : "text-foreground"}`}
+                      onCommit={(text) => save({ deposit: text })}
+                    />
+                  </label>
+                  {/* Under the word Deposit as well on a wide table, where the field alone is too
+                      narrow to hold the hint on one line. */}
+                  {depositHint ? (
+                    <p id={depositHint} className={`text-xs tabular-nums ${MUTED_TEXT}`}>
+                      {AMOUNT_HINT}
+                    </p>
+                  ) : null}
+                </div>
               </div>
               {fieldNote("duration")}
               {fieldNote("deposit")}

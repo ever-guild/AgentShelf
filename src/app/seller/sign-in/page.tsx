@@ -25,6 +25,15 @@ export default function SignInPage() {
           </p>
         </div>
         <SignInForm />
+        {/* The other ways in stay quiet, so the shop code form is the one thing to do here. */}
+        <p className="flex flex-wrap gap-x-5 gap-y-2 text-sm text-zinc-600 dark:text-zinc-400">
+          <Link href="/seller/owner-sign-in" className="underline underline-offset-4">
+            Sign in with an owner account
+          </Link>
+          <Link href="/seller/register" className="underline underline-offset-4">
+            Register a shop
+          </Link>
+        </p>
       </main>
     </>
   );
