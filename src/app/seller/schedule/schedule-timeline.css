@@ -124,8 +124,8 @@
   font-weight: 500;
 }
 
-/* "Confirmed, check payment" is the one state too long for a bar's line, and the half that says
-   what to do must not be cut off, so it takes two lines and the name gives one back. */
+/* A state ending in "check payment" is too long for a bar's line, and the half that says what to
+   do must not be cut off, so it takes two lines and the name gives one back. */
 .booking-state-unsettled .booking-bar-name {
   -webkit-line-clamp: 1;
 }

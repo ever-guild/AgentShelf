@@ -8,7 +8,7 @@ import type { DashboardPaymentTotal, PaymentGroup } from "@/server/contracts/sel
 import type { DashboardInsights, DemandInsightItem } from "@/server/contracts/seller-insights";
 import type { ScheduleStatus } from "@/server/contracts/seller-schedule";
 
-import { depositText, effectiveStatus, statusLabel } from "../schedule/schedule-labels";
+import { depositText, effectiveStatus, paymentToCheck, statusLabel } from "../schedule/schedule-labels";
 import {
   PAYMENT_GROUP_LABELS,
   attributionBasis,
@@ -331,7 +331,12 @@ export function UpcomingBookingsWidget(params: WidgetParams) {
                 status,
               );
               return (
-                <li key={String(row.bookingId)} className="booking-mark" data-status={status}>
+                <li
+                  key={String(row.bookingId)}
+                  className="booking-mark"
+                  data-status={status}
+                  data-check={paymentToCheck(status, paymentStatus) ? "" : undefined}
+                >
                   <details>
                     <summary className="widget-summary grid grid-cols-[minmax(0,1fr)_1rem] gap-x-2 py-1 pr-2">
                       <span className="min-w-0">

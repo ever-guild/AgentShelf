@@ -51,8 +51,9 @@ const DATASET_LABELS: Record<DatasetName, string> = {
   insights: "search groups",
 };
 
+// A finger gets 40 pixels on a phone, as on the schedule and the catalog.
 const button =
-  "inline-flex h-9 items-center rounded-lg border border-zinc-300 px-3 text-sm font-medium transition-colors hover:bg-zinc-100 disabled:opacity-60 dark:border-zinc-700 dark:hover:bg-zinc-800";
+  "inline-flex h-10 items-center rounded-lg border border-zinc-300 px-3 text-sm font-medium transition-colors hover:bg-zinc-100 disabled:opacity-60 sm:h-9 dark:border-zinc-700 dark:hover:bg-zinc-800";
 
 // The canvas takes what the shop's header (56 pixels) and this page's title (80) leave of the window.
 const CANVAS_BOX = "h-[calc(100dvh-8.5rem)] min-h-[32rem] w-full border-t border-zinc-200 dark:border-zinc-800";
@@ -342,7 +343,7 @@ export default function DashboardBoard({
     <div className="flex flex-1 flex-col">
       <div className="flex flex-wrap items-center justify-between gap-x-6 gap-y-3 px-4 py-3 sm:px-6">
         <div>
-          <h1 className="text-2xl font-semibold tracking-tight sm:text-3xl">Dashboard</h1>
+          <h1 className="text-3xl font-medium">Dashboard</h1>
           <p className="text-sm text-zinc-600 tabular-nums dark:text-zinc-400">
             {state.refreshedAt
               ? `Updated at ${clockTime(state.refreshedAt, timezone)}, shop time`
@@ -363,7 +364,7 @@ export default function DashboardBoard({
                   setPeriod(days);
                   savePeriod(days);
                 }}
-                className={`h-[2.125rem] px-3 text-sm tabular-nums transition-colors focus-visible:-outline-offset-2 ${
+                className={`h-[2.375rem] px-3 text-sm tabular-nums transition-colors focus-visible:-outline-offset-2 sm:h-[2.125rem] ${
                   period === days
                     ? "bg-zinc-100 font-medium text-foreground dark:bg-zinc-800"
                     : "text-zinc-600 hover:bg-zinc-100 hover:text-foreground dark:text-zinc-400 dark:hover:bg-zinc-800"

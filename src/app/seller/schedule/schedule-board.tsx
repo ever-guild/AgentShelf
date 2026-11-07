@@ -15,6 +15,7 @@ import {
   depositText,
   effectiveStatus,
   longDate,
+  paymentToCheck,
   shiftDate,
   shopTime,
   shortDate,
@@ -81,11 +82,11 @@ function timeRange(booking: ScheduleBooking, date: string): string {
   return `${timeOnDay(booking.startsLocal, date)} to ${timeOnDay(booking.endsLocal, date)}`;
 }
 
-// A confirmed booking whose deposit is no longer marked as paid keeps the confirmed shape but takes
-// the color of something to check, as its words say.
+// A booking whose payment needs a check keeps the shape of its state but takes the color of
+// something to check, as its words say.
 function stateClasses(status: ScheduleStatus, paymentStatus: ScheduleBooking["paymentStatus"]): string {
-  return status === "confirmed" && paymentStatus !== "paid"
-    ? "booking-state-confirmed booking-state-unsettled"
+  return paymentToCheck(status, paymentStatus)
+    ? `booking-state-${status} booking-state-unsettled`
     : `booking-state-${status}`;
 }
 
@@ -246,7 +247,7 @@ export function ScheduleBoard({ initial }: { initial: ScheduleView }) {
   if (refresh === "signed_out") {
     return (
       <div className="mx-auto flex w-full max-w-7xl flex-col gap-3 px-4 py-8 sm:px-6">
-        <h1 className="text-3xl font-semibold tracking-tight">Schedule</h1>
+        <h1 className="text-3xl font-medium">Schedule</h1>
         <p className="border-l-4 border-blocked pl-4">
           This shop is no longer signed in here, so its schedule is hidden.{" "}
           <Link href="/seller/sign-in" className="underline underline-offset-4">
@@ -263,7 +264,7 @@ export function ScheduleBoard({ initial }: { initial: ScheduleView }) {
       {/* A page of the diary is headed by its day. */}
       <div className="flex flex-col gap-4">
         <div className="flex flex-col gap-1">
-          <h1 className="text-3xl font-semibold tracking-tight">
+          <h1 className="text-3xl font-medium text-balance">
             <span className="sr-only">Schedule, </span>
             {longDate(requestedDate)}
           </h1>

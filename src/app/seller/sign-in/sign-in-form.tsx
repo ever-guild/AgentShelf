@@ -4,7 +4,7 @@ import { useRouter } from "next/navigation";
 import { useState, type FormEvent } from "react";
 
 const fieldClass =
-  "h-11 w-full rounded-lg border border-zinc-300 bg-transparent px-3 text-base font-normal focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-ink dark:border-zinc-700";
+  "h-11 w-full rounded-lg border border-zinc-300 bg-transparent px-3 text-base font-normal focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ink dark:border-zinc-700";
 
 function signInError(code: string | undefined, message: string | undefined): string {
   if (code === "UNAUTHORIZED") {

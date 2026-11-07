@@ -29,19 +29,26 @@ function captureOpenOrLanded(paymentStatus: ScheduleBooking["paymentStatus"]): b
   return paymentStatus === "approved" || paymentStatus === "paid" || paymentStatus === "review_required";
 }
 
-// A confirmed booking whose payment went back to review shows both, as the read model asks, and so
-// does a released time whose deposit capture is open or has landed.
+// A confirmed booking whose payment went back to review, or a released time whose deposit capture
+// is open or has landed. The schedule and the dashboard mark these in the color of doubt.
+export function paymentToCheck(
+  status: ScheduleStatus,
+  paymentStatus: ScheduleBooking["paymentStatus"],
+): boolean {
+  if (status === "confirmed") {
+    return paymentStatus !== "paid";
+  }
+  return (status === "expired" || status === "cancelled") && captureOpenOrLanded(paymentStatus);
+}
+
+// A booking whose payment needs a check shows both, as the read model asks.
 export function statusLabel(
   status: ScheduleStatus,
   paymentStatus: ScheduleBooking["paymentStatus"],
 ): string {
-  if (status === "confirmed" && paymentStatus !== "paid") {
-    return "Confirmed, check payment";
-  }
-  if ((status === "expired" || status === "cancelled") && captureOpenOrLanded(paymentStatus)) {
-    return `${STATUS_LABELS[status]}, check payment`;
-  }
-  return STATUS_LABELS[status];
+  return paymentToCheck(status, paymentStatus)
+    ? `${STATUS_LABELS[status]}, check payment`
+    : STATUS_LABELS[status];
 }
 
 function money(minor: number, currency: string): string {

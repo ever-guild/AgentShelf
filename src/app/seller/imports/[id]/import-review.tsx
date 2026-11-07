@@ -15,7 +15,7 @@ const SECONDARY_TEXT = "text-zinc-600 dark:text-zinc-400";
 const PRIMARY_ACTION =
   "inline-flex min-h-11 flex-none items-center rounded-lg bg-ink px-4 py-2 font-medium text-background transition-[background-color,transform] hover:bg-ink/90 active:scale-[0.98] disabled:pointer-events-none disabled:opacity-60";
 const BULK_ACTION =
-  "inline-flex min-h-11 items-center rounded-lg border border-zinc-300 px-3 py-2 text-left text-sm font-medium transition-colors enabled:hover:bg-zinc-100 disabled:opacity-60 sm:min-h-9 sm:py-1.5 dark:border-zinc-700 dark:enabled:hover:bg-zinc-900";
+  "inline-flex min-h-11 items-center rounded-lg border border-zinc-300 px-3 py-2 text-left text-sm font-medium transition-colors enabled:hover:bg-zinc-100 disabled:opacity-60 sm:min-h-9 sm:py-1.5 dark:border-zinc-700 dark:enabled:hover:bg-zinc-800";
 
 const isWaiting = (view: ImportView) => view.status === "queued" || view.status === "running";
 
@@ -291,7 +291,7 @@ export function ImportReview({
 
   return (
     <div
-      className={`mx-auto grid w-full gap-6 px-4 py-6 sm:px-6 ${
+      className={`mx-auto grid w-full gap-6 px-4 py-8 sm:px-6 ${
         view.hasSource ? `max-w-[96rem] lg:grid-rows-[auto_1fr] ${columns}` : "max-w-7xl"
       }`}
     >

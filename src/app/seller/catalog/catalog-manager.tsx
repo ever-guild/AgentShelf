@@ -17,8 +17,9 @@ const inputClass =
   "h-10 w-full min-w-0 rounded-lg border border-zinc-300 bg-transparent px-2 text-right text-base text-foreground tabular-nums transition-colors disabled:opacity-60 aria-invalid:border-blocked md:h-9 md:text-sm dark:border-zinc-700 dark:aria-invalid:border-blocked";
 const quietButton =
   "inline-flex h-10 items-center rounded-lg border border-zinc-300 px-3 text-sm font-medium whitespace-nowrap transition-[background-color,transform] enabled:hover:bg-zinc-100 enabled:active:scale-[0.98] disabled:opacity-60 md:h-9 dark:border-zinc-700 dark:enabled:hover:bg-zinc-800";
+// The page's one main action, the same size as Publish on a price list and the upload button.
 const mainButton =
-  "inline-flex h-10 items-center rounded-lg bg-ink px-3 text-sm font-medium text-background transition-[background-color,transform] enabled:hover:bg-ink/90 enabled:active:scale-[0.98] disabled:opacity-60 md:h-9";
+  "inline-flex min-h-11 items-center rounded-lg bg-ink px-4 py-2 font-medium text-background transition-[background-color,transform] enabled:hover:bg-ink/90 enabled:active:scale-[0.98] disabled:opacity-60";
 const SECONDARY_TEXT = "text-zinc-600 dark:text-zinc-400";
 
 // One set of columns for the heading and every row, so amounts stay in one line down the page. The
@@ -353,7 +354,7 @@ export function CatalogManager({ initial, timezone }: { initial: CatalogView; ti
   return (
     <div className="mx-auto flex w-full max-w-7xl flex-col gap-8 px-4 py-8 sm:px-6">
       <header className="flex flex-col gap-2">
-        <h1 className="text-3xl font-semibold tracking-tight">Your catalog</h1>
+        <h1 className="text-3xl font-medium text-balance">Your catalog</h1>
         <p aria-live="polite" className={`tabular-nums ${SECONDARY_TEXT}`}>
           {plural(published, "product")} on sale
           {unpublished > 0 ? `, ${unpublished} unpublished` : ""}

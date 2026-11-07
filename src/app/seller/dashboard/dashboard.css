@@ -131,6 +131,10 @@
   border-inline-start-style: dotted;
   border-color: var(--studio-muted);
 }
+/* "Check payment" in its words: the state keeps its line in the color of doubt, as on the schedule. */
+.booking-mark[data-check] {
+  border-color: var(--doubt);
+}
 
 .widget-summary {
   cursor: pointer;

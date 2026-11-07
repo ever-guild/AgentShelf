@@ -63,3 +63,10 @@
   --state-color: var(--booking-secondary);
   --state-tint: 0%;
 }
+
+/* A released time whose deposit capture is open or has landed: still crossed out and untinted, but
+   its line and words in the color of doubt, because the payment needs a look. */
+.booking-state-expired.booking-state-unsettled,
+.booking-state-cancelled.booking-state-unsettled {
+  --state-color: var(--doubt);
+}
