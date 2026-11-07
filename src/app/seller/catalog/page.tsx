@@ -27,7 +27,13 @@ async function Catalog() {
 export default function CatalogPage() {
   return (
     <main className="flex flex-1 flex-col">
-      <Suspense fallback={<p className="px-6 py-8 text-zinc-600 dark:text-zinc-400">Loading your catalog</p>}>
+      <Suspense
+        fallback={
+          <p className="mx-auto w-full max-w-7xl px-4 py-8 text-zinc-600 sm:px-6 dark:text-zinc-400">
+            Loading your catalog
+          </p>
+        }
+      >
         <Catalog />
       </Suspense>
     </main>

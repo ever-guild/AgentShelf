@@ -4,6 +4,7 @@ import { BryntumScheduler } from "@bryntum/scheduler-react-community";
 import { useMemo } from "react";
 
 import "./schedule-timeline.css";
+import { BAR_MARGIN_PX, ROW_HEIGHT_PX } from "./timeline-size";
 
 // The Bryntum view of a day. It is read-only: nothing here can write, and every way of moving or
 // creating an event is switched off, so no gesture can look like a booking that does not exist.
@@ -19,18 +20,21 @@ export type TimelineBooking = {
   stateClass: string;
   label: string;
   detail: string;
+  // When it starts, which is all a short bar has room for. Where it ends shows on the axis.
+  start: string;
   times: string;
 };
 
+// An hour's label sits at its own line on the axis, so a bar lines up with the time it starts.
 const VIEW_PRESET = {
   base: "hourAndDay",
   tickWidth: 110,
   displayDateFormat: "HH:mm",
-  headers: [{ unit: "hour", dateFormat: "HH:mm" }],
+  headers: [{ unit: "hour", dateFormat: "HH:mm", align: "start" as const }],
 };
 
 const COLUMNS = [
-  { text: "Technician", field: "name", width: 120, sortable: false, enableCellContextMenu: false },
+  { text: "Technician", field: "name", width: 104, sortable: false, enableCellContextMenu: false },
 ];
 
 export default function ScheduleTimeline({
@@ -57,8 +61,8 @@ export default function ScheduleTimeline({
         startDate={start}
         endDate={end}
         viewPreset={VIEW_PRESET}
-        rowHeight={84}
-        barMargin={4}
+        rowHeight={ROW_HEIGHT_PX}
+        barMargin={BAR_MARGIN_PX}
         eventLayout="stack"
         columns={COLUMNS}
         resources={technicians}
@@ -73,9 +77,9 @@ export default function ScheduleTimeline({
             className: `booking-bar booking-state ${field("stateClass")}`,
             title: description,
             children: [
-              { tag: "strong", text: field("label") },
-              { tag: "span", text: field("name") },
-              { tag: "span", className: "booking-bar-time", text: field("times") },
+              { tag: "span", className: "booking-bar-time", text: field("start") },
+              { tag: "span", className: "booking-bar-name", text: field("name") },
+              { tag: "span", className: "booking-bar-state", text: field("label") },
             ],
           };
         }}

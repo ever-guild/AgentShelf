@@ -6,6 +6,45 @@
 @import "@bryntum/scheduler-community/svalbard-light.css";
 @import "@bryntum/scheduler-community/svalbard-dark.css" (prefers-color-scheme: dark);
 
+/* Bryntum's chrome follows the page through its own variables. It resolves them on the root, so
+   this uses the selector its theme files use and wins by coming after them. The values are the
+   page's tokens, which already change with the theme, so one block covers light and dark. Nothing
+   in the grid can be acted on, so hovering and selecting leave it as it is. */
+:root:not(.b-nothing) {
+  --b-primary: var(--ink);
+  --b-neutral-100: var(--background);
+  --b-widget-color: var(--foreground);
+  --b-widget-focus-outline-color: var(--ink);
+
+  --b-grid-cell-font-size: 14px;
+  --b-grid-cell-font-weight: 500;
+  --b-grid-cell-padding-inline: 12px;
+  --b-grid-cell-border-color: var(--booking-rule);
+  --b-grid-cell-hover-background: var(--background);
+  --b-grid-cell-selected-background: var(--background);
+  --b-grid-cell-hover-selected-background: var(--background);
+  --b-grid-splitter-narrow-color: var(--booking-rule);
+
+  --b-grid-header-font-size: 13px;
+  --b-grid-header-font-weight: 400;
+  --b-grid-header-padding: 12px;
+  --b-grid-header-color: var(--booking-secondary);
+  --b-grid-header-hover-background: var(--background);
+
+  --b-horizontal-time-axis-cell-padding-inline: 8px;
+  --b-horizontal-time-axis-lowest-font-size: 1em;
+  --b-column-lines-tick-color: var(--booking-rule);
+  --b-column-lines-major-color: var(--booking-rule);
+
+  --b-sch-event-cursor: default;
+}
+
+/* Ruled above and below like a page, with the sides left open. */
+.schedule-timeline {
+  border-block: 1px solid var(--booking-rule);
+  font-variant-numeric: tabular-nums;
+}
+
 .schedule-timeline .b-sch-event-wrap,
 .schedule-timeline .b-sch-event {
   background: transparent;
@@ -44,25 +83,68 @@
   outline-offset: -5px;
 }
 
-.booking-bar {
+/* An entry reads as a diary line does: when, what, and how it stands. The inset allows for the
+   border, so the text of every state starts on the same line. */
+.booking-bar.booking-state {
   display: flex;
   flex-direction: column;
   width: 100%;
   height: 100%;
   overflow: hidden;
-  padding: 2px 6px;
-  background: var(--background);
+  padding: calc(4px - var(--state-edge)) calc(8px - var(--state-edge));
   color: var(--foreground);
   font-size: 12px;
-  line-height: 1.25;
+  font-weight: 400;
+  line-height: 16px;
+}
+
+.booking-bar-time,
+.booking-bar-state {
+  flex: none;
+  overflow: hidden;
+  text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.booking-bar > * {
+/* Bryntum keeps an event on one line, so the name opts back into wrapping to use its two lines. */
+.booking-bar-name {
+  display: -webkit-box;
   overflow: hidden;
-  text-overflow: ellipsis;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  font-weight: 500;
 }
 
-.booking-bar-time {
-  font-variant-numeric: tabular-nums;
+/* The state sits on the bar's bottom edge, so a row's states line up however long the titles are. */
+.booking-bar-state {
+  margin-top: auto;
+  color: var(--state-color);
+  font-weight: 500;
+}
+
+/* "Confirmed, check payment" is the one state too long for a bar's line, and the half that says
+   what to do must not be cut off, so it takes two lines and the name gives one back. */
+.booking-state-unsettled .booking-bar-name {
+  -webkit-line-clamp: 1;
+}
+
+.booking-state-unsettled .booking-bar-state {
+  display: -webkit-box;
+  white-space: normal;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+
+/* What fell through is crossed out, as it would be in a diary, and its time is free again. */
+.booking-bar.booking-state-expired,
+.booking-bar.booking-state-cancelled {
+  color: var(--booking-secondary);
+}
+
+.booking-state-expired .booking-bar-name,
+.booking-state-cancelled .booking-bar-name {
+  font-weight: 400;
+  text-decoration: line-through;
 }

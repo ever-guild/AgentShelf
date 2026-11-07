@@ -14,9 +14,20 @@ import type {
 import { RequestFailed, request } from "../imports/[id]/request";
 
 const inputClass =
-  "w-full min-w-0 rounded border border-zinc-300 bg-transparent px-2 py-1.5 text-base focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-ink md:text-sm dark:border-zinc-700";
+  "h-10 w-full min-w-0 rounded-lg border border-zinc-300 bg-transparent px-2 text-right text-base text-foreground tabular-nums transition-colors disabled:opacity-60 aria-invalid:border-blocked md:h-9 md:text-sm dark:border-zinc-700 dark:aria-invalid:border-blocked";
 const quietButton =
-  "rounded-md border border-zinc-300 px-3 py-1.5 text-sm font-medium hover:bg-zinc-50 focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-ink disabled:opacity-60 dark:border-zinc-700 dark:hover:bg-zinc-900";
+  "inline-flex h-10 items-center rounded-lg border border-zinc-300 px-3 text-sm font-medium whitespace-nowrap transition-[background-color,transform] enabled:hover:bg-zinc-100 enabled:active:scale-[0.98] disabled:opacity-60 md:h-9 dark:border-zinc-700 dark:enabled:hover:bg-zinc-800";
+const mainButton =
+  "inline-flex h-10 items-center rounded-lg bg-ink px-3 text-sm font-medium text-background transition-[background-color,transform] enabled:hover:bg-ink/90 enabled:active:scale-[0.98] disabled:opacity-60 md:h-9";
+const SECONDARY_TEXT = "text-zinc-600 dark:text-zinc-400";
+
+// One set of columns for the heading and every row, so amounts stay in one line down the page. The
+// last one holds "Publish again" on one line. A shop with no services has no deposit column, rather
+// than an empty one, and its price column is wide enough for a refusal to read under the field.
+const COLUMNS = {
+  withDeposit: "md:grid-cols-[minmax(0,3fr)_6rem_6rem_minmax(0,2fr)_8rem] md:gap-x-4",
+  priceOnly: "md:grid-cols-[minmax(0,3fr)_8rem_minmax(0,2fr)_8rem] md:gap-x-4",
+};
 
 function plural(count: number, one: string, many = `${one}s`) {
   return `${count} ${count === 1 ? one : many}`;
@@ -30,6 +41,7 @@ function AmountField({
   value,
   currency,
   disabled,
+  invalid,
   onCommit,
 }: {
   label: string;
@@ -37,19 +49,24 @@ function AmountField({
   value: string | null;
   currency: string;
   disabled: boolean;
+  invalid: boolean;
   onCommit: (text: string) => void;
 }) {
   const current = value ?? "";
   return (
-    <label className="flex flex-col gap-1 text-xs text-zinc-600 dark:text-zinc-400">
-      {label} in {currency}
+    <label className={`flex min-w-0 flex-col gap-1 text-xs ${SECONDARY_TEXT}`}>
+      {/* From tablet width up, the heading above the rows says this. */}
+      <span className="md:hidden">
+        {label} in {currency}
+      </span>
       <input
         key={current}
         aria-label={`${label} in ${currency}: ${product}`}
+        aria-invalid={invalid || undefined}
         defaultValue={current}
         inputMode="decimal"
         disabled={disabled}
-        className={`${inputClass} text-foreground`}
+        className={inputClass}
         onBlur={(event) => {
           if (event.target.value.trim() !== current) {
             onCommit(event.target.value);
@@ -77,31 +94,34 @@ function SyncStatus({
       <p className="text-sm">
         <span className="text-accepted">In PayPal Catalog</span>
         {sync.syncedAt ? (
-          <span className="text-zinc-600 dark:text-zinc-400">
+          <span className={SECONDARY_TEXT}>
             , sent{" "}
             {new Intl.DateTimeFormat("en-GB", { dateStyle: "medium", timeZone: timezone }).format(
               new Date(sync.syncedAt),
             )}
           </span>
         ) : null}
-        <span className="mt-0.5 block break-all font-mono text-xs text-zinc-500">
+        <span className={`mt-0.5 block break-all text-xs tabular-nums ${SECONDARY_TEXT}`}>
           {sync.paypalProductId}
         </span>
       </p>
     );
   }
   if (product.status === "unpublished") {
-    return <p className="text-sm text-zinc-600 dark:text-zinc-400">Not sent to PayPal Catalog</p>;
+    return <p className={`text-sm ${SECONDARY_TEXT}`}>Not sent to PayPal Catalog</p>;
   }
   if (sync.status === "pending") {
-    return <p className="text-sm text-zinc-600 dark:text-zinc-400">Waiting to go to PayPal Catalog</p>;
+    return <p className={`text-sm ${SECONDARY_TEXT}`}>Waiting to go to PayPal Catalog</p>;
   }
   if (sync.status === "not_configured") {
     return <p className="text-sm text-doubt">PayPal Catalog is not connected</p>;
   }
   return (
-    <div className="flex flex-col items-start gap-1">
-      <p className="text-sm text-blocked">Not in PayPal Catalog. {sync.problem}</p>
+    <div className="flex flex-col items-start gap-2">
+      <p className="text-sm">
+        <span className="text-blocked">Not in PayPal Catalog.</span>{" "}
+        <span className={SECONDARY_TEXT}>{sync.problem}</span>
+      </p>
       <button
         type="button"
         disabled={disabled}
@@ -119,6 +139,7 @@ function ProductRow({
   product,
   currency,
   timezone,
+  withDeposit,
   busy,
   onSave,
   onRetry,
@@ -126,53 +147,68 @@ function ProductRow({
   product: CatalogProductView;
   currency: string;
   timezone: string;
+  withDeposit: boolean;
   busy: boolean;
   onSave: (patch: CatalogProductPatch) => Promise<void>;
   onRetry: () => void;
 }) {
-  const [refused, setRefused] = useState<string | null>(null);
+  const [refused, setRefused] = useState<{ patch: CatalogProductPatch; message: string } | null>(null);
+  const [saved, setSaved] = useState<string | null>(null);
   const onSale = product.status === "published";
+  const length =
+    product.serviceDurationMinutes === null
+      ? "length not set"
+      : `${product.serviceDurationMinutes} minutes`;
 
-  async function save(patch: CatalogProductPatch) {
+  async function save(patch: CatalogProductPatch, savedWords: string | null = null) {
     setRefused(null);
+    setSaved(null);
     try {
       await onSave(patch);
+      setSaved(savedWords);
     } catch (error) {
-      setRefused(error instanceof Error ? error.message : "That change did not save. Try again.");
+      setRefused({
+        patch,
+        message: error instanceof Error ? error.message : "That change did not save. Try again.",
+      });
     }
   }
 
   return (
     <li
-      className={`grid gap-3 border-b border-l-4 border-b-zinc-200 py-3 pl-3 pr-1 md:grid-cols-[minmax(0,2fr)_minmax(9rem,1fr)_minmax(0,2fr)_auto] dark:border-b-zinc-800 ${
-        onSale ? "border-l-accepted" : "border-l-zinc-300 dark:border-l-zinc-700"
+      className={`grid gap-3 border-b border-zinc-200 py-4 md:py-3 dark:border-zinc-800 ${
+        withDeposit ? COLUMNS.withDeposit : COLUMNS.priceOnly
       }`}
     >
-      <div className="min-w-0">
-        <p className="break-words font-medium">{product.title}</p>
-        <p className="text-sm text-zinc-600 dark:text-zinc-400">
-          {product.kind === "service"
-            ? `Service, ${product.serviceDurationMinutes ?? "?"} minutes`
-            : "Product"}
-          {onSale ? "" : ", not on sale"}
+      <div className="min-w-0 md:pt-1.5">
+        <p className={`break-words ${onSale ? "font-medium" : SECONDARY_TEXT}`}>{product.title}</p>
+        <p className={`text-sm ${SECONDARY_TEXT}`}>
+          {product.kind === "service" ? `Service, ${length}` : "Product"}
+          {onSale ? ", on sale" : ", not on sale"}
         </p>
         {product.description ? (
-          <p className="mt-1 break-words text-sm text-zinc-600 dark:text-zinc-400">{product.description}</p>
+          <p className={`mt-1 break-words text-sm ${SECONDARY_TEXT}`}>{product.description}</p>
         ) : null}
         {product.descriptionLv ? (
-          <p lang="lv" className="mt-1 break-words text-sm text-zinc-600 dark:text-zinc-400">
+          <p lang="lv" className={`mt-1 break-words text-sm ${SECONDARY_TEXT}`}>
             {product.descriptionLv}
           </p>
         ) : null}
       </div>
-      <div className="flex flex-col gap-2">
+      {/* What happened to a typed amount sits right under the fields, not under the tallest cell. */}
+      <div
+        className={`grid grid-cols-2 gap-x-4 gap-y-2 md:grid-cols-subgrid ${
+          withDeposit ? "md:col-span-2" : "md:col-span-1"
+        }`}
+      >
         <AmountField
           label="Price"
           product={product.title}
           value={product.price}
           currency={currency}
           disabled={busy}
-          onCommit={(text) => save({ price: text })}
+          invalid={refused?.patch.price !== undefined}
+          onCommit={(text) => save({ price: text }, "Price saved")}
         />
         {product.kind === "service" ? (
           <AmountField
@@ -181,17 +217,23 @@ function ProductRow({
             value={product.deposit}
             currency={currency}
             disabled={busy}
-            onCommit={(text) => save({ deposit: text })}
+            invalid={refused?.patch.deposit !== undefined}
+            onCommit={(text) => save({ deposit: text }, "Deposit saved")}
           />
         ) : null}
         {refused ? (
-          <p role="alert" className="text-xs text-blocked">
-            {refused}
+          <p role="alert" className="col-span-full text-sm text-blocked">
+            {refused.message}
           </p>
         ) : null}
+        <p role="status" className="col-span-full text-sm text-accepted empty:hidden">
+          {saved}
+        </p>
       </div>
-      <SyncStatus product={product} timezone={timezone} disabled={busy} onRetry={onRetry} />
-      <div>
+      <div className="min-w-0 md:pt-2">
+        <SyncStatus product={product} timezone={timezone} disabled={busy} onRetry={onRetry} />
+      </div>
+      <div className="md:justify-self-end">
         <button
           type="button"
           disabled={busy}
@@ -305,44 +347,50 @@ export function CatalogManager({ initial, timezone }: { initial: CatalogView; ti
   const notConnected = view.products.find(
     (product) => product.status === "published" && product.sync.status === "not_configured",
   );
+  const withDeposit = view.products.some((product) => product.kind === "service");
+  const columns = withDeposit ? COLUMNS.withDeposit : COLUMNS.priceOnly;
 
   return (
-    <div className="mx-auto flex w-full max-w-6xl flex-col gap-5 px-4 py-6 sm:px-6">
+    <div className="mx-auto flex w-full max-w-7xl flex-col gap-8 px-4 py-8 sm:px-6">
       <header className="flex flex-col gap-2">
-        <h1 className="text-2xl font-semibold tracking-tight sm:text-3xl">Your catalog</h1>
-        <p aria-live="polite" className="text-zinc-600 dark:text-zinc-400">
+        <h1 className="text-3xl font-semibold tracking-tight">Your catalog</h1>
+        <p aria-live="polite" className={`tabular-nums ${SECONDARY_TEXT}`}>
           {plural(published, "product")} on sale
           {unpublished > 0 ? `, ${unpublished} unpublished` : ""}
           {sending === "all" && waiting > 0 ? `. Sending to PayPal Catalog, ${waiting} left` : ""}
         </p>
-        <p className="max-w-prose text-sm text-zinc-600 dark:text-zinc-400">
-          Prices and what is on sale are kept here, and buyers&apos; assistants read them from here. A
-          PayPal Catalog record is only a reference: it holds a name and a description, and it does not
-          list your product in PayPal Store Sync, Agent Ready or any other shopping search. PayPal
-          cannot delete a record, so unpublishing stops sales here and leaves the record where it is.
+        <p className={`max-w-prose text-sm ${SECONDARY_TEXT}`}>
+          Buyers&apos; assistants read prices and what is on sale from here. A PayPal Catalog record is
+          only a reference with a name and a description, and it does not list your product in PayPal
+          Store Sync, Agent Ready or any other shopping search. PayPal cannot delete a record, so
+          unpublishing stops sales here and leaves the record where it is.
         </p>
       </header>
 
-      {notConnected ? (
-        <p className="max-w-prose border-l-4 border-doubt pl-4">{notConnected.sync.problem}</p>
-      ) : null}
+      <div className="flex flex-col items-start gap-3 empty:hidden">
+        {notConnected ? (
+          <p className="max-w-prose border-l-4 border-doubt pl-4">{notConnected.sync.problem}</p>
+        ) : null}
 
-      {unsent > 0 && !working ? (
-        <div>
-          <button type="button" onClick={() => send({ retryFailed: true })} className={quietButton}>
+        {unsent > 0 && !working ? (
+          <button
+            type="button"
+            onClick={() => send({ retryFailed: true })}
+            className={notConnected ? quietButton : mainButton}
+          >
             Send {plural(unsent, "product")} to PayPal Catalog
           </button>
-        </div>
-      ) : null}
+        ) : null}
 
-      {problem ? (
-        <p role="alert" className="max-w-prose text-sm text-blocked">
-          {problem}
-        </p>
-      ) : null}
+        {problem ? (
+          <p role="alert" className="max-w-prose text-sm text-blocked">
+            {problem}
+          </p>
+        ) : null}
+      </div>
 
       {view.products.length === 0 ? (
-        <p className="text-zinc-600 dark:text-zinc-400">
+        <p className={SECONDARY_TEXT}>
           Nothing here yet.{" "}
           <Link href="/seller/imports" className="underline underline-offset-4">
             Upload a price list
@@ -350,24 +398,37 @@ export function CatalogManager({ initial, timezone }: { initial: CatalogView; ti
           to fill your catalog.
         </p>
       ) : (
-        <ul className="flex flex-col border-t border-zinc-200 dark:border-zinc-800">
-          {view.products.map((product) => (
-            <ProductRow
-              key={product.id}
-              product={product}
-              currency={view.shopCurrency}
-              timezone={timezone}
-              busy={working}
-              onSave={(patch) => saveProduct(product.id, patch)}
-              onRetry={() => void send({ productId: product.id })}
-            />
-          ))}
-        </ul>
+        <div>
+          {/* Each field names itself for a screen reader, so this heading is only for the eye. */}
+          <div
+            aria-hidden="true"
+            className={`hidden border-b border-zinc-200 pb-2 text-xs md:grid dark:border-zinc-800 ${SECONDARY_TEXT} ${columns}`}
+          >
+            <span>Product</span>
+            <span className="text-right">Price in {view.shopCurrency}</span>
+            {withDeposit ? <span className="text-right">Deposit in {view.shopCurrency}</span> : null}
+            <span>PayPal Catalog</span>
+          </div>
+          <ul className="flex flex-col max-md:border-t max-md:border-zinc-200 max-md:dark:border-zinc-800">
+            {view.products.map((product) => (
+              <ProductRow
+                key={product.id}
+                product={product}
+                currency={view.shopCurrency}
+                timezone={timezone}
+                withDeposit={withDeposit}
+                busy={working}
+                onSave={(patch) => saveProduct(product.id, patch)}
+                onRetry={() => void send({ productId: product.id })}
+              />
+            ))}
+          </ul>
+        </div>
       )}
 
       {view.truncated ? (
-        <p className="text-sm text-zinc-600 dark:text-zinc-400">
-          Showing the first {view.products.length} products by name.
+        <p className={`text-sm tabular-nums ${SECONDARY_TEXT}`}>
+          Showing the first {view.products.length} products by name
         </p>
       ) : null}
     </div>

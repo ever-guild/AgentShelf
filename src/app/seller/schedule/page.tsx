@@ -37,7 +37,13 @@ async function Schedule({ searchParams }: { searchParams: SearchParams }) {
 export default function SchedulePage({ searchParams }: { searchParams: SearchParams }) {
   return (
     <main className="flex flex-1 flex-col">
-      <Suspense fallback={<p className="px-6 py-8 text-zinc-600 dark:text-zinc-400">Loading your schedule</p>}>
+      <Suspense
+        fallback={
+          <p className="mx-auto w-full max-w-7xl px-4 py-8 text-zinc-600 sm:px-6 dark:text-zinc-400">
+            Loading your schedule
+          </p>
+        }
+      >
         <Schedule searchParams={searchParams} />
       </Suspense>
     </main>

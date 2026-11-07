@@ -5,7 +5,11 @@ import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { Component, useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 
-import type { ScheduleBooking, ScheduleView } from "@/server/contracts/seller-schedule";
+import type {
+  ScheduleBooking,
+  ScheduleStatus,
+  ScheduleView,
+} from "@/server/contracts/seller-schedule";
 
 import {
   depositText,
@@ -17,12 +21,13 @@ import {
   statusLabel,
 } from "./schedule-labels";
 import type { TimelineBooking } from "./schedule-timeline";
+import { timelineHeight } from "./timeline-size";
 import "./schedule-status.css";
 
 // Bryntum does not support server rendering, and only this page should pay for its size.
 const ScheduleTimeline = dynamic(() => import("./schedule-timeline"), {
   ssr: false,
-  loading: () => <p className="text-sm text-zinc-600 dark:text-zinc-400">Loading the timeline</p>,
+  loading: () => <p className={`py-3 text-sm ${SECONDARY_TEXT}`}>Loading the timeline</p>,
 });
 
 // Five seconds between answers keeps a new confirmation inside the ten seconds the seller is
@@ -32,7 +37,8 @@ const REQUEST_TIMEOUT_MS = 4_000;
 const STALE_AFTER_MS = 15_000;
 
 const button =
-  "rounded-md border border-zinc-300 px-3 py-1.5 text-sm font-medium hover:bg-zinc-50 focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-ink disabled:opacity-60 dark:border-zinc-700 dark:hover:bg-zinc-900";
+  "inline-flex h-10 items-center rounded-lg border border-zinc-300 px-3 text-sm font-medium transition-[background-color,transform] enabled:hover:bg-zinc-100 enabled:active:scale-[0.98] disabled:opacity-60 sm:h-9 dark:border-zinc-700 dark:enabled:hover:bg-zinc-800";
+const SECONDARY_TEXT = "text-zinc-600 dark:text-zinc-400";
 
 class TimelineBoundary extends Component<{ children: ReactNode }, { failed: boolean }> {
   state = { failed: false };
@@ -65,10 +71,22 @@ function changeSignature(view: ScheduleView): string {
   );
 }
 
+function timeOnDay(local: string, date: string): string {
+  return local.slice(0, 10) === date
+    ? shopTime(local)
+    : `${shopTime(local)} on ${shortDate(local.slice(0, 10))}`;
+}
+
 function timeRange(booking: ScheduleBooking, date: string): string {
-  const onDay = (local: string) =>
-    local.slice(0, 10) === date ? shopTime(local) : `${shopTime(local)} on ${shortDate(local.slice(0, 10))}`;
-  return `${onDay(booking.startsLocal)} to ${onDay(booking.endsLocal)}`;
+  return `${timeOnDay(booking.startsLocal, date)} to ${timeOnDay(booking.endsLocal, date)}`;
+}
+
+// A confirmed booking whose deposit is no longer marked as paid keeps the confirmed shape but takes
+// the color of something to check, as its words say.
+function stateClasses(status: ScheduleStatus, paymentStatus: ScheduleBooking["paymentStatus"]): string {
+  return status === "confirmed" && paymentStatus !== "paid"
+    ? "booking-state-confirmed booking-state-unsettled"
+    : `booking-state-${status}`;
 }
 
 export function ScheduleBoard({ initial }: { initial: ScheduleView }) {
@@ -206,26 +224,28 @@ export function ScheduleBoard({ initial }: { initial: ScheduleView }) {
     return {
       booking,
       status,
+      stateClass: stateClasses(status, booking.paymentStatus),
       label: statusLabel(status, booking.paymentStatus),
       detail: depositText(booking, status),
     };
   });
   const timelineData = JSON.stringify(
-    display.map(({ booking, status, label, detail }): TimelineBooking => ({
+    display.map(({ booking, stateClass, label, detail }): TimelineBooking => ({
       id: booking.bookingId,
       resourceId: booking.technicianId,
       startDate: booking.startsLocal,
       endDate: booking.barEndLocal,
       name: booking.serviceTitle,
-      stateClass: `booking-state-${status}`,
+      stateClass,
       label,
       detail,
+      start: timeOnDay(booking.startsLocal, view.date),
       times: timeRange(booking, view.date),
     })),
   );
   if (refresh === "signed_out") {
     return (
-      <div className="mx-auto flex w-full max-w-6xl flex-col gap-3 px-4 py-8 sm:px-6">
+      <div className="mx-auto flex w-full max-w-7xl flex-col gap-3 px-4 py-8 sm:px-6">
         <h1 className="text-3xl font-semibold tracking-tight">Schedule</h1>
         <p className="border-l-4 border-blocked pl-4">
           This shop is no longer signed in here, so its schedule is hidden.{" "}
@@ -239,44 +259,50 @@ export function ScheduleBoard({ initial }: { initial: ScheduleView }) {
   }
 
   return (
-    <div className="mx-auto flex w-full max-w-6xl flex-col gap-6 px-4 py-8 sm:px-6">
-      <div className="flex flex-col gap-2">
-        <h1 className="text-3xl font-semibold tracking-tight">Schedule</h1>
-        <p className="text-zinc-600 dark:text-zinc-400">
-          {longDate(requestedDate)}. Times are shop time, {view.timezone}.
-        </p>
+    <div className="mx-auto flex w-full max-w-7xl flex-col gap-8 px-4 py-8 sm:px-6">
+      {/* A page of the diary is headed by its day. */}
+      <div className="flex flex-col gap-4">
+        <div className="flex flex-col gap-1">
+          <h1 className="text-3xl font-semibold tracking-tight">
+            <span className="sr-only">Schedule, </span>
+            {longDate(requestedDate)}
+          </h1>
+          <p className={SECONDARY_TEXT}>Times are shop time, {view.timezone}</p>
+        </div>
+
+        <div className="flex flex-wrap items-center justify-between gap-x-6 gap-y-3">
+          <nav aria-label="Choose a day" className="flex flex-wrap items-center gap-2">
+            <button type="button" className={button} onClick={() => goTo(shiftDate(requestedDate, -1))}>
+              Previous day
+            </button>
+            <button
+              type="button"
+              className={button}
+              disabled={requestedDate === view.today}
+              onClick={() => goTo(null)}
+            >
+              Today
+            </button>
+            <button type="button" className={button} onClick={() => goTo(shiftDate(requestedDate, 1))}>
+              Next day
+            </button>
+            <DatePicker date={requestedDate} onPick={goTo} />
+          </nav>
+
+          <RefreshLine
+            state={refresh}
+            isStale={isStale}
+            updatedAt={updatedAt}
+            onRetry={() => setRetries((count) => count + 1)}
+          />
+        </div>
       </div>
-
-      <nav aria-label="Choose a day" className="flex flex-wrap items-center gap-2">
-        <button type="button" className={button} onClick={() => goTo(shiftDate(requestedDate, -1))}>
-          Previous day
-        </button>
-        <button
-          type="button"
-          className={button}
-          disabled={requestedDate === view.today}
-          onClick={() => goTo(null)}
-        >
-          Today
-        </button>
-        <button type="button" className={button} onClick={() => goTo(shiftDate(requestedDate, 1))}>
-          Next day
-        </button>
-        <DatePicker date={requestedDate} onPick={goTo} />
-      </nav>
-
-      <RefreshLine
-        state={refresh}
-        isStale={isStale}
-        updatedAt={updatedAt}
-        onRetry={() => setRetries((count) => count + 1)}
-      />
       <p role="status" className="sr-only">
         {announcement}
       </p>
 
       {!dayIsLoaded ? (
-        <p className="text-zinc-600 dark:text-zinc-400">Loading {longDate(requestedDate)}</p>
+        <p className={SECONDARY_TEXT}>Loading {longDate(requestedDate)}</p>
       ) : view.technicians.length === 0 ? (
         <p className="max-w-prose">
           This shop has no technicians set up, so buyers cannot book repairs and there is nothing to
@@ -284,12 +310,22 @@ export function ScheduleBoard({ initial }: { initial: ScheduleView }) {
         </p>
       ) : (
         <>
-          <section aria-label="Timeline" className="flex flex-col gap-2">
+          {/* The timeline's place stays free while it loads, so the list below does not jump. */}
+          <section
+            aria-label="Timeline"
+            className="flex flex-col gap-2"
+            style={{
+              minHeight: timelineHeight(
+                view.technicians.map(({ technicianId }) => technicianId),
+                view.bookings,
+              ),
+            }}
+          >
             <a
               href="#schedule-list"
-              className="self-start text-sm underline underline-offset-4 focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-ink"
+              className="sr-only self-start text-sm underline underline-offset-4 focus:not-sr-only"
             >
-              Skip the timeline and go to the list of bookings
+              Skip to the list of bookings
             </a>
             <TimelineBoundary>
               <ScheduleTimeline
@@ -304,30 +340,30 @@ export function ScheduleBoard({ initial }: { initial: ScheduleView }) {
             </TimelineBoundary>
           </section>
 
-          <section className="flex flex-col gap-4">
-            <h2
-              id="schedule-list"
-              tabIndex={-1}
-              className="text-xl font-semibold tracking-tight focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ink"
-            >
-              Bookings on this day
-            </h2>
-            {view.bookings.length === 0 && (
-              <p className="max-w-prose">
-                Nothing is booked on {longDate(view.date)}. Bookings appear here as soon as a buyer&apos;s
-                assistant holds a slot.
-              </p>
-            )}
-            <div className="flex flex-wrap items-center gap-2">
-              {view.previousBookingDate && (
-                <button type="button" className={button} onClick={() => goTo(view.previousBookingDate)}>
-                  Earlier booking, {shortDate(view.previousBookingDate)}
-                </button>
-              )}
-              {view.nextBookingDate && (
-                <button type="button" className={button} onClick={() => goTo(view.nextBookingDate)}>
-                  Next booking, {shortDate(view.nextBookingDate)}
-                </button>
+          <section className="flex flex-col gap-6">
+            <div className="flex flex-col gap-3">
+              <div className="flex flex-wrap items-center justify-between gap-x-6 gap-y-3">
+                <h2 id="schedule-list" tabIndex={-1} className="text-lg font-medium">
+                  Bookings on this day
+                </h2>
+                <div className="flex flex-wrap items-center gap-2 empty:hidden">
+                  {view.previousBookingDate && (
+                    <button type="button" className={button} onClick={() => goTo(view.previousBookingDate)}>
+                      Earlier booking, {shortDate(view.previousBookingDate)}
+                    </button>
+                  )}
+                  {view.nextBookingDate && (
+                    <button type="button" className={button} onClick={() => goTo(view.nextBookingDate)}>
+                      Next booking, {shortDate(view.nextBookingDate)}
+                    </button>
+                  )}
+                </div>
+              </div>
+              {view.bookings.length === 0 && (
+                <p className="max-w-prose">
+                  Nothing is booked on {longDate(view.date)}. Bookings appear here as soon as a
+                  buyer&apos;s assistant holds a slot.
+                </p>
               )}
             </div>
             {view.bookings.length > 0 &&
@@ -337,27 +373,35 @@ export function ScheduleBoard({ initial }: { initial: ScheduleView }) {
                   <div key={technicianId} className="flex flex-col gap-2">
                     <h3 className="font-medium">{name}</h3>
                     {own.length === 0 ? (
-                      <p className="text-sm text-zinc-600 dark:text-zinc-400">Nothing booked.</p>
+                      <p className={`text-sm ${SECONDARY_TEXT}`}>Nothing booked</p>
                     ) : (
                       <ul className="flex flex-col border-t border-zinc-200 dark:border-zinc-800">
-                        {own.map(({ booking, status, label, detail }) => (
-                          <li
-                            key={booking.bookingId}
-                            data-booking={booking.bookingId}
-                            className="grid gap-x-4 gap-y-1 border-b border-zinc-200 py-3 sm:grid-cols-[9rem_1fr_auto] dark:border-zinc-800"
-                          >
-                            <span className="text-sm tabular-nums">{timeRange(booking, view.date)}</span>
-                            <span className="flex min-w-0 flex-col gap-1 break-words">
-                              <span className="font-medium">{booking.serviceTitle}</span>
-                              <span className="text-sm text-zinc-600 dark:text-zinc-400">{detail}</span>
-                            </span>
-                            <span
-                              className={`booking-state booking-state-${status} self-start justify-self-start px-2 py-0.5 text-sm font-medium`}
+                        {own.map(({ booking, status, stateClass, label, detail }) => {
+                          // What fell through stays in the diary, crossed out.
+                          const fellThrough = status === "expired" || status === "cancelled";
+                          return (
+                            <li
+                              key={booking.bookingId}
+                              data-booking={booking.bookingId}
+                              className="grid grid-cols-[minmax(0,1fr)_auto] items-baseline gap-x-4 gap-y-1 border-b border-zinc-200 py-3 sm:grid-cols-[8rem_minmax(0,1fr)_14rem] dark:border-zinc-800"
                             >
-                              {label}
-                            </span>
-                          </li>
-                        ))}
+                              <span className={`text-sm tabular-nums ${fellThrough ? SECONDARY_TEXT : ""}`}>
+                                {timeRange(booking, view.date)}
+                              </span>
+                              <span className="col-span-2 row-start-2 flex min-w-0 flex-col gap-1 break-words sm:col-span-1 sm:row-start-auto">
+                                <span className={fellThrough ? `line-through ${SECONDARY_TEXT}` : "font-medium"}>
+                                  {booking.serviceTitle}
+                                </span>
+                                <span className={`text-sm tabular-nums ${SECONDARY_TEXT}`}>{detail}</span>
+                              </span>
+                              <span
+                                className={`booking-state booking-pill ${stateClass} col-start-2 row-start-1 justify-self-end text-sm font-medium sm:col-start-auto sm:row-start-auto sm:justify-self-start`}
+                              >
+                                {label}
+                              </span>
+                            </li>
+                          );
+                        })}
                       </ul>
                     )}
                   </div>
@@ -380,7 +424,7 @@ function DatePicker({ date, onPick }: { date: string; onPick: (date: string) => 
     }
   }, [date]);
   return (
-    <label className="flex items-center gap-2 text-sm text-zinc-600 dark:text-zinc-400">
+    <label className={`flex items-center gap-2 text-sm ${SECONDARY_TEXT}`}>
       Go to
       <input
         ref={input}
@@ -394,7 +438,7 @@ function DatePicker({ date, onPick }: { date: string; onPick: (date: string) => 
             onPick(picked);
           }
         }}
-        className="rounded border border-zinc-300 bg-transparent px-2 py-1.5 text-base text-foreground focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-ink md:text-sm dark:border-zinc-700"
+        className="h-10 rounded-lg border border-zinc-300 bg-transparent px-2 text-base text-foreground tabular-nums sm:h-9 sm:text-sm dark:border-zinc-700"
       />
     </label>
   );
@@ -413,7 +457,7 @@ function RefreshLine({
 }) {
   if (state === "failed") {
     return (
-      <div role="alert" className="flex flex-wrap items-center gap-3 border-l-4 border-blocked pl-4 text-sm">
+      <div role="alert" className="flex w-full flex-wrap items-center gap-3 border-l-4 border-blocked pl-4 text-sm">
         <p>
           Could not refresh. This is the schedule as it was at {updatedAt}, so a recent payment may be
           missing. Still trying every few seconds.
@@ -426,13 +470,13 @@ function RefreshLine({
   }
   if (isStale) {
     return (
-      <p role="alert" className="border-l-4 border-doubt pl-4 text-sm">
+      <p role="alert" className="w-full border-l-4 border-doubt pl-4 text-sm">
         This may be out of date. Last updated at {updatedAt}, and the next update is late.
       </p>
     );
   }
   return (
-    <p className="text-sm text-zinc-600 tabular-nums dark:text-zinc-400">
+    <p className={`text-sm tabular-nums ${SECONDARY_TEXT}`}>
       Updated at {updatedAt}. Refreshes every few seconds.
     </p>
   );
