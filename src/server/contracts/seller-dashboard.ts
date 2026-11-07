@@ -21,15 +21,20 @@ type OrderKind = "purchase" | "booking_deposit";
 export type PaymentGroup = "paid" | "awaiting" | "review" | "closed";
 
 // The one definition, for rows and totals alike. A pending order with no link is not waiting for
-// anyone: PayPal has not issued one, so nobody can pay it.
-export function paymentGroupOf(paymentStatus: PaymentStatus, hasApprovalLink: boolean): PaymentGroup {
+// anyone: PayPal has not issued one, so nobody can pay it. `payable` is false for a pending deposit
+// whose hold has ended: no capture was ever sent for it, and none will be.
+export function paymentGroupOf(
+  paymentStatus: PaymentStatus,
+  hasApprovalLink: boolean,
+  payable = true,
+): PaymentGroup {
   switch (paymentStatus) {
     case "paid":
       return "paid";
     case "approved":
-      return "awaiting";
+      return payable ? "awaiting" : "closed";
     case "pending":
-      return hasApprovalLink ? "awaiting" : "closed";
+      return hasApprovalLink && payable ? "awaiting" : "closed";
     case "review_required":
       return "review";
     case "cancelled":
@@ -79,6 +84,8 @@ export type DashboardOrder = {
   booking: {
     bookingId: string;
     status: ScheduleStatus;
+    // Set when status is review_required: the deposit arrived when the time was no longer held.
+    reviewReason: ScheduleBooking["reviewReason"];
     servicePriceMinor: number;
     remainingMinor: number;
     startsLocal: string;

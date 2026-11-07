@@ -42,6 +42,21 @@ const BOOKINGS_AHEAD_DAYS = 31;
 
 type DatasetOptions = { now?: Date; maxRows?: number };
 
+// Whether an order can still be paid, read against the order's booking, which the query must join.
+// Nothing is captured once a deposit's hold has ended, and a capture is only ever sent from
+// `approved`, so a pending deposit with no live hold can never be paid. An approved one stays
+// awaiting until reconciliation has read PayPal and closed it: a missing capture ID only means no
+// answer was recorded, and the money may have moved.
+function payableAt(now: Date) {
+  return sql<boolean>`NOT COALESCE(
+    ${orders.kind} = 'booking_deposit'
+    AND ${orders.paypalCaptureId} IS NULL
+    AND ${orders.paymentStatus} = 'pending'
+    AND (${bookings.status} IS DISTINCT FROM 'held' OR ${bookings.holdExpiresAt} <= ${now.toISOString()}::timestamptz),
+    false
+  )`;
+}
+
 function shiftLocalDate({ year, month, day }: LocalDate, days: number): LocalDate {
   const shifted = new Date(Date.UTC(year, month - 1, day + days));
   return {
@@ -101,7 +116,9 @@ export async function getDashboardOrders(
       updatedAt: orders.updatedAt,
       captureId: orders.paypalCaptureId,
       bookingId: bookings.id,
+      payable: payableAt(now),
       bookingStatus: bookings.status,
+      reviewReason: bookings.reviewReason,
       holdExpiresAt: bookings.holdExpiresAt,
       servicePriceMinor: bookings.servicePriceMinor,
       startsAt: bookings.startsAt,
@@ -159,7 +176,7 @@ export async function getDashboardOrders(
         reference: referenceOf(row.orderId),
         kind: row.kind,
         paymentStatus: row.paymentStatus,
-        paymentGroup: paymentGroupOf(row.paymentStatus, hasApprovalLink),
+        paymentGroup: paymentGroupOf(row.paymentStatus, hasApprovalLink, row.payable),
         hasApprovalLink,
         totalMinor: row.totalMinor,
         currency: row.currency,
@@ -178,6 +195,7 @@ export async function getDashboardOrders(
                   row.bookingStatus === "held" && row.holdExpiresAt.getTime() <= now.getTime()
                     ? "expired"
                     : row.bookingStatus,
+                reviewReason: row.reviewReason,
                 servicePriceMinor: row.servicePriceMinor,
                 remainingMinor: row.servicePriceMinor - row.totalMinor,
                 startsLocal: localDateTimeString(row.startsAt, shop.timezone),
@@ -197,21 +215,41 @@ export async function getDashboardPayments(
   const { from, envelope } = periodOf(shop, rawQuery, now);
   const inPeriod = and(eq(orders.shopId, shop.id), gte(orders.createdAt, from));
 
-  const hasLink = sql<boolean>`${orders.approvalUrl} IS NOT NULL`;
+  // Per order first, because Postgres does not match an expression with parameters in GROUP BY.
+  const perOrder = db
+    .select({
+      paymentStatus: orders.paymentStatus,
+      hasLink: sql<boolean>`${orders.approvalUrl} IS NOT NULL`.as("has_link"),
+      payable: payableAt(now).as("payable"),
+      kind: orders.kind,
+      currency: orders.currency,
+      totalMinor: orders.totalMinor,
+    })
+    .from(orders)
+    // One booking at most per order, so the join cannot count an order twice.
+    .leftJoin(bookings, eq(bookings.orderId, orders.id))
+    .where(inPeriod)
+    .as("per_order");
   const [groups, paidRows] = await Promise.all([
     db
       .select({
-        paymentStatus: orders.paymentStatus,
-        hasLink,
-        kind: orders.kind,
-        currency: orders.currency,
+        paymentStatus: perOrder.paymentStatus,
+        hasLink: perOrder.hasLink,
+        payable: perOrder.payable,
+        kind: perOrder.kind,
+        currency: perOrder.currency,
         // A bigint comes back as a string. Amounts are integers, so the sum stays exact.
-        amountMinor: sql<string>`sum(${orders.totalMinor})`,
+        amountMinor: sql<string>`sum(${perOrder.totalMinor})`,
         orderCount: count(),
       })
-      .from(orders)
-      .where(inPeriod)
-      .groupBy(orders.paymentStatus, hasLink, orders.kind, orders.currency),
+      .from(perOrder)
+      .groupBy(
+        perOrder.paymentStatus,
+        perOrder.hasLink,
+        perOrder.payable,
+        perOrder.kind,
+        perOrder.currency,
+      ),
     // Only reconciliation can mark an order paid, and the database refuses `paid` with no capture.
     db
       .select({
@@ -231,7 +269,7 @@ export async function getDashboardPayments(
 
   const totals = new Map<string, DashboardPaymentTotal>();
   for (const row of groups) {
-    const group = paymentGroupOf(row.paymentStatus, row.hasLink);
+    const group = paymentGroupOf(row.paymentStatus, row.hasLink, row.payable);
     const key = `${group}|${row.kind}|${row.currency}`;
     const total = totals.get(key) ?? {
       group,

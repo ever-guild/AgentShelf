@@ -6,7 +6,7 @@ import type { Db } from "../src/server/db/client";
 import { bookings } from "../src/server/db/schema";
 import {
   bookSlot,
-  closeDepositIfHoldEnded,
+  gateDepositCapture,
   confirmBookingPayment,
   getSlots,
   type BookingDeps,
@@ -51,7 +51,7 @@ export function createBookingHarness(): BookingHarness {
     reconcileDeps: {
       paypalFor: deps.paypalFor,
       onPaymentConfirmed: (tx, order) => confirmBookingPayment(tx, order, now()),
-      closeIfHoldEnded: (db, order) => closeDepositIfHoldEnded(db, order, now()),
+      gateDepositCapture: (db, order, reading) => gateDepositCapture(db, order, reading, now()),
     },
   };
 }
@@ -147,4 +147,19 @@ export async function captureAcrossExpiry(
     },
   });
   await reconcileOrder(db, orderId, harness.reconcileDeps);
+}
+
+// The capture reconciliation sent for this order, reaching PayPal only now: the same request, with
+// the same PayPal-Request-Id, so it moves the money once.
+export async function landEarlierCapture(
+  harness: BookingHarness,
+  paypalOrderId: string,
+  orderId: string,
+) {
+  await harness.paypal.adapter({
+    method: "POST",
+    url: `https://api-m.sandbox.paypal.com/v2/checkout/orders/${paypalOrderId}/capture`,
+    headers: { "PayPal-Request-Id": `capture-${orderId}` },
+    data: "{}",
+  });
 }

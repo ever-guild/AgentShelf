@@ -23,14 +23,25 @@ const STATUS_LABELS: Record<ScheduleStatus, string> = {
   review_required: "Needs review",
 };
 
-// A confirmed booking whose payment went back to review shows both, as the read model asks.
+// A capture that is still open at PayPal, has landed, or needs a person. A booking that no longer
+// holds its time must not read as if no money moved while one of these is true.
+function captureOpenOrLanded(paymentStatus: ScheduleBooking["paymentStatus"]): boolean {
+  return paymentStatus === "approved" || paymentStatus === "paid" || paymentStatus === "review_required";
+}
+
+// A confirmed booking whose payment went back to review shows both, as the read model asks, and so
+// does a released time whose deposit capture is open or has landed.
 export function statusLabel(
   status: ScheduleStatus,
   paymentStatus: ScheduleBooking["paymentStatus"],
 ): string {
-  return status === "confirmed" && paymentStatus !== "paid"
-    ? "Confirmed, check payment"
-    : STATUS_LABELS[status];
+  if (status === "confirmed" && paymentStatus !== "paid") {
+    return "Confirmed, check payment";
+  }
+  if ((status === "expired" || status === "cancelled") && captureOpenOrLanded(paymentStatus)) {
+    return `${STATUS_LABELS[status]}, check payment`;
+  }
+  return STATUS_LABELS[status];
 }
 
 function money(minor: number, currency: string): string {
@@ -63,9 +74,16 @@ export function depositText(
         ? `Deposit of ${deposit} paid. ${money(booking.remainingMinor, booking.currency)} is due at the shop.`
         : `Check the deposit of ${deposit} in PayPal before this appointment. It is no longer marked as paid.`;
     case "expired":
-      return "No deposit was paid in time, so this time is free again.";
     case "cancelled":
-      return "The order was cancelled, so this time is free again.";
+      if (booking.paymentStatus === "approved") {
+        return `PayPal was still finishing the deposit of ${deposit} when this time was released. It is free again, so if the money arrives, refund or rebook the buyer.`;
+      }
+      if (captureOpenOrLanded(booking.paymentStatus)) {
+        return `Check the deposit of ${deposit} in PayPal. This time is free again, so refund or rebook the buyer if the money arrived.`;
+      }
+      return status === "expired"
+        ? "No deposit was paid in time, so this time is free again."
+        : "The order was cancelled, so this time is free again.";
     case "review_required":
       return booking.reviewReason === "captured_after_cancel"
         ? `Deposit of ${deposit} arrived after the order was cancelled. This time is not reserved, so refund or rebook the buyer.`

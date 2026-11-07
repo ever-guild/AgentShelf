@@ -24,6 +24,7 @@ import {
   createTechnician,
 } from "../../../test/fixtures";
 import { searchEvents } from "../db/schema";
+import { BOOKING_POLICY } from "../domain/booking-policy";
 import { ServiceError } from "../errors";
 import { reconcileOrder } from "./payment-reconciliation";
 import {
@@ -36,6 +37,8 @@ import {
 const getDb = setupMigratedDatabase();
 
 const NOW = MONDAY_MORNING;
+// 14:00 in Riga on that Monday.
+const TWO_PM_SLOT = new Date("2026-11-09T12:00:00Z");
 const daysBefore = (days: number) => new Date(NOW.getTime() - days * 24 * 60 * 60 * 1000);
 const at = { now: NOW };
 
@@ -347,6 +350,82 @@ describe("a booking moving through the dashboard", () => {
 
     expect(bookings[0].status).toBe("expired");
     expect(orders.find((order) => order.orderId === orderId)?.booking?.status).toBe("expired");
+  });
+
+  it("stops counting a deposit as awaiting payment once it can never be paid, and not before PayPal is read", async () => {
+    const workshop = await createWorkshop(getDb());
+    const holdAt = async (startsAt: Date) =>
+      book(getDb(), harness, await slotAt(getDb(), harness, workshop, startsAt), workshop.service.id);
+    // Waiting for the buyer.
+    const waiting = await holdAt(NOON_SLOT);
+    // Approved, and its capture's outcome was lost.
+    const lost = await holdAt(ONE_PM_SLOT);
+    harness.paypal.approve(await paypalIdOf(getDb(), lost.orderId));
+    harness.paypal.nextCapture({ type: "timeout", captured: false });
+    await reconcileOrder(getDb(), lost.orderId, harness.reconcileDeps).catch(() => {});
+    // Approved, and PayPal holds a capture it has not completed.
+    const pending = await holdAt(TWO_PM_SLOT);
+    harness.paypal.approve(await paypalIdOf(getDb(), pending.orderId));
+    harness.paypal.nextCapture({ type: "capture_status", status: "PENDING" });
+    await reconcileOrder(getDb(), pending.orderId, harness.reconcileDeps);
+
+    const holdEnd = new Date(waiting.expiresAt).getTime();
+    const readAt = async (ms: number) => {
+      const now = new Date(ms);
+      const { totals } = await getDashboardPayments(getDb(), workshop.shop, {}, { now });
+      const { orders } = await getDashboardOrders(getDb(), workshop.shop, {}, { now });
+      const groupOf = (orderId: string) => orders.find((order) => order.orderId === orderId)?.paymentGroup;
+      return {
+        awaiting: totalOf(totals, "awaiting", "booking_deposit"),
+        closed: totalOf(totals, "closed", "booking_deposit"),
+        groups: [groupOf(waiting.orderId), groupOf(lost.orderId), groupOf(pending.orderId)],
+      };
+    };
+
+    expect(await readAt(holdEnd - 1)).toMatchObject({
+      awaiting: { amountMinor: 6000, orderCount: 3 },
+      closed: undefined,
+      groups: ["awaiting", "awaiting", "awaiting"],
+    });
+    // Nothing is captured once the hold ends, but a capture sent inside it can still land.
+    expect(await readAt(holdEnd)).toMatchObject({
+      awaiting: { amountMinor: 4000, orderCount: 2 },
+      closed: { amountMinor: 2000, orderCount: 1 },
+      groups: ["closed", "awaiting", "awaiting"],
+    });
+    // A missing capture ID only means no answer was recorded, so time alone closes nothing.
+    const settled = holdEnd + BOOKING_POLICY.captureSettleMinutes * 60_000;
+    expect(await readAt(settled)).toMatchObject({
+      awaiting: { amountMinor: 4000, orderCount: 2 },
+      closed: { amountMinor: 2000, orderCount: 1 },
+      groups: ["closed", "awaiting", "awaiting"],
+    });
+    // Once reconciliation has read PayPal and found no capture, it closes the order.
+    harness.setNow(new Date(settled));
+    await reconcileOrder(getDb(), lost.orderId, harness.reconcileDeps);
+    expect(await readAt(settled)).toMatchObject({
+      awaiting: { amountMinor: 2000, orderCount: 1 },
+      closed: { amountMinor: 4000, orderCount: 2 },
+      groups: ["closed", "closed", "awaiting"],
+    });
+  });
+
+  it("keeps counting a deposit whose capture answer was lost until PayPal has been read", async () => {
+    const workshop = await createWorkshop(getDb());
+    const slotId = await slotAt(getDb(), harness, workshop, NOON_SLOT);
+    const held = await book(getDb(), harness, slotId, workshop.service.id);
+    harness.paypal.approve(await paypalIdOf(getDb(), held.orderId));
+    harness.paypal.nextRead({ type: "change", change: (order) => order });
+    harness.paypal.nextCapture({ type: "timeout", captured: true });
+    harness.paypal.nextRead({ type: "timeout" });
+    await reconcileOrder(getDb(), held.orderId, harness.reconcileDeps).catch(() => {});
+    expect(harness.paypal.charges()).toBe(1);
+
+    const now = new Date(
+      new Date(held.expiresAt).getTime() + BOOKING_POLICY.captureSettleMinutes * 60_000,
+    );
+    const { orders } = await getDashboardOrders(getDb(), workshop.shop, {}, { now });
+    expect(orders.find((order) => order.orderId === held.orderId)?.paymentGroup).toBe("awaiting");
   });
 
   it("reads bookings from the period's start to 31 days ahead, and no further", async () => {

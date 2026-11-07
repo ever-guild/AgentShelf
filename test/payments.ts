@@ -44,7 +44,7 @@ export function createPaymentHarness(): PaymentHarness {
       onPhysicalPaymentConfirmed: async (_client, orderId) => {
         confirmed.push(orderId);
       },
-      closeIfHoldEnded: async () => false,
+      gateDepositCapture: async () => ({ action: "stop" }),
     },
   };
 }

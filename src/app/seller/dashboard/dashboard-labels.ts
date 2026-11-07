@@ -21,14 +21,19 @@ export const ORDER_KIND_LABELS: Record<DashboardOrder["kind"], string> = {
   booking_deposit: "Booking deposit",
 };
 
-export function orderStatusLabel(order: Pick<DashboardOrder, "paymentStatus" | "hasApprovalLink">): string {
+export function orderStatusLabel(
+  order: Pick<DashboardOrder, "paymentStatus" | "hasApprovalLink" | "paymentGroup">,
+): string {
   switch (order.paymentStatus) {
     case "paid":
       return "Paid";
     case "approved":
-      return "Approved, capture not finished";
+      return order.paymentGroup === "closed" ? "Hold ended, not charged" : "Approved, capture not finished";
     case "pending":
-      return order.hasApprovalLink ? "Waiting for the buyer" : "No payment link";
+      if (!order.hasApprovalLink) {
+        return "No payment link";
+      }
+      return order.paymentGroup === "closed" ? "Hold ended, not charged" : "Waiting for the buyer";
     case "review_required":
       return "Needs review";
     case "cancelled":
@@ -54,9 +59,16 @@ export function orderMoneyText(
   const amount = money(order.totalMinor, order.currency);
   switch (order.paymentGroup) {
     case "paid":
-      return order.booking
-        ? `${amount} deposit captured. ${money(order.booking.remainingMinor, order.currency)} of the ${money(order.booking.servicePriceMinor, order.currency)} service price is paid at the shop.`
-        : `${amount} captured and on its way to your PayPal account.`;
+      if (!order.booking) {
+        return `${amount} captured and on its way to your PayPal account.`;
+      }
+      // A deposit that arrived when its time was no longer held is not a booking with a balance.
+      if (order.booking.status !== "confirmed") {
+        return order.booking.reviewReason === "captured_after_cancel"
+          ? `${amount} deposit captured after the order was cancelled. This time is not reserved for the buyer, so refund or rebook them.`
+          : `${amount} deposit captured after the hold ended. This time is not reserved for the buyer, so refund or rebook them.`;
+      }
+      return `${amount} deposit captured. ${money(order.booking.remainingMinor, order.currency)} of the ${money(order.booking.servicePriceMinor, order.currency)} service price is paid at the shop.`;
     case "awaiting":
       return order.paymentStatus === "approved"
         ? `The buyer approved ${amount} in PayPal and the capture has not finished. This is not revenue yet.`
@@ -64,10 +76,25 @@ export function orderMoneyText(
     case "review":
       return `Something about this ${amount} order does not match PayPal. Check it in your PayPal account before you act on it.`;
     case "closed":
-      return order.paymentStatus === "pending"
-        ? `PayPal has not issued a link for this ${amount} order, so nobody can pay it.`
-        : `No money was taken for this ${amount} order.`;
+      if (order.paymentStatus === "pending" && !order.hasApprovalLink) {
+        return `PayPal has not issued a link for this ${amount} order, so nobody can pay it.`;
+      }
+      if (order.booking && (order.paymentStatus === "pending" || order.paymentStatus === "approved")) {
+        return `The hold on this time ended before the deposit was captured, so this ${amount} will not be charged.`;
+      }
+      return `No money was taken for this ${amount} order.`;
   }
+}
+
+// What is left to pay at the shop, only while the booking still holds its time. A deposit that
+// arrived late, or a booking that ended, has no appointment for a balance to be due on.
+export function dueAtShopText(
+  booking: Pick<NonNullable<DashboardOrder["booking"]>, "status" | "remainingMinor">,
+  currency: string,
+): string {
+  return booking.status === "held" || booking.status === "confirmed"
+    ? money(booking.remainingMinor, currency)
+    : "Nothing, this time is not reserved";
 }
 
 export type GroupTotal = {

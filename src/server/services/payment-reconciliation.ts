@@ -1,6 +1,6 @@
 import "server-only";
 
-import { and, eq, inArray, ne, sql } from "drizzle-orm";
+import { and, eq, inArray, isNull, ne, sql } from "drizzle-orm";
 import type { Pool } from "pg";
 import type { PoolClient } from "pg";
 
@@ -19,7 +19,7 @@ import {
   type PayPalSellerApi,
 } from "../paypal/orders";
 import { isReadyConnectedMerchant } from "../paypal/merchant-eligibility";
-import { closeDepositIfHoldEnded, confirmBookingPayment } from "./bookings";
+import { confirmBookingPayment, gateDepositCapture, type DepositCaptureDecision } from "./bookings";
 import { beginPhysicalOrderCapture, closePhysicalOrderAfterVerifiedUnpaid, rearmPhysicalOrderAfterVerifiedRefusal, settlePhysicalOrderCapture } from "../inventory/physical-orders";
 
 // The one place that decides what a PayPal order means for a stored order. The buyer's return, a
@@ -39,22 +39,27 @@ export type PaymentConfirmedHook = (tx: Tx, order: OrderRow) => Promise<void>;
 // payment status. A failed hook rolls all three back so reconciliation can retry from PayPal.
 export type PhysicalPaymentConfirmedHook = (client: PoolClient, orderId: string) => Promise<void>;
 
-// Asked before anything is captured. True means this order must not be charged, and the hook has
-// recorded that. It runs only while PayPal reports that no money has moved.
-export type CaptureGuard = (db: Db, order: OrderRow) => Promise<boolean>;
+// Asked before a deposit is captured, only while PayPal reports that no money has moved. It decides
+// whether to capture and, when it does, has already written the order `approved` in the same
+// transaction as its check.
+export type DepositCaptureGate = (
+  db: Db,
+  order: OrderRow,
+  reading: "ready_to_capture" | "awaiting_buyer",
+) => Promise<DepositCaptureDecision>;
 
 export type ReconcileDeps = {
   paypalFor: PayPalProvider;
   onPaymentConfirmed: PaymentConfirmedHook;
   onPhysicalPaymentConfirmed?: PhysicalPaymentConfirmedHook;
-  closeIfHoldEnded: CaptureGuard;
+  gateDepositCapture: DepositCaptureGate;
 };
 
 export const defaultReconcileDeps: ReconcileDeps = {
   paypalFor,
   onPaymentConfirmed: (tx, order) => confirmBookingPayment(tx, order),
   onPhysicalPaymentConfirmed: async () => undefined,
-  closeIfHoldEnded: (db, order) => closeDepositIfHoldEnded(db, order),
+  gateDepositCapture: (db, order, reading) => gateDepositCapture(db, order, reading),
 };
 
 const unavailable = () =>
@@ -95,11 +100,15 @@ async function askPayPal<T>(
 
 // Called only when PayPal has just said the order is approved. The request ID is fixed per order,
 // so a repeat returns the first result, and PayPal allows one capture per order in any case.
-// Whatever the call reports, the answer comes from reading the order again.
+// Whatever the call reports, the answer comes from reading the order again. `refusalIsFinal` is
+// false for a deposit: another reconciliation may have sent the same capture first, whichever
+// attempt this one is, and what PayPal answers while that is in progress cannot be known here. So a
+// refusal proves nothing, the order stays approved, and it settles once its hold has ended.
 async function captureAndRead(
   paypal: PayPalSellerApi,
   order: OrderRow & { paypalOrderId: string },
   read: () => Promise<PayPalOrderReading>,
+  refusalIsFinal = true,
 ): Promise<ReconcileReading> {
   let refused = false;
   let refusal: PayPalFailure | undefined;
@@ -122,7 +131,7 @@ async function captureAndRead(
   }
   // Still approved. A refusal such as a declined instrument is final for this attempt, while an
   // unknown outcome stays open for the next reconciliation, which repeats the same request.
-  if (refused) {
+  if (refused && refusalIsFinal) {
     return {
       outcome: "capture_refused",
       retryable: refusal?.issues?.includes("INSTRUMENT_DECLINED") ?? false,
@@ -297,12 +306,24 @@ export async function reconcileOrder(
   }
   const { order, credentialRef } = stored;
   const { paypalOrderId } = order;
-  // Without a PayPal order there is nothing to ask about. A review waits for a person.
-  if (!paypalOrderId || order.paymentStatus === "review_required") {
+  // Without a PayPal order there is nothing to ask about. A review waits for a person, except that a
+  // deposit in review with no capture on record is still read, only to record a capture that lands.
+  const depositReviewWithoutCapture =
+    order.kind === "booking_deposit" &&
+    order.paymentStatus === "review_required" &&
+    !order.paypalCaptureId;
+  if (
+    !paypalOrderId ||
+    (order.paymentStatus === "review_required" && !depositReviewWithoutCapture)
+  ) {
     return order;
   }
 
   const paypal = deps.paypalFor(credentialRef, order.payeeMerchantId);
+  if (!paypal && depositReviewWithoutCapture) {
+    // Still waiting for a person, as before, with nothing it could record now.
+    return order;
+  }
   if (!paypal) {
     throw new ServiceError(
       "PAYMENT_NOT_CONFIGURED",
@@ -317,13 +338,22 @@ export async function reconcileOrder(
     });
 
   let reading = await read();
+  if (depositReviewWithoutCapture) {
+    await recordDepositCapture(db, order.id, reading);
+    return (await loadOrder(db, order.id))?.order;
+  }
   if (
     order.kind !== "purchase" &&
     order.paymentStatus !== "paid" &&
-    (reading.outcome === "ready_to_capture" || reading.outcome === "awaiting_buyer") &&
-    (await deps.closeIfHoldEnded(db, order))
+    (reading.outcome === "ready_to_capture" || reading.outcome === "awaiting_buyer")
   ) {
-    return (await loadOrder(db, order.id))?.order;
+    const gate = await deps.gateDepositCapture(db, order, reading.outcome);
+    if (gate.action === "stop") {
+      return (await loadOrder(db, order.id))?.order;
+    }
+    if (gate.action === "capture") {
+      reading = await captureAndRead(paypal, { ...order, paypalOrderId }, read, false);
+    }
   }
   if (order.kind === "purchase" && order.paymentStatus !== "paid") {
     if (reading.outcome === "awaiting_buyer") {
@@ -393,18 +423,8 @@ export async function reconcileOrder(
     }
   }
 
-  if (reading.outcome === "ready_to_capture" && order.paymentStatus !== "paid" && order.kind !== "purchase") {
-    await db
-      .update(orders)
-      .set({ paymentStatus: "approved" })
-      .where(
-        and(
-          eq(orders.id, order.id),
-          inArray(orders.paymentStatus, ["pending", "cancelled", "failed"]),
-        ),
-      );
-    reading = await captureAndRead(paypal, { ...order, paypalOrderId }, read);
-  } else if (reading.outcome === "ready_to_capture" && order.kind === "purchase" && order.paymentStatus !== "paid") {
+  // A deposit is captured above, through its gate, and never here.
+  if (reading.outcome === "ready_to_capture" && order.kind === "purchase" && order.paymentStatus !== "paid") {
     await db
       .update(orders)
       .set({ paymentStatus: "approved" })
@@ -413,7 +433,36 @@ export async function reconcileOrder(
   }
 
   await applyReading(db, order, reading, deps, options);
+  if (order.kind !== "purchase") {
+    // The sweep's three-day close can send an order to review while this reconciliation is landing
+    // its capture, and then the write to paid above finds nothing to change.
+    await recordDepositCapture(db, order.id, reading);
+  }
   return (await loadOrder(db, order.id))?.order;
+}
+
+// Records the capture PayPal reports on a deposit order in review that has none on record, so the
+// money is on record for the person who looks. Nothing else changes: the order stays in review, and
+// nothing is captured.
+async function recordDepositCapture(
+  db: Db,
+  orderId: string,
+  reading: ReconcileReading,
+): Promise<void> {
+  const captureId = "captureId" in reading ? reading.captureId : undefined;
+  if (!captureId) {
+    return;
+  }
+  await db
+    .update(orders)
+    .set({ paypalCaptureId: captureId })
+    .where(
+      and(
+        eq(orders.id, orderId),
+        eq(orders.paymentStatus, "review_required"),
+        isNull(orders.paypalCaptureId),
+      ),
+    );
 }
 
 // Handles the buyer coming back from PayPal. The capability is what authorizes this, so an order

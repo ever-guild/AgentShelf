@@ -20,7 +20,7 @@ import {
 } from "@/server/contracts/seller-dashboard";
 
 import { buildStudioData } from "./dashboard-data";
-import { ORDER_KIND_LABELS, money, orderMoneyText, orderStatusLabel, shopDateTime } from "./dashboard-labels";
+import { ORDER_KIND_LABELS, dueAtShopText, money, orderMoneyText, orderStatusLabel, shopDateTime } from "./dashboard-labels";
 import { clearSavedLayout, defaultReport } from "./dashboard-report";
 import {
   DATASET_NAMES,
@@ -161,7 +161,7 @@ function OrderDetails() {
                 <dt className="text-zinc-600 dark:text-zinc-400">Service price</dt>
                 <dd>{money(order.booking.servicePriceMinor, order.currency)}</dd>
                 <dt className="text-zinc-600 dark:text-zinc-400">Due at the shop</dt>
-                <dd>{money(order.booking.remainingMinor, order.currency)}</dd>
+                <dd>{dueAtShopText(order.booking, order.currency)}</dd>
                 <dt className="text-zinc-600 dark:text-zinc-400">Appointment</dt>
                 <dd>{shopDateTime(order.booking.startsLocal)}</dd>
               </>

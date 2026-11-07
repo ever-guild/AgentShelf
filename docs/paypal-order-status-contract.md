@@ -1,10 +1,27 @@
 # Order status contract proposal for [MCP issue #5](https://github.com/ever-guild/AgentShelf/issues/5)
 
-Status: implemented as proposed, in [`order-status.ts`](../src/server/services/order-status.ts) and the `get_order_status` tool in [`server.ts`](../src/server/mcp/server.ts), under [payment reconciliation issue #11](https://github.com/ever-guild/AgentShelf/issues/11). The text below is the original proposal and describes the code as it was at the snapshot. [Booking](architecture.md#booking) later added `reviewReason`, `depositMinor` and `remainingMinor` to the booking part
+Status: implemented as proposed, in [`order-status.ts`](../src/server/services/order-status.ts) and the `get_order_status` tool in [`server.ts`](../src/server/mcp/server.ts), under [payment reconciliation issue #11](https://github.com/ever-guild/AgentShelf/issues/11). The text below is the original proposal and describes the code as it was at the snapshot. [Booking](architecture.md#booking) later added `reviewReason`, `depositMinor` and `remainingMinor` to the booking part, and [Deposits as they behave now](#deposits-as-they-behave-now) gives what a deposit's states mean today
 
 Snapshot: 6 November 2026, public repository commit [`50d5ef09f700417ec9e17e5ff80f2c90343c72e3`](https://github.com/ever-guild/AgentShelf/commit/50d5ef09f700417ec9e17e5ff80f2c90343c72e3)
 
 This document defines a proposed service and MCP boundary, it does not claim that `get_order_status` is implemented or registered
+
+## Deposits as they behave now
+
+The proposal below predates booking. For a deposit order, `paymentStatus` and `booking.status` read together, as [Booking](architecture.md#booking) explains, and the read is still of stored state only
+
+| `paymentStatus` | `booking.status` | Meaning for the buyer |
+| --- | --- | --- |
+| `pending` | `held` | The deposit is waiting for approval and capture, and the time is held until `expiresAt` |
+| `approved` | `held` | Approved in PayPal and a capture has started, not paid yet |
+| `approved` | `expired` | A capture started inside the hold with no known outcome. This lasts at most a few minutes: it becomes `cancelled` with nothing charged once 5 minutes have passed since the hold ended with PayPal showing no capture, or `paid` if the capture landed |
+| `paid` | `confirmed` | Captured inside the hold, so the appointment stands |
+| `paid` | `review_required` | Captured after the hold ended or after a cancel, with `reviewReason` `late_capture` or `captured_after_cancel`. The appointment is not confirmed, and the seller refunds or rebooks |
+| `cancelled` | `expired` or `cancelled` | Nothing was charged and the time is released. A capture PayPal had already started that lands later still moves this to `paid` with the booking in review |
+| `failed` | `cancelled` | PayPal reported the capture declined or failed, and nothing was charged. A refused capture request does not lead here, because another capture of the same order may be in progress |
+| `review_required` | any | A person has to look. A deposit in review with no capture on record still records one PayPal reports later, and is never captured again |
+
+A capture only starts while the hold is live, so a buyer who approves close to `expiresAt` may not be charged at all
 
 ## Current state
 

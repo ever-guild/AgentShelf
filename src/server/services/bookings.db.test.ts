@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 
-import { count, eq, sql } from "drizzle-orm";
+import { and, count, eq, sql } from "drizzle-orm";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
@@ -8,6 +8,7 @@ import {
   captureAcrossExpiry,
   createBookingHarness,
   createWorkshop,
+  landEarlierCapture,
   minutes,
   MONDAY_MORNING,
   NOON_SLOT,
@@ -27,7 +28,7 @@ import {
   createTechnician,
   createWindow,
 } from "../../../test/fixtures";
-import { MERCHANT_ID, readOrder } from "../../../test/payments";
+import { MERCHANT_ID, readOrder, WEBHOOK_ID } from "../../../test/payments";
 import {
   bookings,
   orderLines,
@@ -53,6 +54,7 @@ import { createCheckout } from "./checkout";
 import { getOrderStatus } from "./order-status";
 import { sweepOpenOrders } from "./order-sweep";
 import { defaultReconcileDeps, reconcileOrder } from "./payment-reconciliation";
+import { handlePayPalWebhook } from "./paypal-webhook";
 
 const getDb = setupMigratedDatabase();
 
@@ -1051,22 +1053,57 @@ describe("an approval after the hold has ended", () => {
     expect((await readBooking(getDb(), held.bookingId)).status).toBe("expired");
   });
 
-  it("does not try again after PayPal refused the capture and the time was released", async () => {
+  it("keeps a refused deposit capture open while its hold is live, then charges nothing", async () => {
     const { held, paypalOrderId } = await holdNoon();
     harness.paypal.approve(paypalOrderId);
-    harness.paypal.nextCapture({
-      type: "respond",
-      status: 422,
-      body: { name: "UNPROCESSABLE_ENTITY", details: [{ issue: "INSTRUMENT_DECLINED" }] },
-    });
-    await settle(held.orderId);
-    expect((await readOrder(getDb(), held.orderId)).paymentStatus).toBe("failed");
-    expect((await readBooking(getDb(), held.bookingId)).status).toBe("cancelled");
+    harness.paypal.nextCapture({ type: "respond", status: 422, body: { name: "UNPROCESSABLE_ENTITY", details: [{ issue: "INSTRUMENT_DECLINED" }] } });
+    await settle(held.orderId).catch(() => {});
+    // Another capture of this order may be in progress at PayPal, so a refusal proves nothing.
+    expect((await readOrder(getDb(), held.orderId)).paymentStatus).toBe("approved");
+    expect((await readBooking(getDb(), held.bookingId)).status).toBe("held");
 
+    harness.setNow(
+      new Date(new Date(held.expiresAt).getTime() + minutes(BOOKING_POLICY.captureSettleMinutes)),
+    );
     await settle(held.orderId);
 
     expect(harness.paypal.charges()).toBe(0);
-    expect((await readOrder(getDb(), held.orderId)).paymentStatus).toBe("failed");
+    expect((await readOrder(getDb(), held.orderId)).paymentStatus).toBe("cancelled");
+    expect((await readBooking(getDb(), held.bookingId)).status).toBe("expired");
+  });
+
+  it("does not release the time when a capture is refused while another is in progress", async () => {
+    const { held, paypalOrderId, slotId, service } = await holdNoon();
+    harness.paypal.approve(paypalOrderId);
+    const base = harness.reconcileDeps;
+    let interleaved = false;
+    const first = {
+      ...base,
+      gateDepositCapture: async (...args: Parameters<typeof base.gateDepositCapture>) => {
+        const decision = await base.gateDepositCapture(...args);
+        if (!interleaved && decision.action === "capture") {
+          interleaved = true;
+          // A webhook's reconciliation sends the same capture first, and its answer is lost.
+          harness.paypal.nextCapture({ type: "timeout", captured: false });
+          await reconcileOrder(getDb(), held.orderId, base).catch(() => {});
+          // This reconciliation's own request is then refused while that one is in progress.
+          harness.paypal.nextCapture({ type: "respond", status: 422, body: { name: "UNPROCESSABLE_ENTITY", details: [{ issue: "INSTRUMENT_DECLINED" }] } });
+        }
+        return decision;
+      },
+    };
+    await reconcileOrder(getDb(), held.orderId, first).catch(() => {});
+
+    expect((await readOrder(getDb(), held.orderId)).paymentStatus).toBe("approved");
+    expect((await readBooking(getDb(), held.bookingId)).status).toBe("held");
+    expect(await codeOf(book(getDb(), harness, slotId, service.id))).toBe("SLOT_UNAVAILABLE");
+
+    // The capture sent inside the hold completes, and the booking stands.
+    await landEarlierCapture(harness, paypalOrderId, held.orderId);
+    await settle(held.orderId);
+    expect(harness.paypal.charges()).toBe(1);
+    expect((await readOrder(getDb(), held.orderId)).paymentStatus).toBe("paid");
+    expect((await readBooking(getDb(), held.bookingId)).status).toBe("confirmed");
   });
 
   it("is what the running service does, with its default dependencies", async () => {
@@ -1237,6 +1274,304 @@ describe("a capture PayPal had already made when the hold ended", () => {
     expect(JSON.stringify(status)).not.toContain(
       harness.paypal.captureIdOf(paypalOrderId) as string,
     );
+  });
+});
+
+describe("a deposit left approved by a capture with no known outcome", () => {
+  const SETTLE_MS = minutes(BOOKING_POLICY.captureSettleMinutes);
+
+  // The buyer approves inside the hold, and the capture's request never reaches PayPal in time.
+  async function approvedWithLostCapture(workshop?: Awaited<ReturnType<typeof createWorkshop>>) {
+    const context = await holdNoon(workshop);
+    harness.paypal.approve(context.paypalOrderId);
+    harness.paypal.nextCapture({ type: "timeout", captured: false });
+    await settle(context.held.orderId).catch(() => {});
+    expect((await readOrder(getDb(), context.held.orderId)).paymentStatus).toBe("approved");
+    return context;
+  }
+
+  it("closes with nothing charged once a capture sent inside the hold can no longer land", async () => {
+    const { held } = await approvedWithLostCapture();
+    const holdEnd = new Date(held.expiresAt).getTime();
+
+    harness.setNow(new Date(holdEnd + SETTLE_MS - 1));
+    await settle(held.orderId);
+    expect((await readOrder(getDb(), held.orderId)).paymentStatus).toBe("approved");
+
+    harness.setNow(new Date(holdEnd + SETTLE_MS));
+    await settle(held.orderId);
+
+    expect(harness.paypal.charges()).toBe(0);
+    expect(harness.paypal.captureRequests()).toHaveLength(1);
+    const order = await readOrder(getDb(), held.orderId);
+    expect(order).toMatchObject({ paymentStatus: "cancelled", paypalCaptureId: null });
+    expect(await readBooking(getDb(), held.bookingId)).toMatchObject({
+      status: "expired",
+      depositCaptureId: null,
+    });
+    const status = await getOrderStatus(
+      getDb(),
+      { orderId: held.orderId, statusToken: held.statusToken },
+      harness.now(),
+    );
+    expect(status.paymentStatus).toBe("cancelled");
+    expect(status.booking?.status).toBe("expired");
+  });
+
+  it("is settled by the sweep, with no request from the buyer", async () => {
+    const { held } = await approvedWithLostCapture();
+    harness.advance(HOLD_MS + SETTLE_MS);
+    await getDb()
+      .update(orders)
+      .set({ createdAt: sql`now() - interval '30 minutes'` })
+      .where(eq(orders.id, held.orderId));
+
+    await sweepOpenOrders(getDb(), harness.reconcileDeps);
+
+    expect((await readOrder(getDb(), held.orderId)).paymentStatus).toBe("cancelled");
+    expect(harness.paypal.charges()).toBe(0);
+  });
+
+  it("does not close an order with a capture on record, even a pending one", async () => {
+    const { held, paypalOrderId } = await holdNoon();
+    harness.paypal.approve(paypalOrderId);
+    harness.paypal.nextCapture({ type: "capture_status", status: "PENDING" });
+    await settle(held.orderId);
+    harness.advance(HOLD_MS + SETTLE_MS);
+
+    await settle(held.orderId);
+    // Even a reading that contradicts it does not close an order with a capture on record.
+    harness.paypal.nextRead({
+      type: "change",
+      change: (order) => {
+        delete (order.purchase_units as Record<string, unknown>[])[0].payments;
+        return { ...order, status: "APPROVED" };
+      },
+    });
+    await settle(held.orderId);
+
+    const order = await readOrder(getDb(), held.orderId);
+    expect(order.paymentStatus).toBe("approved");
+    expect(order.paypalCaptureId).toBe(harness.paypal.captureIdOf(paypalOrderId));
+  });
+
+  it("captures nothing for an order sent to review while it was being read", async () => {
+    const { held, paypalOrderId } = await holdNoon();
+    harness.paypal.approve(paypalOrderId);
+    harness.paypal.nextRead({
+      type: "change",
+      change: async (order) => {
+        await getDb()
+          .update(orders)
+          .set({ paymentStatus: "review_required" })
+          .where(eq(orders.id, held.orderId));
+        return order;
+      },
+    });
+
+    await settle(held.orderId);
+
+    expect(harness.paypal.captureRequests()).toHaveLength(0);
+    expect((await readOrder(getDb(), held.orderId)).paymentStatus).toBe("review_required");
+  });
+
+  it("still records a capture that lands after it closed, as paid with the booking in review", async () => {
+    const { held, paypalOrderId } = await approvedWithLostCapture();
+    harness.advance(HOLD_MS + SETTLE_MS);
+    await settle(held.orderId);
+    expect((await readOrder(getDb(), held.orderId)).paymentStatus).toBe("cancelled");
+
+    await landEarlierCapture(harness, paypalOrderId, held.orderId);
+    await settle(held.orderId);
+
+    expect(harness.paypal.charges()).toBe(1);
+    const order = await readOrder(getDb(), held.orderId);
+    expect(order.paymentStatus).toBe("paid");
+    expect(order.paypalCaptureId).toBe(harness.paypal.captureIdOf(paypalOrderId));
+    expect(await readBooking(getDb(), held.bookingId)).toMatchObject({
+      status: "review_required",
+      reviewReason: "late_capture",
+      depositCaptureId: order.paypalCaptureId,
+    });
+  });
+
+  it.each([
+    ["a declined instrument", 422, "INSTRUMENT_DECLINED"],
+    ["an order PayPal calls not approved", 422, "ORDER_NOT_APPROVED"],
+    ["an invalid request", 400, "INVALID_PARAMETER_VALUE"],
+  ])(
+    "is not closed by %s on a repeat while the first capture may be in progress",
+    async (_name, status, issue) => {
+      const { held, paypalOrderId } = await approvedWithLostCapture();
+      harness.paypal.nextCapture({
+        type: "respond",
+        status,
+        body: { name: "UNPROCESSABLE_ENTITY", details: [{ issue }] },
+      });
+
+      expect(await codeOf(settle(held.orderId))).toBe("PAYMENT_UNAVAILABLE");
+
+      expect((await readOrder(getDb(), held.orderId)).paymentStatus).toBe("approved");
+      expect((await readBooking(getDb(), held.bookingId)).status).toBe("held");
+
+      // The first capture lands, inside the hold, and confirms the booking.
+      await landEarlierCapture(harness, paypalOrderId, held.orderId);
+      await settle(held.orderId);
+      expect((await readOrder(getDb(), held.orderId)).paymentStatus).toBe("paid");
+      expect((await readBooking(getDb(), held.bookingId)).status).toBe("confirmed");
+      expect(harness.paypal.charges()).toBe(1);
+    },
+  );
+
+  it("closes uncharged after a refused repeat once nothing can land", async () => {
+    const { held } = await approvedWithLostCapture();
+    harness.paypal.nextCapture({
+      type: "respond",
+      status: 422,
+      body: { name: "UNPROCESSABLE_ENTITY", details: [{ issue: "INSTRUMENT_DECLINED" }] },
+    });
+    await settle(held.orderId).catch(() => {});
+
+    harness.advance(HOLD_MS + SETTLE_MS);
+    await settle(held.orderId);
+
+    expect(harness.paypal.charges()).toBe(0);
+    expect((await readOrder(getDb(), held.orderId)).paymentStatus).toBe("cancelled");
+  });
+
+  it("is never reopened by a reconciliation that passed the hold check as it closed", async () => {
+    for (let round = 0; round < 8; round += 1) {
+      const workshop = await createWorkshop(getDb(), {
+        paypalMerchantId: `REOPENMERCHANT${round}`,
+      });
+      const charged = harness.paypal.charges();
+      const { held, paypalOrderId } = await holdNoon(workshop);
+      harness.paypal.approve(paypalOrderId);
+
+      // Any write that closes a pending order, such as the buyer's cancel or the sweep's close.
+      const close = async () => {
+        await new Promise((resolve) => setTimeout(resolve, round));
+        return getDb()
+          .update(orders)
+          .set({ paymentStatus: "cancelled" })
+          .where(and(eq(orders.id, held.orderId), eq(orders.paymentStatus, "pending")))
+          .returning({ id: orders.id });
+      };
+      const [, closed] = await Promise.all([settle(held.orderId).catch(() => {}), close()]);
+
+      const order = await readOrder(getDb(), held.orderId);
+      if (closed.length > 0) {
+        expect(order.paymentStatus).toBe("cancelled");
+        expect(harness.paypal.charges()).toBe(charged);
+        expect((await readBooking(getDb(), held.bookingId)).status).toBe("cancelled");
+      } else {
+        expect(order.paymentStatus).toBe("paid");
+        expect((await readBooking(getDb(), held.bookingId)).status).toBe("confirmed");
+      }
+    }
+  });
+});
+
+describe("a deposit in review with no capture on record", () => {
+  // The sweep's three-day close sends an approved deposit to review while PayPal cannot be read.
+  async function closedByTheSweep() {
+    const context = await holdNoon();
+    harness.paypal.approve(context.paypalOrderId);
+    harness.paypal.nextCapture({ type: "timeout", captured: false });
+    await settle(context.held.orderId).catch(() => {});
+    await getDb()
+      .update(orders)
+      .set({ createdAt: sql`now() - interval '73 hours'` })
+      .where(eq(orders.id, context.held.orderId));
+    harness.paypal.nextRead({ type: "timeout" });
+    await sweepOpenOrders(getDb(), harness.reconcileDeps);
+    const order = await readOrder(getDb(), context.held.orderId);
+    expect(order).toMatchObject({ paymentStatus: "review_required", paypalCaptureId: null });
+    return context;
+  }
+
+  it("records a capture that lands after the close, through a verified webhook", async () => {
+    const { held, paypalOrderId, shop } = await closedByTheSweep();
+    await landEarlierCapture(harness, paypalOrderId, held.orderId);
+    const captures = harness.paypal.captureRequests().length;
+    const rawBody = JSON.stringify({
+      id: "WH-LATE-CAPTURE-1",
+      event_type: "PAYMENT.CAPTURE.COMPLETED",
+      resource_type: "capture",
+      create_time: "2026-11-12T10:00:00Z",
+      resource: {
+        id: "SOMECAPTUREID",
+        status: "COMPLETED",
+        supplementary_data: { related_ids: { order_id: paypalOrderId } },
+      },
+    });
+
+    const answer = await handlePayPalWebhook(
+      getDb(),
+      { shopSlug: shop.slug, rawBody, headers: harness.paypal.signDelivery(WEBHOOK_ID, rawBody) },
+      harness.reconcileDeps,
+    );
+
+    expect(answer).toBe(200);
+    expect(await readOrder(getDb(), held.orderId)).toMatchObject({
+      paymentStatus: "review_required",
+      paypalCaptureId: harness.paypal.captureIdOf(paypalOrderId),
+    });
+    expect(harness.paypal.captureRequests()).toHaveLength(captures);
+    expect(harness.paypal.charges()).toBe(1);
+  });
+
+  it("records a capture whose payment lands as the sweep closes the order", async () => {
+    const { held, paypalOrderId } = await holdNoon();
+    harness.paypal.approve(paypalOrderId);
+    harness.paypal.nextCapture({ type: "timeout", captured: false });
+    await settle(held.orderId).catch(() => {});
+    await landEarlierCapture(harness, paypalOrderId, held.orderId);
+    // The sweep's close commits while this reconciliation reads the capture.
+    harness.paypal.nextRead({
+      type: "change",
+      change: async (order) => {
+        await getDb()
+          .update(orders)
+          .set({ paymentStatus: "review_required" })
+          .where(eq(orders.id, held.orderId));
+        return order;
+      },
+    });
+
+    await settle(held.orderId);
+
+    expect(await readOrder(getDb(), held.orderId)).toMatchObject({
+      paymentStatus: "review_required",
+      paypalCaptureId: harness.paypal.captureIdOf(paypalOrderId),
+    });
+  });
+
+  it("asks nothing more once its capture is on record, and never captures", async () => {
+    const { held, paypalOrderId } = await closedByTheSweep();
+    await landEarlierCapture(harness, paypalOrderId, held.orderId);
+    await settle(held.orderId);
+    const reads = harness.paypal.readRequests().length;
+    const captures = harness.paypal.captureRequests().length;
+
+    await settle(held.orderId);
+
+    expect(harness.paypal.readRequests()).toHaveLength(reads);
+    expect(harness.paypal.captureRequests()).toHaveLength(captures);
+    expect((await readOrder(getDb(), held.orderId)).paymentStatus).toBe("review_required");
+  });
+
+  it("captures nothing when PayPal still shows the approval", async () => {
+    const { held } = await closedByTheSweep();
+    const captures = harness.paypal.captureRequests().length;
+
+    await settle(held.orderId);
+
+    expect(harness.paypal.captureRequests()).toHaveLength(captures);
+    expect(await readOrder(getDb(), held.orderId)).toMatchObject({
+      paymentStatus: "review_required",
+      paypalCaptureId: null,
+    });
   });
 });
 

@@ -2,7 +2,7 @@ import "server-only";
 
 import { createHash } from "node:crypto";
 
-import { and, eq, gt, lte, lt, or, sql } from "drizzle-orm";
+import { and, eq, gt, inArray, isNull, lte, lt, or, sql } from "drizzle-orm";
 import type { z } from "zod";
 
 import { issueOrderStatusToken } from "../auth/order-status-token";
@@ -467,39 +467,84 @@ export async function bookSlot(
   });
 }
 
-// A deposit pays for time, and the time is there only while its hold is live, so this is asked before
-// anything is captured. PayPal cannot be told to stop a link it has issued, so a buyer can still
-// approve after a hold has ended, and an approval moves no money until it is captured. Returns true
-// when the hold has ended and the deposit must not be charged, and closes the order. An order already
-// `approved` stays open: a capture was attempted with no known outcome, so the sweep keeps asking
-// until PayPal reports what became of it.
-export async function closeDepositIfHoldEnded(
+export type DepositCaptureDecision =
+  // The hold is live and the order is now `approved`. `repeat` means an earlier attempt already
+  // took it there, and that attempt's capture may still be in progress at PayPal.
+  | { action: "capture" }
+  // The hold is live and PayPal is waiting for the buyer, so there is nothing to capture yet.
+  | { action: "continue" }
+  // Nothing is captured, and the order is as it should be for now.
+  | { action: "stop" };
+
+// A deposit pays for time, and the time is there only while its hold is live, so this is asked
+// before anything is captured, whenever PayPal reports the order approved or waiting for the buyer.
+// PayPal cannot be told to stop a link it has issued, so a buyer can still approve after a hold has
+// ended, and an approval moves no money until it is captured.
+//
+// The check and the write to `approved` are one transaction, so a reconciliation that saw a live hold
+// cannot reopen an order that was closed a moment later. Locks take the order first and its booking
+// second, the same order as any write that closes the order and so releases its hold.
+//
+// With the hold ended, nothing is captured and a `pending` order closes. An `approved` order had a
+// capture sent inside the hold with no known outcome, so it closes only once that capture can no
+// longer land: `captureSettleMinutes` after the hold ended, with PayPal still showing no capture. A
+// capture PayPal makes after all is still recorded later, as paid, and its booking goes to review.
+export async function gateDepositCapture(
   db: Db,
   order: OrderRow,
+  reading: "ready_to_capture" | "awaiting_buyer",
   now: Date = new Date(),
-): Promise<boolean> {
-  if (order.kind !== "booking_deposit") {
-    return false;
-  }
+): Promise<DepositCaptureDecision> {
   return db.transaction(async (tx) => {
+    const [current] = await tx
+      .select({ paymentStatus: orders.paymentStatus })
+      .from(orders)
+      .where(eq(orders.id, order.id))
+      .for("update");
     const [booking] = await tx
       .select({ status: bookings.status, holdExpiresAt: bookings.holdExpiresAt })
       .from(bookings)
       .where(eq(bookings.orderId, order.id))
       .for("update");
-    if (booking?.status === "held" && isHoldLive(booking.holdExpiresAt, now)) {
-      return false;
+    // Paid or in review since this reconciliation loaded it, and never captured again.
+    if (current?.paymentStatus !== "pending" && current?.paymentStatus !== "approved") {
+      return { action: "stop" };
     }
+
+    if (booking?.status === "held" && isHoldLive(booking.holdExpiresAt, now)) {
+      if (reading === "awaiting_buyer") {
+        return { action: "continue" };
+      }
+      if (current.paymentStatus === "approved") {
+        return { action: "capture" };
+      }
+      await tx
+        .update(orders)
+        .set({ paymentStatus: "approved" })
+        .where(and(eq(orders.id, order.id), eq(orders.paymentStatus, "pending")));
+      return { action: "capture" };
+    }
+
     // Marked first, because closing the order would release a hold still marked held as cancelled.
     await tx
       .update(bookings)
       .set({ status: "expired" })
       .where(and(eq(bookings.orderId, order.id), eq(bookings.status, "held")));
+    const settled =
+      !booking ||
+      booking.holdExpiresAt.getTime() + BOOKING_POLICY.captureSettleMinutes * MINUTE_MS <=
+        now.getTime();
     await tx
       .update(orders)
       .set({ paymentStatus: "cancelled" })
-      .where(and(eq(orders.id, order.id), eq(orders.paymentStatus, "pending")));
-    return true;
+      .where(
+        and(
+          eq(orders.id, order.id),
+          isNull(orders.paypalCaptureId),
+          inArray(orders.paymentStatus, settled ? ["pending", "approved"] : ["pending"]),
+        ),
+      );
+    return { action: "stop" };
   });
 }
 

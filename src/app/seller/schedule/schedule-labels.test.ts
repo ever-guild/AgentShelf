@@ -39,6 +39,15 @@ describe("statusLabel", () => {
     expect(statusLabel("confirmed", "paid")).toBe("Confirmed");
     expect(statusLabel("confirmed", "review_required")).toBe("Confirmed, check payment");
   });
+
+  it("asks for a check when released time has a capture open or landed", () => {
+    for (const paymentStatus of ["approved", "paid", "review_required"] as const) {
+      expect(statusLabel("expired", paymentStatus)).toBe("Expired, check payment");
+      expect(statusLabel("cancelled", paymentStatus)).toBe("Cancelled, check payment");
+    }
+    expect(statusLabel("expired", "cancelled")).toBe("Expired");
+    expect(statusLabel("cancelled", "failed")).toBe("Cancelled");
+  });
 });
 
 describe("depositText", () => {
@@ -60,6 +69,20 @@ describe("depositText", () => {
   it("never says an expired or cancelled booking was paid", () => {
     expect(depositText(booking, "expired")).toContain("No deposit was paid");
     expect(depositText(booking, "cancelled")).toContain("free again");
+  });
+
+  it("never says no deposit was paid while a capture is open or has landed", () => {
+    for (const status of ["expired", "cancelled"] as const) {
+      for (const paymentStatus of ["approved", "paid", "review_required"] as const) {
+        const text = depositText({ ...booking, paymentStatus }, status);
+        expect(text).not.toContain("No deposit was paid");
+        expect(text).not.toContain("The order was cancelled");
+        expect(text).toContain("refund or rebook");
+      }
+    }
+    expect(depositText({ ...booking, paymentStatus: "approved" }, "expired")).toContain(
+      "still finishing the deposit of 20.00 EUR",
+    );
   });
 
   it("tells the seller what to do with a late deposit", () => {

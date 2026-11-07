@@ -16,6 +16,8 @@ import {
   slotAt,
   type BookingHarness,
 } from "../../../test/bookings";
+import { depositText, statusLabel } from "@/app/seller/schedule/schedule-labels";
+
 import { setupMigratedDatabase } from "../../../test/database";
 import {
   createBooking,
@@ -122,6 +124,21 @@ describe("a deposit moving through the schedule", () => {
       reviewReason: "late_capture",
       paymentStatus: "paid",
     });
+  });
+
+  it("does not say no deposit was paid while a capture of an ended hold is still open", async () => {
+    const workshop = await createWorkshop(getDb());
+    const held = await holdAt(workshop);
+    harness.paypal.approve(await paypalIdOf(getDb(), held.orderId));
+    harness.paypal.nextCapture({ type: "timeout", captured: false });
+    await reconcileOrder(getDb(), held.orderId, harness.reconcileDeps).catch(() => {});
+    harness.advance(HOLD_MS);
+    await reconcileOrder(getDb(), held.orderId, harness.reconcileDeps);
+
+    const [booking] = (await scheduleOf(workshop.shop)).bookings;
+    expect(booking).toMatchObject({ status: "expired", paymentStatus: "approved" });
+    expect(statusLabel(booking.status, booking.paymentStatus)).toBe("Expired, check payment");
+    expect(depositText(booking, booking.status)).not.toContain("No deposit was paid");
   });
 
   it("shows an expired hold beside the booking that took its time", async () => {

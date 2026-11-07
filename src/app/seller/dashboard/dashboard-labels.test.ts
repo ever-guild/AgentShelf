@@ -4,6 +4,7 @@ import { paymentGroupOf } from "@/server/contracts/seller-dashboard";
 
 import {
   attributionBasis,
+  dueAtShopText,
   groupTotals,
   money,
   orderMoneyText,
@@ -24,6 +25,13 @@ describe("payment groups", () => {
     ["failed", true, "closed"],
   ] as const)("%s with a link %s is %s", (status, hasLink, group) => {
     expect(paymentGroupOf(status, hasLink)).toBe(group);
+  });
+
+  it("closes a deposit that can never be paid, and nothing that has moved money", () => {
+    expect(paymentGroupOf("pending", true, false)).toBe("closed");
+    expect(paymentGroupOf("approved", true, false)).toBe("closed");
+    expect(paymentGroupOf("paid", true, false)).toBe("paid");
+    expect(paymentGroupOf("review_required", true, false)).toBe("review");
   });
 });
 
@@ -70,12 +78,59 @@ describe("words for money", () => {
       booking: {
         bookingId: "b",
         status: "confirmed",
+        reviewReason: null,
         servicePriceMinor: 8000,
         remainingMinor: 6000,
         startsLocal: "2026-11-09T12:00:00",
       },
     });
     expect(text).toBe("20.00 EUR deposit captured. 60.00 EUR of the 80.00 EUR service price is paid at the shop.");
+  });
+
+  it("does not describe a late deposit as a booking with a balance due", () => {
+    const late = {
+      bookingId: "b",
+      status: "review_required",
+      reviewReason: "late_capture",
+      servicePriceMinor: 8000,
+      remainingMinor: 6000,
+      startsLocal: "2026-11-09T12:00:00",
+    } as const;
+
+    const text = orderMoneyText({ ...order, booking: late });
+    expect(text).toBe(
+      "20.00 EUR deposit captured after the hold ended. This time is not reserved for the buyer, so refund or rebook them.",
+    );
+    expect(text).not.toContain("paid at the shop");
+    expect(
+      orderMoneyText({ ...order, booking: { ...late, reviewReason: "captured_after_cancel" } }),
+    ).toContain("after the order was cancelled");
+    expect(dueAtShopText(late, "EUR")).toBe("Nothing, this time is not reserved");
+    expect(dueAtShopText({ ...late, status: "confirmed" }, "EUR")).toBe("60.00 EUR");
+  });
+
+  it("says a deposit whose hold ended will not be charged", () => {
+    const ended = {
+      ...order,
+      paymentGroup: "closed",
+      booking: {
+        bookingId: "b",
+        status: "expired",
+        reviewReason: null,
+        servicePriceMinor: 8000,
+        remainingMinor: 6000,
+        startsLocal: "2026-11-09T12:00:00",
+      },
+    } as const;
+
+    for (const paymentStatus of ["pending", "approved"] as const) {
+      expect(orderMoneyText({ ...ended, paymentStatus })).toBe(
+        "The hold on this time ended before the deposit was captured, so this 20.00 EUR will not be charged.",
+      );
+      expect(orderStatusLabel({ paymentStatus, hasApprovalLink: true, paymentGroup: "closed" })).toBe(
+        "Hold ended, not charged",
+      );
+    }
   });
 
   it("never calls waiting money revenue", () => {
@@ -88,9 +143,13 @@ describe("words for money", () => {
   });
 
   it("names each payment state", () => {
-    expect(orderStatusLabel({ paymentStatus: "pending", hasApprovalLink: false })).toBe("No payment link");
-    expect(orderStatusLabel({ paymentStatus: "pending", hasApprovalLink: true })).toBe("Waiting for the buyer");
-    expect(orderStatusLabel({ paymentStatus: "approved", hasApprovalLink: true })).toBe(
+    expect(orderStatusLabel({ paymentStatus: "pending", hasApprovalLink: false, paymentGroup: "closed" })).toBe(
+      "No payment link",
+    );
+    expect(orderStatusLabel({ paymentStatus: "pending", hasApprovalLink: true, paymentGroup: "awaiting" })).toBe(
+      "Waiting for the buyer",
+    );
+    expect(orderStatusLabel({ paymentStatus: "approved", hasApprovalLink: true, paymentGroup: "awaiting" })).toBe(
       "Approved, capture not finished",
     );
   });

@@ -5,6 +5,10 @@ export const BOOKING_POLICY = {
   // How long an unpaid hold keeps a slot from its creation. A buyer needs time to open PayPal and
   // approve, and everyone else is waiting for the slot meanwhile.
   holdMinutes: 15,
+  // A capture only starts while a hold is live, and each PayPal request gives up after seconds. Once
+  // this long has passed since a hold ended, a deposit PayPal still shows uncaptured cannot be
+  // charged by anything already sent, so its order closes.
+  captureSettleMinutes: 5,
   // Slots start this far apart, counted from the start of a working window.
   slotStepMinutes: 30,
   // A slot closer than this is not offered. It must be longer than a hold, so that a hold always
