@@ -86,15 +86,23 @@ export function UploadForm() {
         }}
         onDragLeave={() => setDragging(false)}
         onDrop={drop}
-        className={`flex cursor-pointer flex-col items-start gap-1 rounded-md border-2 border-dashed px-5 py-8 has-[:focus-visible]:outline-2 has-[:focus-visible]:outline-offset-2 has-[:focus-visible]:outline-ink ${
-          dragging ? "border-ink" : "border-zinc-300 dark:border-zinc-700"
-        } ${busy ? "cursor-progress opacity-60" : ""}`}
+        className={`group flex cursor-pointer flex-col items-start gap-3 rounded-lg border border-dashed p-6 transition-colors has-[:focus-visible]:outline-2 has-[:focus-visible]:outline-offset-2 has-[:focus-visible]:outline-ink ${
+          dragging
+            ? "border-ink bg-zinc-100 dark:bg-zinc-900"
+            : "border-zinc-300 hover:bg-zinc-50 dark:border-zinc-700 dark:hover:bg-zinc-900"
+        } ${busy ? "cursor-progress" : ""}`}
       >
-        <span className="text-lg font-medium text-ink">
-          {busy ? "Uploading your file" : "Choose a photo or a CSV file"}
+        <span
+          className={`inline-flex min-h-11 items-center rounded-lg bg-ink px-4 py-2 font-medium text-background transition-[background-color,transform] ${
+            busy ? "opacity-60" : "group-hover:bg-ink/90 group-active:scale-[0.98]"
+          }`}
+        >
+          {busy ? "Uploading your file" : dragging ? "Drop your file here" : "Choose a photo or a CSV file"}
         </span>
+        {/* A phone has nothing to drag a file from, so only a mouse or trackpad is offered the drop. */}
         <span className="text-sm text-zinc-600 dark:text-zinc-400">
-          Or drop it here. Photos as JPEG, PNG or WebP. CSV needs name and price columns.
+          <span className="hidden pointer-fine:inline">Or drop it here. </span>
+          Photos as JPEG, PNG or WebP. CSV needs name and price columns.
         </span>
         <input
           type="file"

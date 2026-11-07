@@ -39,7 +39,7 @@ async function Review({ params }: { params: Promise<{ id: string }> }) {
 export default function ImportPage({ params }: { params: Promise<{ id: string }> }) {
   return (
     <main className="flex flex-1 flex-col">
-      <Suspense fallback={<p className="px-6 py-8 text-zinc-600 dark:text-zinc-400">Loading your price list</p>}>
+      <Suspense fallback={<p className="px-4 py-6 text-zinc-600 sm:px-6 dark:text-zinc-400">Loading your price list</p>}>
         <Review params={params} />
       </Suspense>
     </main>
