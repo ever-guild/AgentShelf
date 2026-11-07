@@ -168,6 +168,7 @@ export function BuyPanel({
       ) : null}
 
       {mode === "button" ? (
+        // PayPal draws this button, so it gets no styling of ours beyond its width and a focus ring.
         <div className="rounded-lg focus-within:outline-2 focus-within:outline-offset-2 focus-within:outline-ink">
           <paypal-button
             type="buynow"
@@ -182,7 +183,7 @@ export function BuyPanel({
           type="button"
           disabled={busy}
           onClick={payOnPayPalPage}
-          className="w-full max-w-sm rounded-lg bg-ink px-4 py-3 font-medium text-background hover:opacity-90 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ink disabled:opacity-60"
+          className="inline-flex h-12 w-full max-w-sm items-center justify-center rounded-lg bg-ink px-5 font-medium text-background transition-[background-color,transform] hover:bg-ink/90 active:scale-[0.98] disabled:opacity-60 motion-reduce:active:scale-100"
         >
           {busy ? "Opening PayPal" : "Continue to PayPal"}
         </button>

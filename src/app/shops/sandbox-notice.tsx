@@ -1,7 +1,12 @@
+// Shown above every public page, including the ones where no shop could be found, so it speaks for
+// the whole service rather than for one shop.
 export function SandboxNotice() {
   return (
-    <p className="border-b border-doubt/40 bg-doubt/10 px-4 py-2 text-center text-sm font-medium text-doubt sm:px-6">
-      PayPal sandbox. This is a demo shop: payments are test payments and no real money moves.
-    </p>
+    <div className="border-b border-zinc-200 bg-zinc-100 dark:border-zinc-800 dark:bg-zinc-900">
+      <p className="mx-auto w-full max-w-3xl px-4 py-2 text-sm text-pretty sm:px-6">
+        <span className="font-medium text-doubt">PayPal sandbox.</span> Every payment here is a test
+        payment, and no real money moves.
+      </p>
+    </div>
   );
 }
