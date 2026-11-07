@@ -27,7 +27,7 @@ async function Dashboard() {
 export default function DashboardPage() {
   return (
     <main className="flex flex-1 flex-col">
-      <Suspense fallback={<p className="px-6 py-8 text-zinc-600 dark:text-zinc-400">Loading your dashboard</p>}>
+      <Suspense fallback={<p className="px-4 py-8 text-zinc-600 sm:px-6 dark:text-zinc-400">Loading your dashboard</p>}>
         <Dashboard />
       </Suspense>
     </main>

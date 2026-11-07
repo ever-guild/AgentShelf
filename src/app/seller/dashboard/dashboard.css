@@ -1,7 +1,8 @@
 /* The tokens AG Studio's theme reads (dashboard-theme.ts). The zinc ramp and the app's ink, repeated
-   here because Studio takes CSS variables, not Tailwind classes. Series colors follow the meaning
-   they carry in the seller screens, and every series also has words in its legend. */
+   here because Studio takes CSS variables, not Tailwind classes. A chart's first series carries the
+   one accent, and every other series is a step of the ramp, with its words in the legend. */
 :root {
+  --studio-canvas-padding: 16px;
   --studio-canvas: #fafafa;
   --studio-surface: #ffffff;
   --studio-text: #18181b;
@@ -9,29 +10,103 @@
   --studio-line: #e4e4e7;
   --studio-hover: #f4f4f5;
   --studio-ink: var(--ink);
-  --studio-series-1: #2438a6;
-  --studio-series-2: #92560a;
-  --studio-series-3: #12704a;
-  --studio-series-4: #71717a;
-  --studio-series-5: #b42318;
-  --studio-series-6: #3f3f46;
+  --studio-series-1: var(--ink);
+  --studio-series-2: #71717a;
+  --studio-series-3: #a1a1aa;
+  --studio-series-4: #3f3f46;
+  --studio-series-5: #d4d4d8;
+  --studio-series-6: #52525b;
 }
 
 @media (prefers-color-scheme: dark) {
   :root {
-    --studio-canvas: #0a0a0a;
+    --studio-canvas: #09090b;
     --studio-surface: #18181b;
     --studio-text: #f4f4f5;
     --studio-muted: #a1a1aa;
     --studio-line: #3f3f46;
     --studio-hover: #27272a;
-    --studio-series-1: #a9b8ff;
-    --studio-series-2: #eebb6a;
-    --studio-series-3: #66d6a6;
-    --studio-series-4: #a1a1aa;
-    --studio-series-5: #ff9c8f;
-    --studio-series-6: #d4d4d8;
+    --studio-series-3: #a1a1aa;
+    --studio-series-4: #d4d4d8;
+    --studio-series-5: #52525b;
+    --studio-series-6: #e4e4e7;
   }
+}
+
+/* A phone's gutter is 16 pixels, the same as the page around the canvas. */
+@media (max-width: 639px) {
+  :root {
+    --studio-canvas-padding: 8px;
+  }
+}
+
+/* Amounts line up, in the grid and a chart's tooltip as much as in the widgets. */
+.ag-studio-root,
+.ag-charts-tooltip {
+  font-variant-numeric: tabular-nums;
+}
+
+/* A sized column rounds its width down to a whole pixel, which put an ellipsis on a short header
+   or an order reference that fits. Those are never cut short on purpose, so they are not marked. */
+.ag-studio-root .ag-header-cell-text,
+.ag-studio-root .ag-cell[col-id="orders.reference"] {
+  text-overflow: clip;
+}
+
+/* Studio's filter buttons share a row in equal parts and cut their words short, which left two
+   technicians reading the same. Each button takes the width of its words and wraps instead. */
+.ag-studio-root .ag-studio-filter-widget-content {
+  display: flex;
+  flex-wrap: wrap;
+  padding: 0 8px 8px;
+}
+.ag-studio-root .ag-studio-filter-widget-title {
+  padding-block: 8px 4px;
+}
+.ag-studio-root .ag-studio-button-filter-widget-item {
+  flex: none;
+  max-width: 100%;
+  height: 32px;
+  padding-inline: 12px;
+  border: 1px solid var(--studio-line);
+  border-radius: 6px;
+  background: transparent;
+  color: var(--studio-text);
+  font: inherit;
+  font-size: 13px;
+  transition: background-color 150ms var(--ease-out);
+}
+.ag-studio-root .ag-studio-button-filter-widget-item:hover {
+  background: var(--studio-hover);
+}
+.ag-studio-root .ag-studio-button-filter-widget-item-active {
+  border-color: var(--studio-text);
+  background: var(--studio-hover);
+  font-weight: 500;
+}
+@media (max-width: 639px) {
+  .ag-studio-root .ag-studio-button-filter-widget-item {
+    height: 40px;
+  }
+}
+
+/* A state is its words and a straight mark beside them, the same mark as on the schedule. */
+.state-mark {
+  border-inline-start: 3px solid var(--mark);
+  padding-inline-start: 0.625rem;
+}
+.state-mark[data-state="paid"] {
+  --mark: var(--accepted);
+}
+.state-mark[data-state="awaiting"] {
+  --mark: var(--doubt);
+}
+.state-mark[data-state="review"] {
+  --mark: var(--blocked);
+}
+.state-mark[data-state="closed"],
+.state-mark[data-state="none"] {
+  --mark: var(--studio-line);
 }
 
 /* A booking's state is its words and its border, the same as on the schedule. */
@@ -60,18 +135,30 @@
 .widget-summary {
   cursor: pointer;
   list-style: none;
+  transition: background-color 150ms var(--ease-out);
+}
+.widget-summary:hover {
+  background: var(--studio-hover);
 }
 .widget-summary::-webkit-details-marker {
   display: none;
 }
-.widget-summary:focus-visible,
-.grid-order-link:focus-visible {
-  outline: 2px solid var(--ink);
-  outline-offset: 1px;
+.widget-frame button:focus-visible,
+.widget-frame summary:focus-visible {
+  outline-offset: -2px;
+}
+
+/* The arrow says a row opens. It turns when it does, for anyone who has not asked for less motion. */
+details[open] > .widget-summary .widget-chevron {
+  transform: rotate(90deg);
+}
+@media (prefers-reduced-motion: no-preference) {
+  .widget-chevron {
+    transition: transform 150ms var(--ease-out);
+  }
 }
 
 .grid-order-link {
-  color: var(--ink);
   font-variant-numeric: tabular-nums;
   text-decoration: underline;
   text-underline-offset: 3px;

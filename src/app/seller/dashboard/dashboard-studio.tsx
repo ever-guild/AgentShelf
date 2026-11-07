@@ -30,6 +30,7 @@ import {
   UPCOMING_BOOKINGS_WIDGET,
   defaultReport,
   loadSavedLayout,
+  phoneLayout,
   saveLayout,
   withDemandChart,
 } from "./dashboard-report";
@@ -53,23 +54,12 @@ const ASKING_PANELS: AgPanelConfig = {
   edit: { left: ["ai"] },
 };
 
-// A phone gets one column in the order the dashboard was laid out, with each widget tall enough
-// to read.
+// A phone gets one column, with a filter kept next to the list under it and each widget tall enough
+// to read without scrolling inside it where that can be helped.
 const BREAKPOINTS: AgResponsiveLayoutBreakpoint[] = [
   {
     maxWidth: 760,
-    layout: (layouts, { columns }) => {
-      const order = layouts
-        .map(({ layout }, index) => ({ layout, index }))
-        .sort((a, b) => a.layout.yTrack - b.layout.yTrack || a.layout.xTrack - b.layout.xTrack);
-      const placed = new Array(layouts.length);
-      let yTrack = 0;
-      for (const { layout, index } of order) {
-        placed[index] = { xTrack: 0, yTrack, xSpan: columns, ySpan: layout.ySpan };
-        yTrack += layout.ySpan;
-      }
-      return placed;
-    },
+    layout: (layouts, { columns }) => phoneLayout(layouts.map(({ layout }) => layout), columns),
   },
 ];
 
@@ -132,7 +122,21 @@ const WIDGETS = createWidgets({
   // eslint-disable-next-line @typescript-eslint/no-explicit-any -- Studio's registry generics do not accept custom IDs without a registry type of their own.
 } as any);
 
-const LOCALE_TEXT = { widgetOverlayNoData: "Nothing here in this period" };
+// Studio's own words where they read like a machine: a filter is named by its field alone, a chart's
+// legend does not say it adds up, the chat panel is named for the one thing it answers about, and
+// nothing trails off.
+const LOCALE_TEXT = {
+  widgetOverlayNoData: "Nothing here in this period",
+  widgetOverlayLoading: "Loading",
+  filterWidgetFilterBy: "${field}",
+  aggregationSumFieldName: "${name}",
+  aggregationSumBucketName: "${name}",
+  panelTitleAi: "Demand assistant",
+  aiMessageInputPlaceholder: "Ask about demand",
+};
+
+// Studio stops at its minimum height unless it is told to fill the box around it.
+const STUDIO_STYLE = { height: "100%" };
 
 const SAVE_DELAY_MS = 800;
 
@@ -202,6 +206,7 @@ export default function DashboardStudio({
   return (
     <AgStudioProvider licenseKey={licenseKey} modules={STUDIO_MODULES}>
       <AgStudio
+        style={STUDIO_STYLE}
         data={data}
         mode={mode}
         theme={agentShelfTheme}

@@ -4,6 +4,8 @@ import { studioTheme } from "ag-studio";
 // the grid and charts follow the same zinc ramp and carbon-blue accent as the other seller pages,
 // and dark mode comes along without a second theme.
 
+const FONT = "var(--font-geist-sans), Arial, Helvetica, sans-serif";
+
 const token = (name: string) => `var(--studio-${name})`;
 const line = (color: string) => ({ width: 1, color: token(color) });
 
@@ -17,7 +19,7 @@ const palette = Object.fromEntries(
 );
 
 export const agentShelfTheme = studioTheme.withParams({
-  fontFamily: "var(--font-geist-sans), Arial, Helvetica, sans-serif",
+  fontFamily: FONT,
   fontSize: 14,
   textColor: token("text"),
   foregroundColor: token("text"),
@@ -28,6 +30,15 @@ export const agentShelfTheme = studioTheme.withParams({
   iconColor: token("muted"),
   rowHoverColor: token("hover"),
 
+  // The orders grid: rows a finger or a pointer can land on, with hairlines from the same ramp.
+  gridRowHeight: 36,
+  gridHeaderHeight: 36,
+  gridHeaderFontWeight: 500,
+  gridHeaderTextColor: token("muted"),
+  gridHeaderBackgroundColor: token("surface"),
+  gridRowBorder: line("line"),
+  gridHeaderRowBorder: line("line"),
+
   // The canvas is the page itself, with no frame around it.
   studioWrapperBorder: false,
   studioWrapperBorderRadius: 0,
@@ -37,17 +48,18 @@ export const agentShelfTheme = studioTheme.withParams({
   studioCanvasBorderRadius: 0,
   studioCanvasShadow: false,
   studioCanvasBackgroundColor: token("canvas"),
-  studioCanvasPadding: 8,
+  // With a widget's own padding this puts its edge on the page's gutter, under the page title.
+  studioCanvasPadding: "var(--studio-canvas-padding)",
   studioCanvasRowHeight: 16,
-  studioCanvasFontFamily: "var(--font-geist-sans), Arial, Helvetica, sans-serif",
+  studioCanvasFontFamily: FONT,
 
   // Widgets read like sheets from a receipt book: flat, one hairline, small radius.
   studioWidgetBackgroundColor: token("surface"),
   studioWidgetBorder: line("line"),
   studioWidgetBorderRadius: 6,
-  studioWidgetPadding: 12,
+  studioWidgetPadding: 8,
   studioWidgetTitleFontSize: 15,
-  studioWidgetTitleFontWeight: 600,
+  studioWidgetTitleFontWeight: 500,
   studioWidgetTitleTextColor: token("text"),
   studioWidgetSubtitleFontSize: 13,
   studioWidgetSubtitleTextColor: token("muted"),
@@ -61,12 +73,24 @@ export const agentShelfTheme = studioTheme.withParams({
   studioPanelDividerColor: token("line"),
   studioPanelDividerActiveColor: token("ink"),
   studioPanelSectionBorderColor: token("line"),
-  studioPanelHeaderFontWeight: 600,
+  studioPanelHeaderFontWeight: 500,
   studioPanelChevronButtonHoverBackgroundColor: token("hover"),
   studioPanelChevronButtonHoverColor: token("ink"),
   studioToggleButtonActiveBackgroundColor: token("hover"),
   studioToggleButtonActiveBorderColor: token("ink"),
   studioToggleButtonActiveColor: token("ink"),
+
+  // Charts sit on a muted grid, in the page's type, and get their one accent from the palette.
+  chartFontFamily: FONT,
+  chartAxisLabelFontFamily: FONT,
+  chartAxisTitleFontFamily: FONT,
+  chartSeriesLabelFontFamily: FONT,
+  chartTextColor: token("text"),
+  chartSubtleTextColor: token("muted"),
+  chartAxisLabelColor: token("muted"),
+  chartAxisTitleColor: token("muted"),
+  chartAxisLineColor: token("line"),
+  chartGridLineColor: token("line"),
 
   ...palette,
 });

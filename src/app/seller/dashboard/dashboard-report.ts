@@ -11,7 +11,7 @@ export const UNMET_DEMAND_WIDGET = "agentshelf-unmet-demand";
 export const DEMAND_INSIGHT_WIDGET = "agentshelf-demand-insight";
 
 // Raise this when a widget, field or table changes, so nobody restores a report Studio would refuse.
-const REPORT_VERSION = 2;
+const REPORT_VERSION = 3;
 const PAGE_ID = "counter";
 
 const at = (xTrack: number, yTrack: number, xSpan: number, ySpan: number): AgWidgetLayoutState => ({
@@ -23,9 +23,18 @@ const at = (xTrack: number, yTrack: number, xSpan: number, ySpan: number): AgWid
 const title = (text: string) => ({ title: { enabled: true, text } });
 const fields = (table: string, ids: string[]) => ids.map((id) => ({ id: `${table}.${id}` }));
 // A filter's label is its field's name, so it needs no title of its own.
-const FILTER_FORMAT = { title: { enabled: false }, style: { selection: { type: "multiple" }, dimensions: { height: 28, minWidth: 48 } } };
-const WITH_LEGEND = { style: { theme: { common: { legend: { enabled: true } } } } };
+const FILTER_FORMAT = { title: { enabled: false }, style: { selection: { type: "multiple" }, dimensions: { height: 32, minWidth: 48 } } };
+// A hairline in the widget's own color keeps the two parts of a stacked column apart.
+const STACKED_WITH_LEGEND = {
+  style: {
+    theme: { common: { legend: { enabled: true } } },
+    custom: { seriesStroke: { enabled: true, strokeWidth: 1 } },
+  },
+};
 const sum = (id: string) => ({ id, aggregation: "sum" as const });
+// Tall enough for the ledger's two-row lines on a page narrower than a laptop's.
+const PAYMENT_ROWS = 17;
+const FILTER_ROWS = 6;
 
 // A deliberate order for a counter: money first, then who is coming in and what people could not
 // find, then the charts, and the full list of orders at the bottom.
@@ -118,7 +127,7 @@ export function defaultReport(): AgReportState {
               categoryKey: [{ id: "captures.createdDate" }],
               valueKey: [sum("captures.purchaseAmount"), sum("captures.depositAmount")],
             },
-            format: { ...title("Captured by the day the order was made"), ...WITH_LEGEND },
+            format: { ...title("Captured by the day the order was made"), ...STACKED_WITH_LEGEND },
           },
           "paid-by-item": {
             type: "bar-chart-grouped",
@@ -141,42 +150,95 @@ export function defaultReport(): AgReportState {
           orders: {
             type: "grid",
             dataMapping: {
+              // The money columns come before the items, so a long list of items is what runs off the
+              // edge of a narrow window, and never an amount.
               cols: fields("orders", [
                 "reference",
                 "createdLabel",
                 "kindLabel",
-                "items",
                 "statusLabel",
                 "groupLabel",
                 "totalMinor",
                 "currency",
+                "items",
               ]),
             },
             format: {
               ...title("Orders"),
               style: { columnAutoSize: true },
-              subtitle: { enabled: true, text: "Open an order for its lines, capture and what the amount means." },
+              subtitle: { enabled: true, text: "Open an order for its lines, capture and what the amount means" },
             },
           },
         },
         widgetLayout: {
-          "payment-status": at(0, 0, 24, 14),
-          "booking-state": at(0, 14, 8, 6),
-          "booking-technician": at(8, 14, 4, 6),
-          "demand-source": at(12, 14, 12, 6),
-          "upcoming-bookings": at(0, 20, 12, 25),
-          "unmet-demand": at(12, 20, 12, 25),
-          "demand-insight": at(0, 45, 24, 24),
-          "captured-by-day": at(0, 69, 14, 18),
-          "paid-by-item": at(14, 69, 10, 18),
-          "order-kind": at(0, 87, 8, 6),
-          "order-state": at(8, 87, 16, 6),
-          orders: at(0, 93, 24, 26),
+          // Two columns under the money, each filter over the list it narrows: the bookings with
+          // their state and technician, and the list of what people could not find, given more of
+          // the page than the bookings beside it.
+          "payment-status": at(0, 0, 24, PAYMENT_ROWS),
+          "booking-state": at(0, 17, 9, FILTER_ROWS),
+          "booking-technician": at(0, 23, 9, FILTER_ROWS),
+          "demand-source": at(9, 17, 15, FILTER_ROWS),
+          "upcoming-bookings": at(0, 29, 9, 24),
+          "unmet-demand": at(9, 23, 15, 30),
+          "demand-insight": at(0, 53, 24, 30),
+          "captured-by-day": at(0, 83, 15, 20),
+          "paid-by-item": at(15, 83, 9, 20),
+          "order-kind": at(0, 103, 6, FILTER_ROWS),
+          "order-state": at(6, 103, 18, FILTER_ROWS),
+          orders: at(0, 109, 24, 32),
         },
       },
     ],
   };
   return report as unknown as AgReportState;
+}
+
+// What a widget needs in a phone's one narrow column. A filter's buttons wrap and the payment lines
+// stack, so those two grow to a fixed height. Anything else wraps more the wider it was, so it grows
+// with its width, up to about one screen of a phone.
+function phoneRows(ySpan: number, xSpan: number): number {
+  if (ySpan <= FILTER_ROWS) {
+    return 12;
+  }
+  if (ySpan <= PAYMENT_ROWS) {
+    return 36;
+  }
+  return Math.min(Math.ceil(ySpan * (1 + xSpan / 40)), 44);
+}
+
+type Placed = { layout: AgWidgetLayoutState; index: number };
+
+// A phone gets one column. Widgets stacked in one column of the page, like a filter over the list it
+// narrows, stay together, and each stack comes in the order it starts on the page. Returns the new
+// places in the order the widgets were given.
+export function phoneLayout(layouts: AgWidgetLayoutState[], columns: number): AgWidgetLayoutState[] {
+  const sorted = layouts
+    .map((layout, index) => ({ layout, index }))
+    .sort((a, b) => a.layout.yTrack - b.layout.yTrack || a.layout.xTrack - b.layout.xTrack);
+  const stacks: Placed[][] = [];
+  for (const item of sorted) {
+    const stack = stacks.find((candidate) => {
+      const last = candidate[candidate.length - 1].layout;
+      return (
+        last.xTrack === item.layout.xTrack &&
+        last.xSpan === item.layout.xSpan &&
+        last.yTrack + last.ySpan === item.layout.yTrack
+      );
+    });
+    if (stack) {
+      stack.push(item);
+    } else {
+      stacks.push([item]);
+    }
+  }
+  const placed = new Array<AgWidgetLayoutState>(layouts.length);
+  let yTrack = 0;
+  for (const { layout, index } of stacks.flat()) {
+    const ySpan = phoneRows(layout.ySpan, layout.xSpan);
+    placed[index] = { xTrack: 0, yTrack, xSpan: columns, ySpan };
+    yTrack += ySpan;
+  }
+  return placed;
 }
 
 export const DEMAND_CHART_ID = "demand-chart";

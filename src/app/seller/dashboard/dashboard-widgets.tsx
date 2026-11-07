@@ -80,8 +80,36 @@ function useWidgetRows(params: WidgetParams, mapping = "fields"): { rows: Row[] 
   return answer;
 }
 
+const SECONDARY = "text-zinc-600 dark:text-zinc-400";
+const NOTE = `text-[13px] leading-5 ${SECONDARY}`;
+const RULE = "border-t border-zinc-200 first:border-t-0 dark:border-zinc-800";
+const LINK = "underline underline-offset-4";
+
+// The padding puts a widget's words on the same line as Studio's title above them. The frame
+// scrolls, so its rows draw their focus ring inside themselves, where the frame cannot cut it.
 function WidgetFrame({ children }: { children: ReactNode }) {
-  return <div className="h-full overflow-y-auto px-1.5 font-sans text-sm text-zinc-900 dark:text-zinc-100">{children}</div>;
+  return (
+    <div className="widget-frame @container h-full overflow-y-auto px-2 pb-2 font-sans text-sm leading-5 text-zinc-900 dark:text-zinc-100">
+      {children}
+    </div>
+  );
+}
+
+function Chevron() {
+  return (
+    <svg
+      aria-hidden="true"
+      viewBox="0 0 16 16"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.5"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className="widget-chevron size-4 self-center text-zinc-500 dark:text-zinc-400"
+    >
+      <path d="m6 4 4 4-4 4" />
+    </svg>
+  );
 }
 
 // The same three states in every widget: still loading, could not load, and nothing there.
@@ -107,7 +135,7 @@ function DatasetState({
         Could not load {label}. Use Refresh at the top of the page to try again.
       </p>
     ) : (
-      <p className="text-zinc-600 dark:text-zinc-400">Loading {label}</p>
+      <p className={SECONDARY}>Loading {label}</p>
     );
   }
   if (failed) {
@@ -116,9 +144,9 @@ function DatasetState({
     );
   }
   if (rows === null) {
-    return <p className="text-zinc-600 dark:text-zinc-400">Loading {label}</p>;
+    return <p className={SECONDARY}>Loading {label}</p>;
   }
-  return rows.length === 0 ? <div className="text-zinc-600 dark:text-zinc-400">{empty}</div> : <>{children}</>;
+  return rows.length === 0 ? <div className={SECONDARY}>{empty}</div> : <>{children}</>;
 }
 
 const GROUP_ORDER: PaymentGroup[] = ["paid", "awaiting", "review", "closed"];
@@ -130,13 +158,9 @@ const GROUP_NOTE: Record<PaymentGroup, string> = {
   closed: "Cancelled, failed or never had a link.",
 };
 
-const GROUP_ACCENT: Record<PaymentGroup, string> = {
-  paid: "border-accepted",
-  awaiting: "border-doubt",
-  review: "border-blocked",
-  closed: "border-zinc-300 dark:border-zinc-700",
-};
-
+// The money that came in leads, and the rest reads as lines of a ledger beside it: one row each on
+// a wide page, and two where the page is narrower, the count sharing a row with what it means. A
+// state with no orders has nothing to warn about, so its mark stays quiet.
 export function PaymentStatusWidget(params: WidgetParams) {
   const { rows, failed } = useWidgetRows(params);
   const state = useDashboardState();
@@ -160,7 +184,7 @@ export function PaymentStatusWidget(params: WidgetParams) {
           <p>
             No orders in the last {period} days. When a buyer&apos;s assistant creates an order, it shows here as
             awaiting payment until the buyer approves it in PayPal. Check that your{" "}
-            <Link className="underline underline-offset-4" href="/seller/catalog">
+            <Link className={LINK} href="/seller/catalog">
               catalog
             </Link>{" "}
             is published.
@@ -168,52 +192,70 @@ export function PaymentStatusWidget(params: WidgetParams) {
         }
       >
         {shown.map((currency) => (
-          <div key={currency}>
-            <ul className="grid grid-cols-[repeat(auto-fit,minmax(11rem,1fr))] gap-3">
-              {GROUP_ORDER.map((group) => {
-                const total = totals.find((entry) => entry.group === group && entry.currency === currency);
-                const label = PAYMENT_GROUP_LABELS[group];
-                const pressed = selected.includes(JSON.stringify(label));
+          <ul
+            key={currency}
+            className="mb-3 grid gap-2 @3xl:grid-cols-[18rem_minmax(0,1fr)] @3xl:gap-x-6 @3xl:gap-y-0"
+          >
+            {GROUP_ORDER.map((group) => {
+              const total = totals.find((entry) => entry.group === group && entry.currency === currency);
+              const label = PAYMENT_GROUP_LABELS[group];
+              const pressed = selected.includes(JSON.stringify(label));
+              const orders = total?.orderCount ?? 0;
+              const amount = money(total?.amountMinor ?? 0, currency);
+              const toggle = () =>
+                orderGroupField &&
+                params.widgetApi.toggleCrossFilter({
+                  type: "value",
+                  group: 0,
+                  field: orderGroupField,
+                  value: label,
+                });
+              const surface = `state-mark h-full w-full text-left transition-colors hover:bg-zinc-100 dark:hover:bg-zinc-800 ${pressed ? "bg-zinc-100 inset-ring inset-ring-zinc-400 dark:bg-zinc-800 dark:inset-ring-zinc-500" : ""}`;
+              if (group === "paid") {
                 return (
-                  <li key={group}>
+                  <li key={group} className="@3xl:row-span-3">
                     <button
                       type="button"
                       aria-pressed={pressed}
                       disabled={!orderGroupField}
-                      onClick={() =>
-                        orderGroupField &&
-                        params.widgetApi.toggleCrossFilter({
-                          type: "value",
-                          group: 0,
-                          field: orderGroupField,
-                          value: label,
-                        })
-                      }
-                      className={`h-full w-full rounded-md border-l-4 ${GROUP_ACCENT[group]} px-3 py-1 text-left hover:bg-zinc-100 focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-ink dark:hover:bg-zinc-800 ${pressed ? "bg-zinc-100 dark:bg-zinc-800" : ""}`}
+                      data-state={orders > 0 ? group : "none"}
+                      onClick={toggle}
+                      className={`${surface} block py-1 pr-3`}
                     >
-                      <span className="flex h-full flex-col justify-start">
                       <span className="block font-medium">{label}</span>
-                      <span className="block text-xl font-semibold tabular-nums">
-                        {money(total?.amountMinor ?? 0, currency)}
+                      <span className="block text-3xl leading-10 font-medium tabular-nums">{amount}</span>
+                      <span className={`block ${NOTE} tabular-nums`}>
+                        {count(orders, "order")}
+                        {total?.depositsMinor ? `, of which ${money(total.depositsMinor, currency)} is deposits` : ""}
                       </span>
-                      <span className="block text-xs text-zinc-600 tabular-nums dark:text-zinc-400">
-                        {count(total?.orderCount ?? 0, "order")}
-                        {group === "paid" && total?.depositsMinor
-                          ? `, of which ${money(total.depositsMinor, currency)} is deposits`
-                          : ""}
-                      </span>
-                      <span className="mt-0.5 block text-xs text-zinc-600 dark:text-zinc-400">{GROUP_NOTE[group]}</span>
-                      </span>
+                      <span className={`block ${NOTE}`}>{GROUP_NOTE[group]}</span>
                     </button>
                   </li>
                 );
-              })}
-            </ul>
-          </div>
+              }
+              return (
+                <li key={group}>
+                  <button
+                    type="button"
+                    aria-pressed={pressed}
+                    disabled={!orderGroupField}
+                    data-state={orders > 0 ? group : "none"}
+                    onClick={toggle}
+                    className={`${surface} grid grid-cols-[minmax(0,1fr)_auto] items-baseline gap-x-4 py-1.5 pr-3 @3xl:grid-cols-[4.5rem_minmax(0,1fr)_auto] @5xl:grid-cols-[10rem_7rem_5rem_minmax(0,1fr)]`}
+                  >
+                    <span className="font-medium @3xl:col-span-2 @5xl:col-span-1">{label}</span>
+                    <span className="text-right font-medium tabular-nums">{amount}</span>
+                    <span className={`${NOTE} col-span-2 tabular-nums @3xl:col-span-1`}>{count(orders, "order")}</span>
+                    <span className={`${NOTE} col-span-2 @5xl:col-span-1`}>{GROUP_NOTE[group]}</span>
+                  </button>
+                </li>
+              );
+            })}
+          </ul>
         ))}
-        <p className="mt-2 text-xs text-zinc-600 dark:text-zinc-400">
+        <p className={NOTE}>
           Orders made in the last {period} days, in {shown.join(", ")}. A deposit is part of a service&apos;s price: the
-          rest is paid at the shop and is not in these totals. Select a box to filter the orders below.
+          rest is paid at the shop and is not in these totals. Select a line to filter the orders below.
         </p>
       </DatasetState>
     </WidgetFrame>
@@ -261,8 +303,8 @@ export function UpcomingBookingsWidget(params: WidgetParams) {
         failed={failed}
         empty={
           <p>
-            No bookings to show. When a buyer pays a deposit, the appointment appears here and on the{" "}
-            <Link className="underline underline-offset-4" href="/seller/schedule">
+            No bookings to show. When a buyer&apos;s assistant books a slot, the appointment appears here and on the{" "}
+            <Link className={LINK} href="/seller/schedule">
               schedule
             </Link>
             .
@@ -270,7 +312,7 @@ export function UpcomingBookingsWidget(params: WidgetParams) {
         }
       >
         {upcoming.length === 0 ? (
-          <p className="text-zinc-600 dark:text-zinc-400">Nothing coming up.</p>
+          <p className={SECONDARY}>Nothing coming up</p>
         ) : (
           <ul className="space-y-2">
             {upcoming.map(({ row, status }) => {
@@ -291,33 +333,36 @@ export function UpcomingBookingsWidget(params: WidgetParams) {
               return (
                 <li key={String(row.bookingId)} className="booking-mark" data-status={status}>
                   <details>
-                    <summary className="widget-summary rounded-sm">
-                      <span className="font-medium tabular-nums">{shopDateTime(String(row.startsLocal))}</span>
-                      <span> {String(row.serviceTitle)}</span>
-                      <span className="block text-xs text-zinc-600 dark:text-zinc-400">
-                        {statusLabel(status, paymentStatus)}, with {String(row.technicianName)}
+                    <summary className="widget-summary grid grid-cols-[minmax(0,1fr)_1rem] gap-x-2 py-1 pr-2">
+                      <span className="min-w-0">
+                        <span className="block font-medium tabular-nums">{shopDateTime(String(row.startsLocal))}</span>
+                        <span className="block break-words">{String(row.serviceTitle)}</span>
+                        <span className={`block ${NOTE}`}>
+                          {statusLabel(status, paymentStatus)}, with {String(row.technicianName)}
+                        </span>
                       </span>
+                      <Chevron />
                     </summary>
-                    <div className="mt-1 space-y-1 text-xs">
+                    <div className="mt-1 mb-2 space-y-2 text-[13px] leading-5">
                       <p>{text}</p>
                       <dl className="grid grid-cols-[auto_1fr] gap-x-3 tabular-nums">
-                        <dt className="text-zinc-600 dark:text-zinc-400">Service price</dt>
+                        <dt className={SECONDARY}>Service price</dt>
                         <dd>{money(Number(row.priceMinor), currency)}</dd>
-                        <dt className="text-zinc-600 dark:text-zinc-400">Deposit</dt>
+                        <dt className={SECONDARY}>Deposit</dt>
                         <dd>{money(Number(row.depositMinor), currency)}</dd>
-                        <dt className="text-zinc-600 dark:text-zinc-400">Due at the shop</dt>
+                        <dt className={SECONDARY}>Due at the shop</dt>
                         <dd>{money(Number(row.remainingMinor), currency)}</dd>
-                        <dt className="text-zinc-600 dark:text-zinc-400">Booking</dt>
+                        <dt className={SECONDARY}>Booking</dt>
                         <dd>{String(row.reference)}</dd>
                         {row.captureId ? (
                           <>
-                            <dt className="text-zinc-600 dark:text-zinc-400">PayPal capture</dt>
+                            <dt className={SECONDARY}>PayPal capture</dt>
                             <dd className="break-all">{String(row.captureId)}</dd>
                           </>
                         ) : null}
                       </dl>
                       <Link
-                        className="underline underline-offset-4"
+                        className={LINK}
                         href={`/seller/schedule?date=${String(row.startsDate).slice(0, 10)}`}
                       >
                         Open this day on the schedule
@@ -330,20 +375,22 @@ export function UpcomingBookingsWidget(params: WidgetParams) {
           </ul>
         )}
         {hidden > 0 ? (
-          <p className="mt-2 text-xs text-zinc-600 dark:text-zinc-400">
-            {count(hidden, "other booking")} in this period ended, expired or was cancelled.
+          <p className={`mt-3 ${NOTE}`}>
+            {count(hidden, "other booking")} in this period {hidden === 1 ? "has" : "have"} ended, expired or been
+            cancelled
           </p>
         ) : null}
         {data.bookings ? (
-          <p className="mt-1 text-xs text-zinc-600 dark:text-zinc-400">
-            Times are in shop time ({data.bookings.timezone}).
-          </p>
+          <p className={NOTE}>Times are in shop time ({data.bookings.timezone})</p>
         ) : null}
       </DatasetState>
     </WidgetFrame>
   );
 }
 
+// The screen's one bright element. The words a buyer's assistant used stay in carbon blue because
+// they came from outside the system, and they are the largest words here. Everything else is ruled
+// and quiet, like a page from a receipt book.
 export function UnmetDemandWidget(params: WidgetParams) {
   const { rows, failed } = useWidgetRows(params);
   const { data } = useDashboardState();
@@ -351,10 +398,9 @@ export function UnmetDemandWidget(params: WidgetParams) {
 
   return (
     <WidgetFrame>
-      {demand ? (
-        <p className="mb-2 text-xs text-zinc-600 tabular-nums dark:text-zinc-400">
-          In the last {demand.periodDays} days, {searches(demand.unmetSearches)}{" "}
-          found nothing but matched your shop, and{" "}
+      {demand && (demand.unmetSearches > 0 || demand.servedSearches > 0) ? (
+        <p className={`mb-2 ${NOTE} tabular-nums`}>
+          In the last {demand.periodDays} days, {searches(demand.unmetSearches)} that fit your shop found nothing, and{" "}
           {searches(demand.servedSearches)} returned your listings.
         </p>
       ) : null}
@@ -363,45 +409,63 @@ export function UnmetDemandWidget(params: WidgetParams) {
         label="search demand"
         rows={rows}
         failed={failed}
-        empty={<p>No searches found nothing and matched your shop in this period.</p>}
+        empty={
+          <p>
+            No missed searches in this period. When a buyer&apos;s assistant looks for something close to what you sell
+            and finds nothing, the words it used appear here.
+          </p>
+        }
       >
-        <ul className="space-y-2">
-          {(rows ?? []).map((row) => (
-            <li key={String(row.query)}>
-              <details>
-                <summary className="widget-summary rounded-sm">
-                  <span className="font-medium text-ink">{String(row.query)}</span>
-                  <span className="text-zinc-600 tabular-nums dark:text-zinc-400">
-                    {" "}
-                    {searches(Number(row.searches))}
-                  </span>
-                  <span className="block text-xs text-zinc-600 dark:text-zinc-400">
-                    {attributionBasis(String(row.sharedWords ?? ""), String(row.listings ?? ""))}
-                  </span>
-                </summary>
-                <dl className="mt-1 grid grid-cols-[auto_1fr] gap-x-3 text-xs">
-                  <dt className="text-zinc-600 dark:text-zinc-400">Source</dt>
-                  <dd>{String(row.originLabel)}</dd>
-                  <dt className="text-zinc-600 dark:text-zinc-400">Last searched</dt>
-                  <dd className="tabular-nums">{shopDateTime(String(row.lastSearchedLocal))}</dd>
-                  {row.askedFor ? (
-                    <>
-                      <dt className="text-zinc-600 dark:text-zinc-400">Also asked for</dt>
-                      <dd>{String(row.askedFor)}</dd>
-                    </>
-                  ) : null}
-                </dl>
-                {Number(row.degradedSearches) > 0 ? (
-                  <p className="mt-1 text-xs text-doubt">
-                    {searches(Number(row.degradedSearches))} ran while some
-                    listings had no search terms, so this may be a wording gap and not a gap in stock.
-                  </p>
-                ) : null}
-              </details>
-            </li>
-          ))}
+        <ul>
+          {(rows ?? []).map((row) => {
+            const times = Number(row.searches);
+            const origin = String(row.originLabel);
+            // Recorded searches are the usual case, so only a demo sample says where it came from.
+            const sampled = Number(row.sampleSearches) > 0;
+            const basis = attributionBasis(String(row.sharedWords ?? ""), String(row.listings ?? ""));
+            return (
+              <li key={String(row.query)} className={RULE}>
+                <details>
+                  <summary className="widget-summary -mx-2 grid grid-cols-[minmax(0,1fr)_auto_1rem] items-baseline gap-x-3 px-2 py-2">
+                    <span className="text-base leading-6 font-medium break-words text-ink @2xl:text-lg @2xl:leading-7">
+                      {String(row.query)}
+                    </span>
+                    <span className={`grid grid-cols-[3ch_4rem] gap-x-1 ${NOTE} tabular-nums`}>
+                      <span className="text-right font-medium text-foreground">{times}</span>
+                      <span>{times === 1 ? "search" : "searches"}</span>
+                    </span>
+                    <Chevron />
+                    <span className={`col-span-3 ${NOTE}`}>
+                      {sampled ? `${origin}. ` : ""}
+                      {basis}
+                    </span>
+                  </summary>
+                  <div className="pb-3">
+                    <dl className="grid grid-cols-[auto_1fr] gap-x-3 text-[13px] leading-5">
+                      <dt className={SECONDARY}>Source</dt>
+                      <dd>{origin}</dd>
+                      <dt className={SECONDARY}>Last searched</dt>
+                      <dd className="tabular-nums">{shopDateTime(String(row.lastSearchedLocal))}</dd>
+                      {row.askedFor ? (
+                        <>
+                          <dt className={SECONDARY}>Also asked for</dt>
+                          <dd>{String(row.askedFor)}</dd>
+                        </>
+                      ) : null}
+                    </dl>
+                    {Number(row.degradedSearches) > 0 ? (
+                      <p className="mt-1 border-l-4 border-doubt pl-3 text-[13px] leading-5">
+                        {searches(Number(row.degradedSearches))} ran while some listings had no search terms, so this
+                        may be a wording gap and not a gap in stock.
+                      </p>
+                    ) : null}
+                  </div>
+                </details>
+              </li>
+            );
+          })}
         </ul>
-        <p className="mt-2 text-xs text-zinc-600 dark:text-zinc-400">
+        <p className={`mt-2 border-t border-zinc-200 pt-2 dark:border-zinc-800 ${NOTE}`}>
           Attribution basis: a search counts for your shop when it found nothing and your listings share at least half
           of its words about the item, within the place, currency and type asked for. Who searched is never recorded.
         </p>
@@ -411,10 +475,10 @@ export function UnmetDemandWidget(params: WidgetParams) {
 }
 
 const widgetButton =
-  "rounded-md border border-zinc-300 px-3 py-1 text-sm font-medium hover:bg-zinc-100 focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-ink disabled:opacity-60 dark:border-zinc-700 dark:hover:bg-zinc-800";
+  "inline-flex h-9 flex-none items-center rounded-lg border border-zinc-300 px-3 text-sm font-medium transition-colors hover:bg-zinc-100 disabled:opacity-60 dark:border-zinc-700 dark:hover:bg-zinc-800";
 
 const WRITE_FAILED =
-  "Could not write an explanation just now. The counts here are recorded searches and are still correct. Try again in a minute.";
+  "Could not write an explanation just now. The observed counts here are still correct. Try again in a minute.";
 
 function InsightStatus({
   insights,
@@ -438,7 +502,7 @@ function InsightStatus({
   return (
     <div className="mb-2 space-y-2">
       {state === "stale" && insight ? (
-        <div className="flex flex-wrap items-center gap-2 border-l-4 border-doubt pl-3">
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-2 border-l-4 border-doubt pl-3">
           <p>
             Out of date. The notes below were written for {searches(insight.unmetSearches)} from{" "}
             {windowText(insight.windowStartDate, insight.windowEndDate)}, and the data has changed since. The counts
@@ -448,11 +512,11 @@ function InsightStatus({
         </div>
       ) : null}
       {state === "not_written" ? (
-        <div className="flex flex-wrap items-center gap-2">
-          <p className="text-zinc-600 dark:text-zinc-400">
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
+          <p className={SECONDARY}>
             {aiAvailable
-              ? "These are the recorded counts. A short note on what they may mean is written when you ask."
-              : "These are the recorded counts. Written notes are not set up on this service."}
+              ? "The counts below are observed. A short note on what they may mean is written when you ask."
+              : "The counts below are observed. Written notes are not set up on this service."}
           </p>
           {write("Explain these searches")}
         </div>
@@ -468,9 +532,10 @@ function InsightStatus({
 
 function InsightSuggestion({ item, stale }: { item: DemandInsightItem; stale: boolean }) {
   return (
-    <div className="mt-1 border-l-4 border-doubt pl-3">
-      <p className="text-xs font-medium text-zinc-600 dark:text-zinc-400">
-        Written by a model, not a recorded fact{stale ? `. Written when this group had ${searches(item.searchesAtWriting)}` : ""}
+    <div className="mt-2 border-l-4 border-doubt pl-3">
+      <p className={`${NOTE} font-medium`}>
+        Written by a model, not a recorded fact
+        {stale ? `. Written when this group had ${searches(item.searchesAtWriting)}` : ""}
       </p>
       <p>{item.explanation}</p>
       <p>
@@ -521,16 +586,16 @@ export function DemandInsightWidget(params: WidgetParams) {
 
   return (
     <WidgetFrame>
-      {insights ? (
-        <p className="mb-2 text-xs text-zinc-600 tabular-nums dark:text-zinc-400">
+      {insights && insights.state !== "no_data" ? (
+        <p className={`mb-2 ${NOTE} tabular-nums`}>
           Analysis window: {windowLine}, shop time. {searches(insights.unmetSearches)} in all.
           {insights.insight && !stale ? ` Notes written ${shopDateTime(insights.insight.writtenLocal)}.` : ""}
         </p>
       ) : null}
       {insights?.state === "no_data" ? (
-        <p className="text-zinc-600 dark:text-zinc-400">
-          No search found nothing and matched your shop from {windowLine}. There is nothing to explain yet, and nothing
-          here estimates demand or revenue.
+        <p className={SECONDARY}>
+          No missed search fits your shop from {windowLine}. There is nothing to explain yet, and nothing here estimates
+          demand or revenue.
         </p>
       ) : (
         <DatasetState
@@ -543,32 +608,52 @@ export function DemandInsightWidget(params: WidgetParams) {
           {insights ? (
             <InsightStatus insights={insights} writing={writing} failure={failure} onWrite={() => void write()} />
           ) : null}
-          <ul className="space-y-3">
+          <ul>
             {(insights?.groups ?? [])
               .filter((group) => visible.has(group.groupId))
               .map((group) => {
                 const item = insights?.insight?.items.find((entry) => entry.groupId === group.groupId);
+                // A group asked for in one wording, the same as its label, has nothing more to show.
+                const oneWording =
+                  group.examples.length === 1 && group.examplesOmitted === 0 && group.examples[0].query === group.label;
                 return (
-                  <li key={group.groupId}>
-                    <p>
-                      <span className="font-medium">Observed: </span>
-                      <span className="font-medium text-ink">{group.label}</span>
-                    </p>
-                    <p className="tabular-nums">{demandObservation(group)}</p>
-                    {group.degradedSearches > 0 ? (
-                      <p className="text-xs text-doubt">
-                        {searches(group.degradedSearches)} ran while some listings had no search terms, so this may be a
-                        wording gap and not a gap in stock.
+                  <li key={group.groupId} className={`${RULE} grid gap-x-6 gap-y-1 py-3 @3xl:grid-cols-[18rem_minmax(0,1fr)]`}>
+                    <p className="text-base leading-6 font-medium break-words text-ink">{group.label}</p>
+                    <div className="min-w-0">
+                      <p className="tabular-nums">
+                        <span className="font-medium">Observed: </span>
+                        {demandObservation(group)}
                       </p>
-                    ) : null}
-                    <details className="text-xs text-zinc-600 dark:text-zinc-400">
-                      <summary className="widget-summary rounded-sm">Source search events</summary>
-                      <p className="break-words tabular-nums">
-                        {group.eventRefs.map((ref) => ref.slice(0, 8).toUpperCase()).join(", ")}
-                        {group.eventRefsOmitted > 0 ? `, and ${group.eventRefsOmitted} more` : ""}
-                      </p>
-                    </details>
-                    {item ? <InsightSuggestion item={item} stale={stale} /> : null}
+                      {oneWording ? null : (
+                        <p className={`${NOTE} tabular-nums`}>
+                          Worded as{" "}
+                          {group.examples.map(({ query, searches: times }, index) => (
+                            <span key={query}>
+                              {index > 0 ? ", " : ""}
+                              <span className="text-ink">{query}</span> ({times})
+                            </span>
+                          ))}
+                          {group.examplesOmitted > 0 ? ` and ${count(group.examplesOmitted, "more wording")}` : ""}
+                        </p>
+                      )}
+                      {group.degradedSearches > 0 ? (
+                        <p className="mt-1 border-l-4 border-doubt pl-3 text-[13px] leading-5">
+                          {searches(group.degradedSearches)} ran while some listings had no search terms, so this may be
+                          a wording gap and not a gap in stock.
+                        </p>
+                      ) : null}
+                      <details className={`mt-1 ${NOTE}`}>
+                        <summary className="widget-summary inline-flex items-center gap-x-1 pr-2">
+                          Source search events
+                          <Chevron />
+                        </summary>
+                        <p className="break-words tabular-nums">
+                          {group.eventRefs.map((ref) => ref.slice(0, 8).toUpperCase()).join(", ")}
+                          {group.eventRefsOmitted > 0 ? `, and ${group.eventRefsOmitted} more` : ""}
+                        </p>
+                      </details>
+                      {item ? <InsightSuggestion item={item} stale={stale} /> : null}
+                    </div>
                   </li>
                 );
               })}

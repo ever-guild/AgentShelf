@@ -10,8 +10,16 @@ import type { Datasets } from "./dashboard-store";
 type Spec = [id: string, name: string, format: "text" | "date" | "int" | "money" | "chart", hide?: boolean];
 
 // Studio reads a date field as local midnight in the browser, so it is formatted in the browser's
-// zone too, and a shop's calendar day comes out as written wherever the seller is.
-const DAY_FORMAT = new Intl.DateTimeFormat("en-GB", { day: "numeric", month: "short" });
+// zone too, and a shop's calendar day comes out as written wherever the seller is. A chart's time
+// axis over only a few days also puts a tick at noon, and a day alone would name that day twice, so
+// a tick that is not a midnight has no label.
+class DayFormat extends Intl.DateTimeFormat {
+  format(value?: Date | number): string {
+    const date = value === undefined ? new Date() : new Date(value);
+    return date.getHours() === 0 && date.getMinutes() === 0 ? super.format(date) : "";
+  }
+}
+const DAY_FORMAT = new DayFormat("en-GB", { day: "numeric", month: "short" });
 
 // Charts draw their axes from the raw number, so a chart's measure is in whole units rather than
 // cents. It is derived for drawing only: every total on the page is summed from minor units.
@@ -59,7 +67,7 @@ const ORDER_FIELDS: Spec[] = [
   ["orderId", "Order ID", "text", true],
   ["reference", "Order", "text"],
   ["kindLabel", "Type", "text"],
-  ["groupLabel", "Money", "text"],
+  ["groupLabel", "Counted as", "text"],
   ["statusLabel", "Payment state", "text"],
   ["items", "Items", "text"],
   ["totalMinor", "Amount", "money"],
@@ -91,7 +99,7 @@ const CAPTURE_FIELDS: Spec[] = [
 const TOTAL_FIELDS: Spec[] = [
   ["key", "Key", "text", true],
   ["group", "Group key", "text", true],
-  ["groupLabel", "Money", "text"],
+  ["groupLabel", "Counted as", "text"],
   ["kind", "Kind key", "text", true],
   ["kindLabel", "Type", "text"],
   ["currency", "Currency", "text"],

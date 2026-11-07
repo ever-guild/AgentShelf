@@ -170,15 +170,17 @@ function shopDay(date: string): string {
   }).format(new Date(Date.UTC(year, month - 1, day)));
 }
 
-// What was recorded, in plain counts and nothing else, so it can stand with no model at all.
-export function demandObservation(group: DemandGroup): string {
-  const asked = group.examples.map(({ query, searches: times }) => `"${query}" (${times})`).join(", ");
-  const more = group.examplesOmitted > 0 ? ` and ${count(group.examplesOmitted, "more wording")}` : "";
-  const source =
-    group.sampleSearches === 0
-      ? "All recorded."
-      : group.recordedSearches === 0
-        ? "All are demo samples, not real buyers."
-        : `${group.recordedSearches} recorded and ${count(group.sampleSearches, "demo sample")}.`;
-  return `${searches(group.searches)} found nothing: ${asked}${more}. ${source}`;
+// What was recorded for a group, in plain counts and nothing else, so it can stand with no model
+// at all. One search reads as one, not as "all".
+export function demandObservation(group: Pick<DemandGroup, "searches" | "recordedSearches" | "sampleSearches">): string {
+  const { searches: total, recordedSearches: recorded, sampleSearches: samples } = group;
+  if (samples === 0) {
+    return `${total} recorded ${total === 1 ? "search" : "searches"} found nothing.`;
+  }
+  if (recorded === 0) {
+    return total === 1
+      ? "1 demo sample found nothing. It did not come from a real buyer."
+      : `${total} demo samples found nothing. None came from a real buyer.`;
+  }
+  return `${searches(total)} found nothing: ${recorded} recorded and ${count(samples, "demo sample")}.`;
 }

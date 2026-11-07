@@ -35,7 +35,7 @@ import "./dashboard.css";
 // Only this route should pay for Studio's size.
 const DashboardStudio = dynamic(() => import("./dashboard-studio"), {
   ssr: false,
-  loading: () => <p className="px-4 py-8 text-zinc-600 sm:px-6 dark:text-zinc-400">Loading the dashboard</p>,
+  loading: () => <p className="px-4 py-8 text-zinc-600 sm:px-6 dark:text-zinc-400">Loading your dashboard</p>,
 });
 
 const POLL_MS = 30_000;
@@ -52,7 +52,10 @@ const DATASET_LABELS: Record<DatasetName, string> = {
 };
 
 const button =
-  "rounded-md border border-zinc-300 px-3 py-1.5 text-sm font-medium hover:bg-zinc-50 focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-ink disabled:opacity-60 dark:border-zinc-700 dark:hover:bg-zinc-900";
+  "inline-flex h-9 items-center rounded-lg border border-zinc-300 px-3 text-sm font-medium transition-colors hover:bg-zinc-100 disabled:opacity-60 dark:border-zinc-700 dark:hover:bg-zinc-800";
+
+// The canvas takes what the shop's header (56 pixels) and this page's title (80) leave of the window.
+const CANVAS_BOX = "h-[calc(100dvh-8.5rem)] min-h-[32rem] w-full border-t border-zinc-200 dark:border-zinc-800";
 
 class StudioBoundary extends Component<{ children: ReactNode }, { failed: boolean }> {
   state = { failed: false };
@@ -126,11 +129,11 @@ function OrderDetails() {
       ref={dialog}
       onClose={() => setDashboardState({ openOrder: null })}
       aria-label="Order details"
-      className="m-auto w-[calc(100vw-2rem)] max-w-lg rounded-md border border-zinc-300 bg-background p-5 text-sm text-foreground backdrop:bg-black/40 dark:border-zinc-700"
+      className="m-auto w-[calc(100vw-2rem)] max-w-lg rounded-lg border border-zinc-300 bg-background p-6 text-sm leading-5 text-foreground backdrop:bg-black/40 dark:border-zinc-700"
     >
       {order ? (
-        <div className="space-y-3">
-          <h2 className="text-base font-semibold">Order {order.reference}</h2>
+        <div className="space-y-4">
+          <h2 className="text-lg font-medium tabular-nums">Order {order.reference}</h2>
           <p>
             {orderStatusLabel(order)}. {ORDER_KIND_LABELS[order.kind]}.
           </p>
@@ -138,22 +141,22 @@ function OrderDetails() {
           <table className="w-full text-left tabular-nums">
             <thead className="text-zinc-600 dark:text-zinc-400">
               <tr>
-                <th className="py-1 pr-2 font-medium">Item</th>
-                <th className="py-1 pr-2 font-medium">Quantity</th>
-                <th className="py-1 text-right font-medium">Amount</th>
+                <th className="py-2 pr-3 font-medium">Item</th>
+                <th className="py-2 pr-3 text-right font-medium">Quantity</th>
+                <th className="py-2 text-right font-medium">Amount</th>
               </tr>
             </thead>
             <tbody>
               {order.lines.map((line) => (
                 <tr key={line.productId} className="border-t border-zinc-200 dark:border-zinc-800">
-                  <td className="py-1 pr-2 break-words">{line.title}</td>
-                  <td className="py-1 pr-2">{line.quantity}</td>
-                  <td className="py-1 text-right">{money(line.lineTotalMinor, order.currency)}</td>
+                  <td className="py-2 pr-3 break-words">{line.title}</td>
+                  <td className="py-2 pr-3 text-right">{line.quantity}</td>
+                  <td className="py-2 text-right">{money(line.lineTotalMinor, order.currency)}</td>
                 </tr>
               ))}
             </tbody>
           </table>
-          <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-0.5 tabular-nums">
+          <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1 tabular-nums">
             <dt className="text-zinc-600 dark:text-zinc-400">Order total</dt>
             <dd>{money(order.totalMinor, order.currency)}</dd>
             {order.booking ? (
@@ -337,19 +340,20 @@ export default function DashboardBoard({
 
   return (
     <div className="flex flex-1 flex-col">
-      <div className="flex flex-wrap items-center justify-between gap-x-6 gap-y-2 px-4 py-3 sm:px-6">
+      <div className="flex flex-wrap items-center justify-between gap-x-6 gap-y-3 px-4 py-3 sm:px-6">
         <div>
-          <h1 className="text-lg font-semibold tracking-tight">Dashboard</h1>
+          <h1 className="text-2xl font-semibold tracking-tight sm:text-3xl">Dashboard</h1>
           <p className="text-sm text-zinc-600 tabular-nums dark:text-zinc-400">
             {state.refreshedAt
               ? `Updated at ${clockTime(state.refreshedAt, timezone)}, shop time`
               : state.loading
                 ? "Loading your numbers"
                 : "Not updated yet"}
+            . PayPal sandbox, no real money
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
-          <div role="group" aria-label="Period" className="flex overflow-hidden rounded-md border border-zinc-300 dark:border-zinc-700">
+          <div role="group" aria-label="Period" className="flex overflow-hidden rounded-lg border border-zinc-300 dark:border-zinc-700">
             {DASHBOARD_PERIODS.map((days) => (
               <button
                 key={days}
@@ -359,10 +363,10 @@ export default function DashboardBoard({
                   setPeriod(days);
                   savePeriod(days);
                 }}
-                className={`px-3 py-1.5 text-sm tabular-nums focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-ink ${
+                className={`h-[2.125rem] px-3 text-sm tabular-nums transition-colors focus-visible:-outline-offset-2 ${
                   period === days
-                    ? "bg-ink font-medium text-background"
-                    : "hover:bg-zinc-50 dark:hover:bg-zinc-900"
+                    ? "bg-zinc-100 font-medium text-foreground dark:bg-zinc-800"
+                    : "text-zinc-600 hover:bg-zinc-100 hover:text-foreground dark:text-zinc-400 dark:hover:bg-zinc-800"
                 }`}
               >
                 {days} days
@@ -426,7 +430,7 @@ export default function DashboardBoard({
       ) : null}
 
       {loaded ? (
-        <div className="relative h-[calc(100dvh-7.5rem)] min-h-[32rem] w-full border-t border-zinc-200 dark:border-zinc-800">
+        <div className={`relative ${CANVAS_BOX}`}>
           <StudioBoundary>
             <DashboardStudio
               licenseKey={licenseKey}
@@ -439,7 +443,8 @@ export default function DashboardBoard({
           </StudioBoundary>
         </div>
       ) : state.loading ? (
-        <p className="px-4 py-8 text-zinc-600 sm:px-6 dark:text-zinc-400">Loading your numbers</p>
+        // The line under the title already says it is loading, so this only holds the canvas's place.
+        <div aria-hidden="true" className={`${CANVAS_BOX} bg-zinc-50 dark:bg-background`} />
       ) : null}
 
       <OrderDetails />
