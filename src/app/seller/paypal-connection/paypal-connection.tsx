@@ -4,23 +4,12 @@ import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useRef, useState, type FormEvent } from "react";
 
 import { isUnauthorized, readOwnerSession, type OwnerSession } from "../identity/owner-session";
-
-type ConnectionStatus = "not_connected" | "pending" | "ready" | "revoked" | "error";
-type ConnectionResponse = {
-  connection: { shopId: string; status: ConnectionStatus };
-  configured: boolean;
-  webhookConfigured?: boolean;
-};
-
-function statusLabel(status: ConnectionStatus): string {
-  switch (status) {
-    case "ready": return "Connected";
-    case "pending": return "Waiting for PayPal approval";
-    case "revoked": return "Connection revoked";
-    case "error": return "Connection needs attention";
-    default: return "Not connected";
-  }
-}
+import {
+  deriveConnectionControls,
+  statusLabel,
+  type ConnectionResponse,
+  type ConnectionStatus,
+} from "./connection-state";
 
 export function PayPalConnection() {
   const router = useRouter();
@@ -62,7 +51,7 @@ export function PayPalConnection() {
         configured: result.configured ?? current?.configured ?? true,
         webhookConfigured: result.webhookConfigured ?? current?.webhookConfigured,
       }));
-      if (result.connection.status === "ready") setActionUrl(null);
+      if (result.connection.status !== "pending") setActionUrl(null);
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "Connection status could not be loaded.");
     }
@@ -142,19 +131,20 @@ export function PayPalConnection() {
   }
 
   const shops = session?.shops ?? [];
-  const currentStatus = connection?.connection.status;
-  const canStart = Boolean(shopId && shareDataConsent && connection?.configured && currentStatus !== "ready");
-  const showConnectionForm = Boolean(
-    !loading
-    && connection?.configured
-    && currentStatus !== "ready"
-    && !(currentStatus === "pending" && actionUrl),
-  );
-  const continueUrl = currentStatus === "ready" ? null : actionUrl;
-  const actionButtonLabel = currentStatus === "pending"
-    ? "Resume sandbox connection"
-    : "Start sandbox connection";
-  const busyButtonLabel = currentStatus === "pending" ? "Resuming connection" : "Starting connection";
+  const {
+    continueUrl,
+    canStart,
+    showConnectionForm,
+    actionButtonLabel,
+    busyButtonLabel,
+    guidance,
+  } = deriveConnectionControls({
+    loading,
+    shopId,
+    shareDataConsent,
+    connection,
+    actionUrl,
+  });
 
   return (
     <div className="flex flex-col gap-5">
@@ -189,15 +179,8 @@ export function PayPalConnection() {
           {!loading && connection?.configured && connection.webhookConfigured === false ? (
             <p role="status" className="rounded-lg bg-zinc-100 p-4 text-sm text-zinc-700 dark:bg-zinc-900 dark:text-zinc-300">The platform PayPal webhook is not configured. Payment completion cannot be verified until the platform administrator finishes webhook setup.</p>
           ) : null}
-          {!loading && connection?.configured && connection.connection.status === "ready" ? (
-            <p className="rounded-lg bg-zinc-100 p-4 text-sm text-zinc-700 dark:bg-zinc-900 dark:text-zinc-300">This shop is connected to PayPal Sandbox. Payments remain in sandbox and require the buyer&rsquo;s approval.</p>
-          ) : null}
-          {!loading && connection?.configured && connection.connection.status === "pending" ? (
-            <p className="rounded-lg bg-zinc-100 p-4 text-sm text-zinc-700 dark:bg-zinc-900 dark:text-zinc-300">
-              {actionUrl
-                ? "Finish the connection on PayPal. After you return, refresh this status."
-                : "If you left before completing approval, the owner who started the connection can confirm data sharing below to resume. Contact the platform administrator if that owner is unavailable."}
-            </p>
+          {guidance ? (
+            <p className="rounded-lg bg-zinc-100 p-4 text-sm text-zinc-700 dark:bg-zinc-900 dark:text-zinc-300">{guidance}</p>
           ) : null}
           {continueUrl ? (
             <a href={continueUrl} target="_blank" rel="noopener noreferrer" className="inline-flex h-11 w-fit items-center rounded-lg bg-ink px-4 font-medium text-background transition-[background-color,transform] hover:bg-ink/90 active:scale-[0.98]">Continue to PayPal Sandbox</a>
