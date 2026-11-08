@@ -111,7 +111,7 @@ describe("sweepOpenOrders", () => {
     expect(harness.confirmed).toEqual([orderId]);
   });
 
-  it("keeps stock reserved after an unknown capture and does not resend it", async () => {
+  it("retries an ambiguous capture with the same key after PayPal confirms approval", async () => {
     const { orderId, paypalOrderId, product } = await placeOrder(getDb(), harness);
     harness.paypal.approve(paypalOrderId);
     harness.paypal.nextCapture({ type: "timeout", captured: false });
@@ -124,14 +124,60 @@ describe("sweepOpenOrders", () => {
     await age(orderId, "20 minutes", "10 minutes");
     await sweep();
 
+    expect((await readOrder(getDb(), orderId)).paymentStatus).toBe("paid");
+    const captureRequests = harness.paypal.captureRequests();
+    expect(captureRequests).toHaveLength(2);
+    expect(captureRequests.map(harness.paypal.requestIdOf)).toEqual([
+      `capture-${orderId}`,
+      `capture-${orderId}`,
+    ]);
+    expect(harness.paypal.charges()).toBe(1);
+    const [reservation] = await getDb()
+      .select({ state: inventoryReservations.state })
+      .from(inventoryReservations)
+      .where(eq(inventoryReservations.id, (await readOrder(getDb(), orderId)).inventoryReservationId!));
+    const [stock] = await getDb()
+      .select({ onHand: inventoryStock.onHand, reserved: inventoryStock.reserved })
+      .from(inventoryStock)
+      .where(eq(inventoryStock.productId, product.id));
+    expect(reservation.state).toBe("committed");
+    expect(stock).toMatchObject({ onHand: 99, reserved: 0 });
+  });
+
+  it("keeps stock held when the same-key capture retry remains ambiguous", async () => {
+    const { orderId, paypalOrderId, product } = await placeOrder(getDb(), harness);
+    harness.paypal.approve(paypalOrderId);
+    harness.paypal.nextCapture({ type: "timeout", captured: false });
+    await age(orderId, "10 minutes");
+    await sweep();
+
     expect((await readOrder(getDb(), orderId)).paymentStatus).toBe("approved");
     expect(harness.paypal.captureRequests()).toHaveLength(1);
     expect(harness.paypal.charges()).toBe(0);
+
+    harness.paypal.nextCapture({ type: "timeout", captured: false });
+    await age(orderId, "20 minutes", "10 minutes");
+    await sweep();
+
+    expect((await readOrder(getDb(), orderId)).paymentStatus).toBe("approved");
+    const captureRequests = harness.paypal.captureRequests();
+    expect(captureRequests).toHaveLength(2);
+    expect(captureRequests.map(harness.paypal.requestIdOf)).toEqual([
+      `capture-${orderId}`,
+      `capture-${orderId}`,
+    ]);
+    expect(harness.paypal.charges()).toBe(0);
+    const order = await readOrder(getDb(), orderId);
+    const [reservation] = await getDb()
+      .select({ state: inventoryReservations.state })
+      .from(inventoryReservations)
+      .where(eq(inventoryReservations.id, order.inventoryReservationId!));
     const [stock] = await getDb()
-      .select({ reserved: inventoryStock.reserved })
+      .select({ onHand: inventoryStock.onHand, reserved: inventoryStock.reserved })
       .from(inventoryStock)
       .where(eq(inventoryStock.productId, product.id));
-    expect(stock.reserved).toBe(1);
+    expect(reservation.state).toBe("capture_pending");
+    expect(stock).toMatchObject({ onHand: 100, reserved: 1 });
   });
 
   it("settles a verified completed capture after its response was lost", async () => {
