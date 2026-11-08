@@ -144,6 +144,71 @@ describe("seller MCP capability registration", () => {
     }
   });
 
+  it("returns fixed recovery guidance for known error codes without leaking service messages", async () => {
+    const shopId = "5f4b2190-f88b-4d19-bef6-cc11e71bb6f1";
+    const productId = "2f4b2190-f88b-4d19-bef6-cc11e71bb6f1";
+    const failure = (code: string) => Object.assign(new Error(`internal detail ${code} row 42`), { code });
+    const services: SellerAgentServices = {
+      ...minimal,
+      grantTokenFromRequest: () => "seller-grant-test-only",
+      authorizeShop: vi.fn(async (_token: string | undefined, scope: string, requestedShopId: string) => {
+        if (scope === "manage_catalog") throw failure("UNAUTHORIZED");
+        return { shopId: requestedShopId, actorId: "owner-1" };
+      }),
+      shopIdFromRequest: () => shopId,
+      stock: {
+        read: async () => { throw failure("NOT_FOUND"); },
+        adjust: async () => { throw failure("CONFLICT"); },
+        setMode: async () => { throw new Error("database connection string leaked"); },
+      },
+      catalog: { supportedActions: ["list"], run: vi.fn() },
+    };
+    const client = new Client({ name: "seller-error-guidance-test", version: "0.1.0" });
+    const clientTransport = new InMemoryTransport();
+    const serverTransport = new InMemoryTransport();
+    clientTransport.peer = serverTransport;
+    serverTransport.peer = clientTransport;
+    const mcp = createSellerMcpServer(services);
+    const errorBody = (response: Awaited<ReturnType<Client["callTool"]>>) => {
+      expect(response.isError).toBe(true);
+      const text = (response.content as Array<{ type: string; text: string }>)[0]?.text ?? "";
+      if (!text.startsWith("{")) throw new Error(text);
+      expect(text).not.toContain("internal detail");
+      expect(text).not.toContain("leaked");
+      return JSON.parse(text) as { code: string; message: string };
+    };
+    try {
+      await mcp.connect(serverTransport);
+      await client.connect(clientTransport);
+      const tools = await client.listTools();
+      expect(tools.tools.find((tool) => tool.name === "seller_manage_stock")?.description).toContain("set_mode");
+
+      const missing = errorBody(await client.callTool({ name: "seller_manage_stock", arguments: { action: "read", productId } }));
+      expect(missing.code).toBe("NOT_FOUND");
+      expect(missing.message).toContain("set_mode");
+
+      const stale = errorBody(await client.callTool({
+        name: "seller_manage_stock",
+        arguments: { action: "adjust", productId, delta: -1, expectedVersion: 0, idempotencyKey: "stock-adjust-guidance-0002", reason: "Stale version" },
+      }));
+      expect(stale).toMatchObject({ code: "CONFLICT" });
+      expect(stale.message).toContain("expectedVersion");
+
+      const denied = errorBody(await client.callTool({ name: "seller_manage_catalog", arguments: { action: "list" } }));
+      expect(denied.code).toBe("UNAUTHORIZED");
+      expect(denied.message).toContain("scope");
+
+      const unknown = errorBody(await client.callTool({
+        name: "seller_manage_stock",
+        arguments: { action: "set_mode", productId, mode: "untracked", idempotencyKey: "stock-mode-guidance-0001", reason: "Untracked item" },
+      }));
+      expect(unknown).toEqual({ code: "SELLER_AGENT_OPERATION_FAILED", message: "The seller operation could not be completed." });
+    } finally {
+      await client.close();
+      await mcp.close();
+    }
+  });
+
   it("only forwards PayPal consent after the identity resolver confirms the owner grant", async () => {
     const shopId = "5f4b2190-f88b-4d19-bef6-cc11e71bb6f1";
     const shareDataConsentAt = new Date("2026-11-06T11:12:13.000Z");

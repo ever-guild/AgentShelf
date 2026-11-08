@@ -84,6 +84,20 @@ export function availableSellerAgentTools(services: SellerAgentServices): Seller
   return tools;
 }
 
+// Fixed, code-specific guidance lets an external agent recover without exposing service messages,
+// row data or whether an identifier exists in another shop.
+const SAFE_ERROR_GUIDANCE: Record<string, string> = {
+  UNAUTHORIZED: "The seller grant does not allow this operation for this shop, or it expired or was revoked. Ask the owner for a new grant with the required scope.",
+  NOT_FOUND: "No matching record exists in this shop. A newly published product has no inventory policy until stock action set_mode is called.",
+  CONFLICT: "The request conflicts with the current state, for example a stale expectedVersion, an inventory policy that is already set, or an idempotency key reused with different values. Read the current state before deciding on a new request.",
+  INSUFFICIENT: "There is not enough available stock for this change.",
+  INVALID: "The request values are not valid for this operation.",
+  INVALID_INPUT: "The request values are not valid for this operation.",
+  REVIEW_REQUIRED: "This item needs owner review before the operation can continue.",
+  SHOP_SLUG_UNAVAILABLE: "The shop slug is already taken. Choose another slug with a new idempotency key.",
+  RATE_LIMITED: "Too many attempts. Wait before trying again.",
+};
+
 function errorResult(error: unknown): CallToolResult {
   const value = error as { code?: unknown; message?: unknown; authorizationUrl?: unknown };
   const code = typeof value?.code === "string" && /^[A-Z][A-Z0-9_]{0,63}$/.test(value.code)
@@ -91,7 +105,7 @@ function errorResult(error: unknown): CallToolResult {
     : "SELLER_AGENT_OPERATION_FAILED";
   const safeMessage = code === "AGENT_AUTHORIZATION_REQUIRED" && typeof value?.message === "string"
     ? value.message
-    : "The seller operation could not be completed.";
+    : SAFE_ERROR_GUIDANCE[code] ?? "The seller operation could not be completed.";
   const authorizationUrl = code === "AGENT_AUTHORIZATION_REQUIRED" && typeof value.authorizationUrl === "string"
     ? value.authorizationUrl
     : undefined;
@@ -163,7 +177,7 @@ export function createSellerMcpServer(services: SellerAgentServices): McpServer 
     const catalogSchema = sellerAgentCatalogInput.safeExtend({ action: z.enum(supported as [SellerAgentCatalogInput["action"], ...SellerAgentCatalogInput["action"][]]) });
     server.registerTool(SELLER_AGENT_TOOL_NAMES.manageCatalog, {
       title: "Manage the seller catalog",
-      description: `Run supported catalog actions: ${supported.join(", ")}. Unsupported catalog operations are not advertised.`,
+      description: `Run supported catalog actions: ${supported.join(", ")}. Every action, including list, requires the manage_catalog scope. Unsupported catalog operations are not advertised.`,
       inputSchema: catalogSchema,
       outputSchema: sellerAgentCatalogResult,
       annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
@@ -176,7 +190,7 @@ export function createSellerMcpServer(services: SellerAgentServices): McpServer 
   if (services.authorizeShop && services.shopIdFromRequest && services.stock?.setMode) {
     server.registerTool(SELLER_AGENT_TOOL_NAMES.manageStock, {
       title: "Read or adjust stock",
-      description: "Read the authorized shop's quantity, or make an idempotent signed adjustment. The shop and actor are taken from the seller grant.",
+      description: "Read the authorized shop's stock, choose an inventory policy, or make an idempotent signed adjustment. A newly published product has no policy and cannot be bought until set_mode chooses tracked (with onHand) or untracked; read and adjust return NOT_FOUND before that. Read needs read_shop; set_mode and adjust need manage_inventory, and adjust needs the current version from read. The shop and actor are taken from the seller grant.",
       inputSchema: sellerAgentStockInput,
       outputSchema: sellerAgentStockResult,
       annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
