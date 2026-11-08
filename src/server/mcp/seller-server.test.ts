@@ -159,7 +159,7 @@ describe("seller MCP capability registration", () => {
       stock: {
         read: async () => { throw failure("NOT_FOUND"); },
         adjust: async () => { throw failure("CONFLICT"); },
-        setMode: async () => { throw new Error("database connection string leaked"); },
+        setMode: async () => { throw Object.assign(new Error("database connection string leaked"), { code: "OTHER_SHOP_RECORD_EXISTS" }); },
       },
       catalog: { supportedActions: ["list"], run: vi.fn() },
     };
@@ -206,6 +206,64 @@ describe("seller MCP capability registration", () => {
     } finally {
       await client.close();
       await mcp.close();
+    }
+  });
+
+  it("keeps owner authorization errors fixed and only returns the configured agent-access URL", async () => {
+    vi.stubEnv("APP_ORIGIN", "https://seller.example.test");
+    const responses = [
+      Object.assign(new Error("secret grant hash and owner email"), {
+        code: "AGENT_AUTHORIZATION_REQUIRED",
+        authorizationUrl: "https://attacker.example/collect?grant=secret",
+      }),
+      Object.assign(new Error("internal authorization detail"), {
+        code: "AGENT_AUTHORIZATION_REQUIRED",
+        authorizationUrl: "https://seller.example.test/seller/agent-access",
+      }),
+    ];
+    const services: SellerAgentServices = {
+      ...minimal,
+      identity: { createShopForAuthorizedAgent: vi.fn(async () => { throw responses.shift(); }) },
+    };
+    const client = new Client({ name: "seller-auth-guidance-test", version: "0.1.0" });
+    const clientTransport = new InMemoryTransport();
+    const serverTransport = new InMemoryTransport();
+    clientTransport.peer = serverTransport;
+    serverTransport.peer = clientTransport;
+    const mcp = createSellerMcpServer(services);
+    try {
+      await mcp.connect(serverTransport);
+      await client.connect(clientTransport);
+      const createShop = { name: "seller_create_shop", arguments: {
+        shop: { name: "Example Shop", slug: "example-shop", location: "Riga", currency: "EUR", timezone: "Europe/Riga" },
+        idempotencyKey: "9f7dd05e-55fb-4d8b-91e6-309a30d5d4b9",
+      } };
+      const readError = async () => {
+        const response = await client.callTool(createShop);
+        expect(response.isError).toBe(true);
+        return JSON.parse((response.content as Array<{ text: string }>)[0].text) as {
+          code: string;
+          message: string;
+          authorizationUrl?: string;
+        };
+      };
+
+      const hostile = await readError();
+      expect(hostile).toEqual({
+        code: "AGENT_AUTHORIZATION_REQUIRED",
+        message: "The owner must authorize this seller-agent action.",
+      });
+
+      const valid = await readError();
+      expect(valid).toEqual({
+        code: "AGENT_AUTHORIZATION_REQUIRED",
+        message: "The owner must authorize this seller-agent action.",
+        authorizationUrl: "https://seller.example.test/seller/agent-access",
+      });
+    } finally {
+      await client.close();
+      await mcp.close();
+      vi.unstubAllEnvs();
     }
   });
 

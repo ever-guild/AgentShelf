@@ -24,6 +24,7 @@ import {
   type SellerAgentReviewInput,
   type SellerAgentStockInput,
 } from "../contracts/seller-agent";
+import { publicOrigin } from "../public-origin";
 
 export type SellerAgentGrant = {
   shopId: string;
@@ -98,16 +99,41 @@ const SAFE_ERROR_GUIDANCE: Record<string, string> = {
   RATE_LIMITED: "Too many attempts. Wait before trying again.",
 };
 
+const GENERIC_ERROR_CODE = "SELLER_AGENT_OPERATION_FAILED";
+const AUTHORIZATION_REQUIRED_MESSAGE = "The owner must authorize this seller-agent action.";
+
+function safeAuthorizationUrl(value: unknown): string | undefined {
+  if (typeof value !== "string") return undefined;
+  try {
+    const expectedOrigin = new URL(publicOrigin()).origin;
+    const url = new URL(value);
+    if (
+      url.origin !== expectedOrigin ||
+      url.pathname !== "/seller/agent-access" ||
+      url.username !== "" ||
+      url.password !== "" ||
+      url.search !== "" ||
+      url.hash !== ""
+    ) return undefined;
+    return url.toString();
+  } catch {
+    return undefined;
+  }
+}
+
 function errorResult(error: unknown): CallToolResult {
   const value = error as { code?: unknown; message?: unknown; authorizationUrl?: unknown };
-  const code = typeof value?.code === "string" && /^[A-Z][A-Z0-9_]{0,63}$/.test(value.code)
+  const candidateCode = typeof value?.code === "string" && /^[A-Z][A-Z0-9_]{0,63}$/.test(value.code)
     ? value.code
-    : "SELLER_AGENT_OPERATION_FAILED";
-  const safeMessage = code === "AGENT_AUTHORIZATION_REQUIRED" && typeof value?.message === "string"
-    ? value.message
+    : undefined;
+  const code = candidateCode === "AGENT_AUTHORIZATION_REQUIRED" || (candidateCode !== undefined && Object.hasOwn(SAFE_ERROR_GUIDANCE, candidateCode))
+    ? candidateCode
+    : GENERIC_ERROR_CODE;
+  const safeMessage = code === "AGENT_AUTHORIZATION_REQUIRED"
+    ? AUTHORIZATION_REQUIRED_MESSAGE
     : SAFE_ERROR_GUIDANCE[code] ?? "The seller operation could not be completed.";
-  const authorizationUrl = code === "AGENT_AUTHORIZATION_REQUIRED" && typeof value.authorizationUrl === "string"
-    ? value.authorizationUrl
+  const authorizationUrl = code === "AGENT_AUTHORIZATION_REQUIRED"
+    ? safeAuthorizationUrl(value.authorizationUrl)
     : undefined;
   return {
     isError: true,
