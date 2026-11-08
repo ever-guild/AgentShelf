@@ -96,6 +96,13 @@ one purchase, while PostgreSQL tests cover concurrency and state transitions.
 - `drizzle/inventory-module-draft.sql` is a historical standalone draft, not part of the migration
   journal or the production upgrade path. Runtime setup uses the numbered migrations.
 
+## Buyer availability
+
+Search and storefront responses retain their existing availability field. Services keep the
+product flag. Physical products also require an explicit policy: missing policy or tracked stock
+with no available units is unavailable; explicit untracked is available unless the product flag
+is unavailable. Listings remain visible, and checkout still reserves atomically before PayPal.
+
 ## Completion evidence and remaining gate
 
 The deployed one-unit sandbox purchase settled its allocated unit exactly once; issue #36 contains
@@ -108,7 +115,6 @@ versioned adjustments. It refuses active or unresolved reservations and pending,
 purchases, including legacy orders without an allocation; tests verify restoration,
 repeat safety and atomic refusal. This command is not run against the public demo as proof.
 
-#36 remains open: the catalog UI must collect an explicit stock decision after publication, and
-buyer-facing availability must not imply that a stock-undecided product is purchasable. API access,
-a passing suite and one paid purchase do not complete that product flow.
-
+#36 remains open until the seller catalog UI can collect an explicit stock decision after
+publication. API access, a passing suite and one paid purchase do not complete that seller flow.
+Buyer-facing availability improvements are tracked separately from this acceptance gate.

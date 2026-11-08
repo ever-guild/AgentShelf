@@ -4,6 +4,8 @@ This project has no tagged releases yet, entries describe code present in the cu
 
 ## Unreleased
 
+- Reflect explicit stock policy and available quantities in buyer search and storefront availability without hiding listings
+
 - Clear stale PayPal connection links and ignore old-shop responses after switching shops; preserve consent-gated recovery actions
 
 - Give seller MCP clients fixed recovery guidance, including the explicit inventory-policy step for newly published products; sanitize error codes and owner authorization links
