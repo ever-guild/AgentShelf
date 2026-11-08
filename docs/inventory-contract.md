@@ -25,6 +25,10 @@ one purchase, while PostgreSQL tests cover concurrency and state transitions.
   Reconciliation retries a capture only after a fresh PayPal read still reports the order as
   approved, with the same order-scoped `PayPal-Request-Id`, and while that original allocation is
   live. After expiry it sends no capture: the order goes to review and held stock remains reserved.
+  A `RESOURCE_CONFLICT` response or `PREVIOUS_REQUEST_IN_PROGRESS` issue is ambiguous even when
+  returned with HTTP 422. If the follow-up read still looks unpaid or approved, reconciliation does
+  not release the hold; only a provider capture result or a separate verified final refusal can
+  settle that attempt.
   Review-state reconciliation can still read an already-started provider request to record a late
   completion, without starting another capture or releasing stock on elapsed time alone.
 - Commit records a PayPal capture the reconciliation layer has verified as `COMPLETED`, its

@@ -121,8 +121,29 @@ async function captureAndRead(
   } catch (thrown) {
     const failure = describePayPalFailure(thrown);
     console.error("PayPal capture failed", { orderId: order.id, ...failure });
-    refused = failure.kind === "rejected";
+    const requestMayStillBeInProgress =
+      failure.name === "RESOURCE_CONFLICT" ||
+      failure.issues?.includes("PREVIOUS_REQUEST_IN_PROGRESS") === true;
+    refused = failure.kind === "rejected" && !requestMayStillBeInProgress;
     refusal = failure;
+
+    // A conflict on this idempotency key does not establish that the earlier capture ended.
+    // Even if a subsequent order read looks unpaid, keep a physical allocation held until a
+    // capture result or a final capture refusal is recorded.
+    if (
+      refusalIsFinal &&
+      requestMayStillBeInProgress
+    ) {
+      const reading = await read();
+      if (
+        reading.outcome === "ready_to_capture" ||
+        reading.outcome === "awaiting_buyer" ||
+        reading.outcome === "voided"
+      ) {
+        throw unavailable();
+      }
+      return reading;
+    }
   }
 
   const reading = await read();
@@ -293,9 +314,9 @@ async function applyReading(
 }
 
 export type ReconcileOptions = {
-  // The buyer came back from PayPal through the cancel link. This counts only if PayPal agrees
-  // that the order was not approved. A later approval still wins for a product, while a deposit's
-  // time has been released by then, so it is not charged.
+  // The buyer came back from PayPal through the cancel link. A later product approval cannot
+  // recreate a released stock allocation; it goes to review without capture. Deposits continue
+  // through their existing booking-capacity gate.
   buyerCancelled?: boolean;
 };
 
