@@ -22,9 +22,11 @@ one purchase, while PostgreSQL tests cover concurrency and state transitions.
   If any line is undecided or insufficient, none are reserved. Untracked rows are recorded but do
   not mutate a quantity.
 - `beginInventoryCapture` atomically changes a live `reserved` allocation to `capture_pending`.
-  Only the winning caller may send a new provider capture request. Retries and reconciliation must
-  read the existing provider result instead of sending another capture, including after expiry.
-  Expiry prevents a new capture but does not discard stock held for an already-started capture.
+  Reconciliation retries a capture only after a fresh PayPal read still reports the order as
+  approved, with the same order-scoped `PayPal-Request-Id`, and while that original allocation is
+  live. After expiry it sends no capture: the order goes to review and held stock remains reserved.
+  Review-state reconciliation can still read an already-started provider request to record a late
+  completion, without starting another capture or releasing stock on elapsed time alone.
 - Commit records a PayPal capture the reconciliation layer has verified as `COMPLETED`, its
   provider-issued capture ID, and the provider's capture timestamp. It never creates or captures a
   provider order. Reconciliation must also verify that the capture belongs to the expected order
@@ -52,7 +54,10 @@ one purchase, while PostgreSQL tests cover concurrency and state transitions.
   order. It consumes stock and marks the order paid in one transaction; a late capture marks both
   for review and keeps any still-held units reserved.
 - `closePhysicalOrderAfterVerifiedUnpaid` releases a purchase hold only after a verified unpaid,
-  cancelled, or expired-unpaid provider result, and updates the order in the same transaction.
+  cancelled, or expired-unpaid provider result, and updates the order in the same transaction. A
+  buyer's cancel return releases stock only when PayPal still confirms the order is unpaid and no
+  capture is pending. If the buyer later approves after the hold was released, the order goes to
+  review and is not captured without an allocation.
 
 ## Seller stock API
 
@@ -62,8 +67,10 @@ one purchase, while PostgreSQL tests cover concurrency and state transitions.
   version, idempotency key and reason.
 - `PUT /api/seller/inventory/{productId}/policy` requires an explicit tracked quantity or untracked
   decision. The initial policy cannot be reset or changed by retrying under another key.
-- Routes use the canonical owner-session/shop membership check and derive the tenant from the
-  authenticated principal; the body cannot select a shop.
+- Routes resolve the shop through the canonical seller-session boundary. Owner sessions are
+  membership-checked and preserve the owner ID in the audit. Legacy shop access-code sessions are
+  also accepted; since they do not identify an individual, their stable audit actor is the shop ID.
+  Neither path accepts a caller-selected shop as authority.
 - The protected seller MCP exposes `seller_manage_stock`. Reads require `read_shop`; setting a
   policy or adjusting stock requires `manage_inventory`. The seller grant supplies the shop and
   actor identity; tool arguments do not.
@@ -79,16 +86,23 @@ one purchase, while PostgreSQL tests cover concurrency and state transitions.
   inventory row cannot be reserved; its seller must explicitly set tracked stock or choose
   untracked through the policy endpoint or seller MCP before checkout. CSV/import quantity values
   are not currently wired into the inventory policy automatically, so sellers must review/set the
-  inventory decision separately.
+  inventory decision separately. Legacy sellers can now call the stock HTTP routes after
+  publication, but `/seller/catalog` does not yet expose a stock control in the import-review and
+  publish flow; the end-to-end imported-product path still needs that UI step.
 - `drizzle/inventory-module-draft.sql` is a historical standalone draft, not part of the migration
   journal or the production upgrade path. Runtime setup uses the numbered migrations.
 
 ## Completion evidence and remaining gate
 
-The implementation is deployed and its PostgreSQL concurrency/payment-settlement regression checks
-passed. A real sandbox physical purchase settled the single allocated unit exactly once; issue #36
-contains the sanitized result and its limitations. This one-unit happy path does not resolve the
-[purchase-path findings](https://github.com/ever-guild/AgentShelf/issues/36#issuecomment-6707694617):
-stock-policy setup after publication, cancellation/sweep release, ambiguous capture retry,
-legacy orders without allocations, and demo stock reset. These require fixes and targeted
-regressions; #34 is an additional delivery gate. Catalog UI coordination remains pending.
+The deployed one-unit sandbox purchase settled its allocated unit exactly once; issue #36 contains
+the sanitized evidence and limitations. The current runtime candidates add provider-confirmed
+cancel release, same-request capture retry only while stock is live, review handling for legacy
+orders without allocations, and sweep behavior that preserves unresolved holds. Their PostgreSQL
+regression tests exercise stock and order state together.
+
+The one-unit happy path and these runtime changes do not complete #36, which remains open. Two
+product-flow gaps remain:
+the seller catalog UI still needs to collect or set the explicit stock decision for newly imported
+products, and `demo:reset` still does not restore depleted synthetic stock. Do not treat the
+inventory route, a passing test suite, or the live one-unit settlement as closure evidence for those
+remaining items.
