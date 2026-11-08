@@ -30,7 +30,7 @@ export default function PrivacyPage() {
         <section className="flex flex-col gap-3">
           <h2 className="text-lg font-medium">Services and AI processing</h2>
           <p className={quiet}>
-            Render hosts the application and its database. When you use an AI feature, the relevant content may be sent to Anthropic for processing; this can include a price-list photo, catalog text, or search terms. PayPal handles PayPal sign-in, seller approval, and buyer payment. AgentShelf does not ask for PayPal passwords or payment-card details.
+            Render hosts the application and its database. When you use an AI feature, the relevant content may be sent to AI service providers used by AgentShelf or your connected assistant for processing; this can include a price-list photo, catalog text, or search terms. PayPal handles PayPal sign-in, seller approval, and buyer payment. AgentShelf does not ask for PayPal passwords or payment-card details.
           </p>
         </section>
 
