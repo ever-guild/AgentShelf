@@ -19,12 +19,13 @@ Never enter a seller password or API secret into AgentShelf
 
 ## Try it
 
-1. Select **Log in with PayPal** on the home page and sign in with a Sandbox seller at PayPal
+1. Select **Log in with PayPal** on the home page and sign in with a Sandbox seller at PayPal, no AgentShelf username, password or separate registration is required
 2. Confirm the shop name, public slug, location and timezone, profile fields are suggestions and do not establish merchant readiness
 3. Continue to **PayPal connection**, acknowledge data sharing and complete PayPal's seller-consent flow
 4. Sign out and repeat login with the same Sandbox account, the existing owner and shops should be recovered
 
 Password owners can still use [owner sign-in](https://agentshelf-e5bk.onrender.com/seller/owner-sign-in), existing accounts are never silently linked by matching email
+On the owner sign-in page, open **Other sign-in options** for the AgentShelf password, registration or existing shop access
 Without Login configuration, the page explains that PayPal sign-in is unavailable and offers the existing access paths
 
 The button uses [PayPal's hosted image](https://developer.paypal.com/log-in/build-button/) without alteration or local hosting; it links to the server start route, which creates the one-time state and browser cookie
@@ -42,5 +43,6 @@ MCP authorization and client-credentials OAuth do not verify these Login setting
 ## Verification boundary
 
 Automated checks use mocked PayPal responses, actual Login, consent and payment checks require configured Sandbox apps and human actions
-The adapter follows the current [Identity API schema](https://developer.paypal.com/api/identity/v1/schema.json) UserInfo path, `/v1/identity/openidconnect/userinfo`, the Login guide still shows an older path, confirm the response in the first Sandbox login
+The adapter uses the [Identity API](https://developer.paypal.com/api/identity/v1/schema.json) UserInfo path with `?schema=openid` to request the `sub` identity claim, as shown in [PayPal's profile-sharing example](https://github.com/paypal/PayPal-Android-SDK/blob/master/docs/profile_sharing_server.md#retrieve-customer-information-using-a-valid-access-token)
+The database regression covers callback cookies accepted by the next `/api/seller/identity/me` request for both a new owner and a returning owner with a shop
 Record sanitized results in [#45](https://github.com/ever-guild/AgentShelf/issues/45), keep authorization codes, tokens and profile values out of logs and issues

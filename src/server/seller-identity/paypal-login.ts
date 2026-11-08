@@ -13,7 +13,7 @@ export const PAYPAL_LOGIN_STATE_TTL_MS = 5 * 60_000;
 
 const SANDBOX_CONNECT_URL = "https://www.sandbox.paypal.com/connect";
 const SANDBOX_TOKEN_URL = "https://api-m.sandbox.paypal.com/v1/oauth2/token";
-const SANDBOX_USERINFO_URL = "https://api-m.sandbox.paypal.com/v1/identity/openidconnect/userinfo";
+const SANDBOX_USERINFO_URL = "https://api-m.sandbox.paypal.com/v1/identity/openidconnect/userinfo?schema=openid";
 const REQUEST_TIMEOUT_MS = 10_000;
 const RESPONSE_LIMIT_BYTES = 32 * 1024;
 

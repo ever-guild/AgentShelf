@@ -135,7 +135,7 @@ describe("PayPal sandbox login HTTP handlers", () => {
         expect(String(init?.body)).toContain("grant_type=authorization_code");
         return Response.json({ access_token: "opaque-access-token", token_type: "Bearer", expires_in: 300 });
       }
-      expect(url).toBe("https://api-m.sandbox.paypal.com/v1/identity/openidconnect/userinfo");
+      expect(url).toBe("https://api-m.sandbox.paypal.com/v1/identity/openidconnect/userinfo?schema=openid");
       expect(new Headers(init?.headers).get("authorization")).toBe("Bearer opaque-access-token");
       return Response.json({ sub: " stable-subject ", name: "PayPal Seller", email: "seller@example.test" });
     };

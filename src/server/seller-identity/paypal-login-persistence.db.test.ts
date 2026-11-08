@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 
 import { Pool } from "pg";
-import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { createTemporaryDatabase } from "../../../test/database";
 import { runMigrations } from "../db/migrate";
@@ -10,24 +10,40 @@ import {
   consumePayPalLoginAttempt,
   createPayPalLoginAttempt,
 } from "./paypal-login";
+import { createPayPalLoginHttpHandlers } from "./paypal-login-http";
 import { PostgresAttemptLimiter, PostgresIdentityStore } from "./postgres-store";
 import { registerOwner, signInOwner } from "./service";
+import { GET as getOwnerMe } from "../../app/api/seller/identity/me/route";
 
 const now = new Date("2026-11-06T12:00:00.000Z");
 const profile = (displayName: string, email: string) => ({ displayName, email });
+const origin = "https://paypal-login.test";
+
+function cookiePair(response: Response, name: string): string {
+  const cookie = response.headers.getSetCookie().find((value) => value.startsWith(`${name}=`));
+  if (!cookie) throw new Error(`Response did not set ${name}`);
+  return cookie.split(";", 1)[0];
+}
 
 describe("PayPal Login Postgres persistence", () => {
   let temporary: Awaited<ReturnType<typeof createTemporaryDatabase>>;
   let pool: Pool;
   let store: PostgresIdentityStore;
   let limiter: PostgresAttemptLimiter;
+  const runtimeGlobal = globalThis as typeof globalThis & {
+    agentshelfOwnerIdentityRuntime?: unknown;
+  };
+  let previousRuntime: unknown;
 
   beforeAll(async () => {
+    previousRuntime = runtimeGlobal.agentshelfOwnerIdentityRuntime;
     temporary = await createTemporaryDatabase();
     await runMigrations(temporary.url);
     pool = new Pool({ connectionString: temporary.url, max: 8 });
     store = new PostgresIdentityStore(pool);
     limiter = new PostgresAttemptLimiter(pool, "paypal-login-db-test-attempt-hash-secret");
+    runtimeGlobal.agentshelfOwnerIdentityRuntime = { store, limiter };
+    vi.stubEnv("APP_ORIGIN", origin);
   });
 
   beforeEach(async () => {
@@ -37,6 +53,8 @@ describe("PayPal Login Postgres persistence", () => {
   });
 
   afterAll(async () => {
+    runtimeGlobal.agentshelfOwnerIdentityRuntime = previousRuntime;
+    vi.unstubAllEnvs();
     await pool?.end();
     await temporary?.drop();
   });
@@ -127,5 +145,74 @@ describe("PayPal Login Postgres persistence", () => {
     );
     expect(storedState.rows.every((row) => ![bound.state, bound.browserBinding, expired.state, concurrent.state, concurrent.browserBinding].includes(row.state_hash))).toBe(true);
     expect(storedState.rows.every((row) => ![bound.state, bound.browserBinding, expired.state, concurrent.state, concurrent.browserBinding].includes(row.browser_binding_hash))).toBe(true);
+  });
+
+  it("persists callback sessions accepted by the next /me request for new and returning owners", async () => {
+    const callbackNow = new Date();
+    const env = {
+      APP_ORIGIN: origin,
+      PAYPAL_LOGIN_CLIENT_ID: "test-login-client-id",
+      PAYPAL_LOGIN_CLIENT_SECRET: "test-login-client-secret",
+    };
+    const fetchImpl: typeof fetch = async (input, init) => {
+      if (String(input).endsWith("/v1/oauth2/token")) {
+        expect(init?.method).toBe("POST");
+        return Response.json({ access_token: "test-only-access-token", token_type: "Bearer", expires_in: 300 });
+      }
+      expect(String(input)).toBe("https://api-m.sandbox.paypal.com/v1/identity/openidconnect/userinfo?schema=openid");
+      return Response.json({ sub: "stable-disposable-pg-subject", name: "PG Test Owner", email: "pg-owner@example.test" });
+    };
+    const handlers = createPayPalLoginHttpHandlers({ store, limiter, env, fetchImpl, now: () => callbackNow });
+
+    const startAndCallback = async () => {
+      const started = await handlers.start(new Request(`${origin}/api/seller/identity/paypal/start`, {
+        headers: { "cf-connecting-ip": "203.0.113.40" },
+      }));
+      expect(started.status).toBe(303);
+      const authorization = new URL(started.headers.get("location")!);
+      const stateCookie = cookiePair(started, "agentshelf_paypal_login_state");
+      const callback = await handlers.callback(new Request(
+        `${origin}/api/seller/identity/paypal/callback?code=test-code&state=${authorization.searchParams.get("state")}`,
+        { headers: { cookie: stateCookie } },
+      ));
+      expect(callback.status).toBe(303);
+      const ownerCookie = cookiePair(callback, "agentshelf_owner_session");
+      const me = await getOwnerMe(new Request(`${origin}/api/seller/identity/me`, { headers: { cookie: ownerCookie } }));
+      return { callback, ownerCookie, me };
+    };
+
+    const first = await startAndCallback();
+    expect(first.callback.headers.get("location")).toBe(`${origin}/seller/paypal-onboarding`);
+    expect(first.me.status).toBe(200);
+    expect(first.me.headers.get("cache-control")).toBe("no-store");
+    const firstProfile = await first.me.json() as {
+      owner: { id: string; username: string; paypalProfile: { displayName: string; email: string } };
+      shops: unknown[];
+      selectedShopId: string | null;
+    };
+    expect(firstProfile.owner.paypalProfile).toEqual({ displayName: "PG Test Owner", email: "pg-owner@example.test" });
+    expect(firstProfile.shops).toEqual([]);
+    expect(firstProfile.selectedShopId).toBeNull();
+
+    const shop = await store.createOwnedShopAtomic({
+      ownerId: firstProfile.owner.id,
+      shop: { name: "Returning Seller Shop", slug: "returning-seller-shop", location: "Riga, Latvia", currency: "EUR", timezone: "Europe/Riga" },
+      idempotencyKey: randomUUID(),
+    });
+    expect(shop.id).toBeTruthy();
+
+    const returning = await startAndCallback();
+    expect(returning.ownerCookie).not.toBe(first.ownerCookie);
+    expect(returning.callback.headers.get("location")).toBe(`${origin}/seller/shops`);
+    expect(returning.me.status).toBe(200);
+    const returningProfile = await returning.me.json() as {
+      owner: { id: string; paypalProfile: { displayName: string; email: string } };
+      shops: Array<{ id: string }>;
+      selectedShopId: string | null;
+    };
+    expect(returningProfile.owner.id).toBe(firstProfile.owner.id);
+    expect(returningProfile.owner.paypalProfile).toEqual({ displayName: "PG Test Owner", email: "pg-owner@example.test" });
+    expect(returningProfile.shops.map(({ id }) => id)).toEqual([shop.id]);
+    expect(returningProfile.selectedShopId).toBeNull();
   });
 });

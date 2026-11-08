@@ -4,6 +4,7 @@ This project has no tagged releases yet, entries describe code present in the cu
 
 ## Unreleased
 
+- Fixed PayPal profile requests to use the OpenID schema and made PayPal the primary owner sign-in path, with legacy access under other options
 - Set the shared ink accent to PayPal blue and match the homepage demo action to the hosted Login button radius
 - Use PayPal's official hosted login button across seller entry points and document rejected Login troubleshooting
 - Clarified that the privacy policy covers AI service providers and connected assistants
