@@ -5,6 +5,8 @@ A person approves payment in PayPal
 
 **Live demo:** [agentshelf-e5bk.onrender.com](https://agentshelf-e5bk.onrender.com) · [MCP setup](docs/mcp.md) · [deployment status](docs/deployment.md)
 
+[Privacy policy](https://agentshelf-e5bk.onrender.com/privacy) · [User agreement](https://agentshelf-e5bk.onrender.com/terms)
+
 ## Try the shop
 
 - Select **Seller sign-in** for PayPal Sandbox login, confirm your shop, then connect its PayPal merchant account, the operator must first complete [Login setup](docs/paypal-login.md)

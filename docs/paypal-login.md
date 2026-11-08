@@ -8,8 +8,9 @@ Login identifies the owner, payment permissions require the separate [merchant c
 1. Open [Apps & Credentials](https://developer.paypal.com/dashboard/applications), select a Sandbox REST app, enable **Other features → Log in with PayPal → Advanced Settings**
 2. Allow the basic profile and email information used by the `openid profile email` scopes
 3. Set the exact Return URL to `https://agentshelf-e5bk.onrender.com/api/seller/identity/paypal/callback`, for a local app use `http://localhost:3000/api/seller/identity/paypal/callback`
-4. Set Privacy policy and User agreement URLs, PayPal permits `https://example.com` for Sandbox testing only, see [PayPal's setup instructions](https://developer.paypal.com/log-in/build/)
-5. Store `PAYPAL_LOGIN_CLIENT_ID` and `PAYPAL_LOGIN_CLIENT_SECRET` in `.env.local` or Render's environment settings, restart or redeploy after changing configuration
+4. Set Privacy policy URL to `https://agentshelf-e5bk.onrender.com/privacy` and User agreement URL to `https://agentshelf-e5bk.onrender.com/terms`
+5. Leave **Enable customers who have not yet confirmed their email with PayPal to log in to your app** unchecked for the demo; use confirmed Sandbox accounts. AgentShelf identifies owners by PayPal `sub`, not by email
+6. Store `PAYPAL_LOGIN_CLIENT_ID` and `PAYPAL_LOGIN_CLIENT_SECRET` in `.env.local` or Render's environment settings, restart or redeploy after changing configuration
 
 Login settings are separate from `PAYPAL_PLATFORM_*`, verify whether your Platform app exposes the Login feature before reusing its credentials, otherwise use a separate Sandbox Login app
 Never enter a seller password or API secret into AgentShelf
