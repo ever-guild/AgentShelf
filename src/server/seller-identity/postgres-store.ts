@@ -127,12 +127,12 @@ export class PostgresIdentityStore implements IdentityStore {
   }
 
   async findPayPalProfileByOwnerId(ownerId: string): Promise<PayPalLoginProfile | null> {
-    const result = await this.pool.query<{ display_name: string | null; email: string | null }>(
-      `SELECT display_name, email FROM seller_owner_paypal_identities WHERE owner_id = $1`,
+    const result = await this.pool.query<{ display_name: string | null; email: string | null; city: string | null; country: string | null }>(
+      `SELECT display_name, email, city, country FROM seller_owner_paypal_identities WHERE owner_id = $1`,
       [ownerId],
     );
     const row = result.rows[0];
-    return row ? { displayName: row.display_name, email: row.email } : null;
+    return row ? { displayName: row.display_name, email: row.email, city: row.city, country: row.country } : null;
   }
 
   async createPayPalLoginState(input: {
@@ -182,8 +182,10 @@ export class PostgresIdentityStore implements IdentityStore {
         username: string;
         display_name: string | null;
         email: string | null;
+        city: string | null;
+        country: string | null;
       }>(
-        `SELECT o.id, o.username, i.display_name, i.email
+        `SELECT o.id, o.username, i.display_name, i.email, i.city, i.country
          FROM seller_owner_paypal_identities i
          JOIN seller_owners o ON o.id = i.owner_id
          WHERE i.provider = 'paypal_sandbox' AND i.subject_hash = $1
@@ -192,16 +194,17 @@ export class PostgresIdentityStore implements IdentityStore {
       );
       const row = existing.rows[0];
       if (row) {
-        const updated = await client.query<{ display_name: string | null; email: string | null }>(
+        const updated = await client.query<{ display_name: string | null; email: string | null; city: string | null; country: string | null }>(
           `UPDATE seller_owner_paypal_identities
-           SET display_name = COALESCE($3, display_name), email = COALESCE($4, email), updated_at = $5
+           SET display_name = COALESCE($3, display_name), email = COALESCE($4, email),
+               city = COALESCE($5, city), country = COALESCE($6, country), updated_at = $7
            WHERE provider = 'paypal_sandbox' AND subject_hash = $1 AND owner_id = $2
-           RETURNING display_name, email`,
-          [input.subjectHash, row.id, input.profile.displayName, input.profile.email, input.now],
+           RETURNING display_name, email, city, country`,
+          [input.subjectHash, row.id, input.profile.displayName, input.profile.email, input.profile.city, input.profile.country, input.now],
         );
         return {
           owner: { id: row.id, username: row.username },
-          profile: { displayName: updated.rows[0].display_name, email: updated.rows[0].email },
+          profile: { displayName: updated.rows[0].display_name, email: updated.rows[0].email, city: updated.rows[0].city, country: updated.rows[0].country },
           created: false,
         };
       }
@@ -211,16 +214,16 @@ export class PostgresIdentityStore implements IdentityStore {
         [input.syntheticUsername],
       );
       const owner = ownerResult.rows[0];
-      const identityResult = await client.query<{ display_name: string | null; email: string | null }>(
+      const identityResult = await client.query<{ display_name: string | null; email: string | null; city: string | null; country: string | null }>(
         `INSERT INTO seller_owner_paypal_identities
-         (provider, subject_hash, owner_id, display_name, email, created_at, updated_at)
-         VALUES ('paypal_sandbox', $1, $2, $3, $4, $5, $5)
-         RETURNING display_name, email`,
-        [input.subjectHash, owner.id, input.profile.displayName, input.profile.email, input.now],
+         (provider, subject_hash, owner_id, display_name, email, city, country, created_at, updated_at)
+         VALUES ('paypal_sandbox', $1, $2, $3, $4, $5, $6, $7, $7)
+         RETURNING display_name, email, city, country`,
+        [input.subjectHash, owner.id, input.profile.displayName, input.profile.email, input.profile.city, input.profile.country, input.now],
       );
       return {
         owner,
-        profile: { displayName: identityResult.rows[0].display_name, email: identityResult.rows[0].email },
+        profile: { displayName: identityResult.rows[0].display_name, email: identityResult.rows[0].email, city: identityResult.rows[0].city, country: identityResult.rows[0].country },
         created: true,
       };
     });

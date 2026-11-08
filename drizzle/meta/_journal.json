@@ -120,6 +120,13 @@
       "when": 1793988272701,
       "tag": "0016_paypal_login_identity",
       "breakpoints": true
+    },
+    {
+      "idx": 17,
+      "version": "7",
+      "when": 1794146711246,
+      "tag": "0017_paypal_login_address_profile",
+      "breakpoints": true
     }
   ]
 }

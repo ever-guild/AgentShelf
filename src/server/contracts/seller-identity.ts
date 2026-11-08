@@ -54,7 +54,13 @@ export const ownerAgentGrantInput = z.strictObject({
 export const ownerAgentGrantRevokeInput = z.strictObject({ grantToken: z.string().min(32).max(128) });
 
 export type ShopRegistration = z.infer<typeof shopRegistrationInput>;
-export type PayPalLoginProfile = { displayName: string | null; email: string | null };
+export type PayPalLoginProfile = {
+  displayName: string | null;
+  email: string | null;
+  /** PayPal address scope may omit either field; street and other address data are never stored. */
+  city: string | null;
+  country: string | null;
+};
 /** Seller MCP `create_shop` input; authorization is supplied out-of-band by server auth. */
 export type SellerAgentCreateShopInput = z.infer<typeof ownerCreateShopInput>;
 export type SellerAgentCreateShopResult = {

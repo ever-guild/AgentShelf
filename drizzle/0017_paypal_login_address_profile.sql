@@ -1,0 +1,4 @@
+ALTER TABLE "seller_owner_paypal_identities" ADD COLUMN "city" text;--> statement-breakpoint
+ALTER TABLE "seller_owner_paypal_identities" ADD COLUMN "country" text;--> statement-breakpoint
+ALTER TABLE "seller_owner_paypal_identities" ADD CONSTRAINT "seller_owner_paypal_identity_city" CHECK ("seller_owner_paypal_identities"."city" IS NULL OR length("seller_owner_paypal_identities"."city") <= 100);--> statement-breakpoint
+ALTER TABLE "seller_owner_paypal_identities" ADD CONSTRAINT "seller_owner_paypal_identity_country" CHECK ("seller_owner_paypal_identities"."country" IS NULL OR length("seller_owner_paypal_identities"."country") <= 56);

@@ -148,6 +148,13 @@ export function paypalLoginCallbackUrl(env: Environment = process.env): string {
   return new URL(PAYPAL_LOGIN_CALLBACK_PATH, paypalLoginOrigin(env)).toString();
 }
 
+function optionalAddressText(value: unknown, maxLength: number): string | null {
+  if (typeof value !== "string") return null;
+  const normalized = value.trim();
+  if (!normalized || normalized.length > maxLength || /[\u0000-\u001f\u007f]/.test(normalized)) return null;
+  return normalized;
+}
+
 function parseProfile(value: unknown, httpStatus: number): { subject: string; profile: PayPalLoginProfile } {
   if (typeof value !== "object" || value === null || Array.isArray(value) || !("sub" in value)) {
     throw new PayPalLoginError("INVALID_RESPONSE", { stage: "profile_validation", reason: "missing_sub", httpStatus });
@@ -158,6 +165,9 @@ function parseProfile(value: unknown, httpStatus: number): { subject: string; pr
     given_name: z.string().trim().max(100).optional(),
     family_name: z.string().trim().max(100).optional(),
     email: z.email().max(320).optional(),
+    // Address claims are optional and may vary by PayPal account. Their validation is deliberately
+    // lenient below so malformed optional location data never prevents authentication.
+    address: z.unknown().optional(),
   });
   const parsed = schema.safeParse(value);
   if (!parsed.success) {
@@ -175,7 +185,22 @@ function parseProfile(value: unknown, httpStatus: number): { subject: string; pr
   const displayName = (parsed.data.name || [parsed.data.given_name, parsed.data.family_name].filter(Boolean).join(" ")).slice(0, 160);
   return {
     subject: parsed.data.sub,
-    profile: { displayName: displayName || null, email: parsed.data.email ?? null },
+    profile: {
+      displayName: displayName || null,
+      email: parsed.data.email ?? null,
+      city: optionalAddressText(
+        typeof parsed.data.address === "object" && parsed.data.address !== null && !Array.isArray(parsed.data.address)
+          ? (parsed.data.address as { locality?: unknown }).locality
+          : undefined,
+        100,
+      ),
+      country: optionalAddressText(
+        typeof parsed.data.address === "object" && parsed.data.address !== null && !Array.isArray(parsed.data.address)
+          ? (parsed.data.address as { country?: unknown }).country
+          : undefined,
+        56,
+      ),
+    },
   };
 }
 
@@ -238,7 +263,7 @@ export function createPayPalLoginAdapter(
     url.searchParams.set("client_id", required(env, "PAYPAL_LOGIN_CLIENT_ID"));
     required(env, "PAYPAL_LOGIN_CLIENT_SECRET");
     url.searchParams.set("response_type", "code");
-    url.searchParams.set("scope", "openid profile email");
+    url.searchParams.set("scope", "openid profile email address");
     url.searchParams.set("redirect_uri", redirectUri);
     url.searchParams.set("state", state);
     return url;

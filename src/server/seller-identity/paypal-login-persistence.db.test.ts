@@ -16,7 +16,7 @@ import { registerOwner, signInOwner } from "./service";
 import { GET as getOwnerMe } from "../../app/api/seller/identity/me/route";
 
 const now = new Date("2026-11-06T12:00:00.000Z");
-const profile = (displayName: string, email: string) => ({ displayName, email });
+const profile = (displayName: string, email: string, city: string | null = null, country: string | null = null) => ({ displayName, email, city, country });
 const origin = "https://paypal-login.test";
 
 function cookiePair(response: Response, name: string): string {
@@ -95,6 +95,7 @@ describe("PayPal Login Postgres persistence", () => {
     expect(returning.owner.id).toBe(first.owner.id);
     expect(returning.created).toBe(false);
     expect(returning.owner.paypalProfile).toEqual(profile("Updated Name", "same@example.test"));
+    expect(await store.findPayPalProfileByOwnerId(first.owner.id)).toEqual(profile("Updated Name", "same@example.test"));
     expect(differentSubject.owner.id).not.toBe(first.owner.id);
     expect((await pool.query("SELECT count(*)::int AS n FROM seller_owner_paypal_identities")).rows[0].n).toBe(2);
     expect((await pool.query("SELECT count(*)::int AS n FROM shops")).rows[0].n).toBe(0);
@@ -168,7 +169,12 @@ describe("PayPal Login Postgres persistence", () => {
         return Response.json({ access_token: "test-refreshed-access-token", token_type: "Bearer", expires_in: 300 });
       }
       userInfoAuthorization = new Headers(init?.headers).get("authorization");
-      return Response.json({ sub: "stable-disposable-pg-subject", name: "PG Test Owner", email: "pg-owner@example.test" });
+      return Response.json({
+        sub: "stable-disposable-pg-subject",
+        name: "PG Test Owner",
+        email: "pg-owner@example.test",
+        address: { locality: " Riga ", country: " Latvia ", street_address: "never store this" },
+      });
     };
     const handlers = createPayPalLoginHttpHandlers({ store, limiter, env, fetchImpl, now: () => callbackNow });
 
@@ -203,11 +209,21 @@ describe("PayPal Login Postgres persistence", () => {
     expect(first.me.status).toBe(200);
     expect(first.me.headers.get("cache-control")).toBe("no-store");
     const firstProfile = await first.me.json() as {
-      owner: { id: string; username: string; paypalProfile: { displayName: string; email: string } };
+      owner: { id: string; username: string; paypalProfile: { displayName: string; email: string; city: string | null; country: string | null } };
       shops: unknown[];
       selectedShopId: string | null;
     };
-    expect(firstProfile.owner.paypalProfile).toEqual({ displayName: "PG Test Owner", email: "pg-owner@example.test" });
+    expect(firstProfile.owner.paypalProfile).toEqual({ displayName: "PG Test Owner", email: "pg-owner@example.test", city: "Riga", country: "Latvia" });
+    const storedIdentity = await pool.query<{ city: string | null; country: string | null }>(
+      `SELECT city, country FROM seller_owner_paypal_identities WHERE owner_id = $1`,
+      [firstProfile.owner.id],
+    );
+    expect(storedIdentity.rows).toEqual([{ city: "Riga", country: "Latvia" }]);
+    const identityColumns = await pool.query<{ column_name: string }>(
+      `SELECT column_name FROM information_schema.columns
+       WHERE table_schema = 'public' AND table_name = 'seller_owner_paypal_identities'`,
+    );
+    expect(identityColumns.rows.map(({ column_name }) => column_name)).not.toContain("street_address");
     expect(firstProfile.shops).toEqual([]);
     expect(firstProfile.selectedShopId).toBeNull();
 
@@ -224,12 +240,12 @@ describe("PayPal Login Postgres persistence", () => {
     expect(returning.callback.headers.get("location")).toBe(`${origin}/seller/shops`);
     expect(returning.me.status).toBe(200);
     const returningProfile = await returning.me.json() as {
-      owner: { id: string; paypalProfile: { displayName: string; email: string } };
+      owner: { id: string; paypalProfile: { displayName: string; email: string; city: string | null; country: string | null } };
       shops: Array<{ id: string }>;
       selectedShopId: string | null;
     };
     expect(returningProfile.owner.id).toBe(firstProfile.owner.id);
-    expect(returningProfile.owner.paypalProfile).toEqual({ displayName: "PG Test Owner", email: "pg-owner@example.test" });
+    expect(returningProfile.owner.paypalProfile).toEqual({ displayName: "PG Test Owner", email: "pg-owner@example.test", city: "Riga", country: "Latvia" });
     expect(returningProfile.shops.map(({ id }) => id)).toEqual([shop.id]);
     expect(returningProfile.selectedShopId).toBeNull();
   });

@@ -8,7 +8,7 @@ function makeStore() {
   const sessions = new Map<string, { ownerId: string; expiresAt: Date }>();
   const states = new Map<string, { browserBindingHash: string; expiresAt: Date; consumed: boolean }>();
   const owners = new Map<string, { id: string; username: string; passwordHash: string | null }>();
-  const profiles = new Map<string, { displayName: string | null; email: string | null }>();
+  const profiles = new Map<string, { displayName: string | null; email: string | null; city: string | null; country: string | null }>();
   const subjects = new Map<string, string>();
   const store = {
     async findOwnerById(ownerId: string) {
@@ -25,7 +25,7 @@ function makeStore() {
       state.consumed = true;
       return true;
     },
-    async findOrCreatePayPalOwnerIdentityAtomic(input: { subjectHash: string; syntheticUsername: string; profile: { displayName: string | null; email: string | null } }) {
+    async findOrCreatePayPalOwnerIdentityAtomic(input: { subjectHash: string; syntheticUsername: string; profile: { displayName: string | null; email: string | null; city: string | null; country: string | null } }) {
       const existingId = subjects.get(input.subjectHash);
       if (existingId) {
         profiles.set(existingId, input.profile);
@@ -97,7 +97,7 @@ describe("PayPal sandbox login HTTP handlers", () => {
     expect(authorization.origin).toBe("https://www.sandbox.paypal.com");
     expect(authorization.pathname).toBe("/connect");
     expect(authorization.searchParams.get("redirect_uri")).toBe("https://agentshelf.example/api/seller/identity/paypal/callback");
-    expect(authorization.searchParams.get("scope")).toBe("openid profile email");
+    expect(authorization.searchParams.get("scope")).toBe("openid profile email address");
     expect(authorization.searchParams.get("state")).toMatch(/^[A-Za-z0-9_-]{43}$/);
     expect(limiter.keys).toEqual(["paypal-login-start:203.0.113.5"]);
     expect(response.headers.getSetCookie().some((value) => value.startsWith("agentshelf_owner_session=;"))).toBe(true);
@@ -156,7 +156,12 @@ describe("PayPal sandbox login HTTP handlers", () => {
       }
       expect(url).toBe("https://api-m.sandbox.paypal.com/v1/identity/openidconnect/userinfo?schema=openid");
       expect(new Headers(init?.headers).get("authorization")).toBe("Bearer refreshed-access-token-sentinel");
-      return Response.json({ sub: " stable-subject ", name: "PayPal Seller", email: "seller@example.test" });
+      return Response.json({
+        sub: " stable-subject ",
+        name: "PayPal Seller",
+        email: "seller@example.test",
+        address: { locality: "  Riga  ", country: " Latvia ", street_address: "must not be stored" },
+      });
     };
     const handlers = createPayPalLoginHttpHandlers({ store, limiter, env, fetchImpl, now: () => now });
     const started = await handlers.start(new Request("https://agentshelf.example/api/seller/identity/paypal/start", {
@@ -177,7 +182,7 @@ describe("PayPal sandbox login HTTP handlers", () => {
     expect(owners.size).toBe(1);
     const createdOwner = [...owners.values()][0];
     expect(createdOwner.passwordHash).toBeNull();
-    expect(profiles.get(createdOwner.id)).toEqual({ displayName: "PayPal Seller", email: "seller@example.test" });
+    expect(profiles.get(createdOwner.id)).toEqual({ displayName: "PayPal Seller", email: "seller@example.test", city: "Riga", country: "Latvia" });
     expect(tokenCalls).toBe(2);
     expect(tokenRequests).toEqual([
       { url: "https://api-m.sandbox.paypal.com/v1/oauth2/token", authorization: `Basic ${Buffer.from("sandbox-client-id:sandbox-client-secret").toString("base64")}`, redirect: "error", hasSignal: true },
@@ -188,6 +193,36 @@ describe("PayPal sandbox login HTTP handlers", () => {
     const replay = await callback();
     expect(new URL(replay.headers.get("location")!).searchParams.get("error")).toBe("paypal_login_state_invalid");
     expect(owners.size).toBe(1);
+  });
+
+  it("ignores malformed or overlong optional address claims without rejecting login", async () => {
+    const { store, owners, profiles } = makeStore();
+    const handlers = createPayPalLoginHttpHandlers({
+      store,
+      limiter: new Limiter(),
+      env,
+      fetchImpl: async (input) => String(input).endsWith("/v1/oauth2/token")
+        ? Response.json({ access_token: "access", refresh_token: "refresh", token_type: "Bearer", expires_in: 300 })
+        : Response.json({
+            sub: "optional-address-subject",
+            name: "Address Optional Seller",
+            address: { locality: ` ${"c".repeat(101)} `, country: 42, street_address: "must not be stored" },
+          }),
+    });
+    const started = await handlers.start(new Request("https://agentshelf.example/api/seller/identity/paypal/start", {
+      headers: { "cf-connecting-ip": "203.0.113.12" },
+    }));
+    const authorization = new URL(started.headers.get("location")!);
+    const stateCookie = cookiePair(getCookie(started, "agentshelf_paypal_login_state")!);
+    const callback = await handlers.callback(new Request(
+      `https://agentshelf.example/api/seller/identity/paypal/callback?code=single-use&state=${authorization.searchParams.get("state")}`,
+      { headers: { cookie: stateCookie } },
+    ));
+
+    expect(callback.status).toBe(303);
+    expect(owners.size).toBe(1);
+    const owner = [...owners.values()][0];
+    expect(profiles.get(owner.id)).toEqual({ displayName: "Address Optional Seller", email: null, city: null, country: null });
   });
 
   it("rejects duplicate callback parameters and denial without clearing a legacy seller session", async () => {

@@ -971,6 +971,8 @@ export const sellerOwnerPayPalIdentities = pgTable(
       .references(() => sellerOwners.id, { onDelete: "cascade" }),
     displayName: text("display_name"),
     email: text("email"),
+    city: text("city"),
+    country: text("country"),
     createdAt: createdAt(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },
@@ -981,6 +983,8 @@ export const sellerOwnerPayPalIdentities = pgTable(
     check("seller_owner_paypal_identity_subject_hash", sql`${t.subjectHash} ~ '^[a-f0-9]{64}$'`),
     check("seller_owner_paypal_identity_display_name", sql`${t.displayName} IS NULL OR length(${t.displayName}) <= 160`),
     check("seller_owner_paypal_identity_email", sql`${t.email} IS NULL OR length(${t.email}) <= 320`),
+    check("seller_owner_paypal_identity_city", sql`${t.city} IS NULL OR length(${t.city}) <= 100`),
+    check("seller_owner_paypal_identity_country", sql`${t.country} IS NULL OR length(${t.country}) <= 56`),
   ],
 );
 
