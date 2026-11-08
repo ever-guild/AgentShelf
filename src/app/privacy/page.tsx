@@ -23,7 +23,7 @@ export default function PrivacyPage() {
         <section className="flex flex-col gap-3">
           <h2 className="text-lg font-medium">Information the demo handles</h2>
           <p className={quiet}>
-            Owner sign-in uses profile information returned by PayPal, such as a display name or email, and session cookies. Shop use may involve shop details, price-list uploads, catalog entries, booking and order details, search queries, filters and results, and permissions given to an assistant. Published shop profiles, catalogs, available appointment times, and staff names are public and may be read by visitors and connected agents. Search activity may be recorded to show shop owners what people looked for.
+            Owner sign-in uses profile information returned by PayPal, including a display name or email and, when provided, City and Country, plus session cookies. PayPal City and Country may suggest a shop location; they are editable suggestions, not verified addresses. Only the location the owner confirms is published with the shop. Shop use may involve shop details, price-list uploads, catalog entries, booking and order details, search queries, filters and results, and permissions given to an assistant. Published shop profiles, catalogs, available appointment times, and staff names are public and may be read by visitors and connected agents. Search activity may be recorded to show shop owners what people looked for.
           </p>
         </section>
 

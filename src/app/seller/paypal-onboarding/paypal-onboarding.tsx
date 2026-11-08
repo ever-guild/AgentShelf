@@ -7,12 +7,18 @@ import { useEffect, useRef, useState, type FormEvent } from "react";
 import { PayPalLoginButton } from "../../paypal-login-button";
 import type { OwnerShop } from "../identity/owner-session";
 import { OwnerNav } from "../identity/owner-nav";
+import { SHOP_LOCATION_MAX_LENGTH, suggestShopLocation } from "./shop-location";
 
 type PayPalOwnerSession = {
   owner: {
     id: string;
     username: string;
-    paypalProfile: { displayName: string | null; email: string | null } | null;
+    paypalProfile: {
+      displayName: string | null;
+      email: string | null;
+      city?: string | null;
+      country?: string | null;
+    } | null;
   };
   shops: OwnerShop[];
   selectedShopId: string | null;
@@ -72,6 +78,10 @@ export function PayPalOnboarding({ initialMessage }: { initialMessage: string | 
           const displayName = value.owner.paypalProfile.displayName;
           setShopName(displayName.slice(0, 120));
           setSlug(makeSlug(displayName));
+        }
+        if (value?.owner.paypalProfile && value.shops.length === 0) {
+          const { city, country } = value.owner.paypalProfile;
+          setLocation((current) => suggestShopLocation(current, city, country));
         }
         if (typeof Intl !== "undefined") {
           const browserTimezone = Intl.DateTimeFormat().resolvedOptions().timeZone;
@@ -198,7 +208,8 @@ export function PayPalOnboarding({ initialMessage }: { initialMessage: string | 
                 <span className={`text-xs font-normal ${quiet}`}>Lowercase letters, numbers and hyphens</span>
               </label>
               <label className={labelClass}>Shop location
-                <input value={location} onChange={(event) => setLocation(event.currentTarget.value)} disabled={busy} required minLength={2} maxLength={160} placeholder="Liepaja, Latvia" className={fieldClass} />
+                <input value={location} onChange={(event) => setLocation(event.currentTarget.value)} disabled={busy} required minLength={2} maxLength={SHOP_LOCATION_MAX_LENGTH} placeholder="Liepaja, Latvia" className={fieldClass} />
+                <span className={`text-xs font-normal ${quiet}`}>Suggested from PayPal. Confirm your shop&apos;s city and country.</span>
               </label>
               <label className={labelClass}>Shop time zone
                 <input value={timezone} onChange={(event) => setTimezone(event.currentTarget.value)} disabled={busy} required maxLength={80} placeholder="Europe/Riga" className={fieldClass} />

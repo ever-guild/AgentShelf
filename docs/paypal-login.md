@@ -6,7 +6,7 @@ Login identifies the owner, payment permissions require the separate [merchant c
 ## Configure the demo
 
 1. Open [Apps & Credentials](https://developer.paypal.com/dashboard/applications), select a Sandbox REST app with **Other features → Log in with PayPal → Advanced Settings** enabled, this may be the Platform app or a separate Login app
-2. Allow the basic profile and email information used by the `openid profile email` scopes
+2. Under **Address**, select **City** and **Country** for the `address` scope; AgentShelf requests profile and email for owner sign-in
 3. Set the exact Return URL to `https://agentshelf-e5bk.onrender.com/api/seller/identity/paypal/callback`, for a local app use `http://localhost:3000/api/seller/identity/paypal/callback`
 4. Set Privacy policy URL to `https://agentshelf-e5bk.onrender.com/privacy` and User agreement URL to `https://agentshelf-e5bk.onrender.com/terms`
 5. Leave **Enable customers who have not yet confirmed their email with PayPal to log in to your app** unchecked for the demo; use confirmed Sandbox accounts. AgentShelf identifies owners by PayPal `sub`, not by email
@@ -20,7 +20,7 @@ Never enter a seller password or API secret into AgentShelf
 ## Try it
 
 1. Select **Log in with PayPal** on the home page and sign in with a Sandbox seller at PayPal, no AgentShelf username, password or separate registration is required
-2. Confirm the shop name, public slug, location and timezone, profile fields are suggestions and do not establish merchant readiness
+2. Confirm the shop name, public slug, location and timezone, PayPal City and Country are editable location suggestions, not verified shop or delivery addresses
 3. Continue to **PayPal connection**, acknowledge data sharing and complete PayPal's seller-consent flow
 4. Sign out and repeat login with the same Sandbox account, the existing owner and shops should be recovered
 

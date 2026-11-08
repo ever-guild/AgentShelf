@@ -4,6 +4,7 @@ This project has no tagged releases yet, entries describe code present in the cu
 
 ## Unreleased
 
+- Use PayPal City and Country only as editable shop-location suggestions
 - Refresh the PayPal Login access token before reading UserInfo, following PayPal's documented code-to-profile flow; tokens remain in memory only
 - Added bounded PayPal sign-in failure diagnostics without logging credentials, authorization codes or profile values
 - Fixed PayPal profile requests to use the OpenID schema and made PayPal the primary owner sign-in path, with legacy access under other options
