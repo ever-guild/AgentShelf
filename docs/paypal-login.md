@@ -40,6 +40,14 @@ For `invalid client_id or redirect_uri`, check the same app under **Apps & Crede
 
 MCP authorization and client-credentials OAuth do not verify these Login settings. Changing the button appearance does not resolve this provider error
 
+If AgentShelf returns a generic sign-in failure after PayPal, inspect the Render logs for `paypal_login_failed`. Its JSON event identifies the failed step, a fixed reason, and an HTTP status or invalid field names when available; it contains no tokens, authorization codes, cookies or profile values
+
+```bash
+render logs --resources srv-dbm8a6e1egvs73bl8d90 --text paypal_login_failed --limit 20 --output json
+```
+
+Use the recorded step to distinguish token exchange, profile retrieval/validation and owner-session persistence before changing credentials or retrying
+
 ## Verification boundary
 
 Automated checks use mocked PayPal responses, actual Login, consent and payment checks require configured Sandbox apps and human actions

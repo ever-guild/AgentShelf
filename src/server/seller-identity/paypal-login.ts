@@ -19,8 +19,90 @@ const RESPONSE_LIMIT_BYTES = 32 * 1024;
 
 type Environment = Record<string, string | undefined>;
 
+export type PayPalLoginFailureStage =
+  | "configuration"
+  | "login_state"
+  | "owner_read"
+  | "token_exchange"
+  | "token_response"
+  | "userinfo_request"
+  | "profile_validation"
+  | "owner_session";
+
+export type PayPalLoginFailureReason =
+  | "misconfigured"
+  | "persistence_failure"
+  | "transport_error"
+  | "http_error"
+  | "invalid_json"
+  | "invalid_response"
+  | "missing_sub"
+  | "invalid_subject"
+  | "invalid_name"
+  | "invalid_given_name"
+  | "invalid_family_name"
+  | "invalid_email"
+  | "invalid_profile"
+  | "unexpected_error";
+
+export type PayPalLoginProviderErrorCode =
+  | "invalid_grant"
+  | "invalid_client"
+  | "invalid_request"
+  | "invalid_scope"
+  | "invalid_token"
+  | "unauthorized_client"
+  | "unsupported_grant_type"
+  | "access_denied"
+  | "AUTHENTICATION_FAILURE"
+  | "NOT_AUTHORIZED"
+  | "PERMISSION_DENIED";
+
+export type PayPalLoginFailure = {
+  stage: PayPalLoginFailureStage;
+  reason: PayPalLoginFailureReason;
+  httpStatus?: number;
+  providerCode?: PayPalLoginProviderErrorCode;
+};
+
+const PROVIDER_ERROR_CODES = new Set<PayPalLoginProviderErrorCode>([
+  "invalid_grant",
+  "invalid_client",
+  "invalid_request",
+  "invalid_scope",
+  "invalid_token",
+  "unauthorized_client",
+  "unsupported_grant_type",
+  "access_denied",
+  "AUTHENTICATION_FAILURE",
+  "NOT_AUTHORIZED",
+  "PERMISSION_DENIED",
+]);
+
+function providerErrorCode(value: unknown): PayPalLoginProviderErrorCode | undefined {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) return undefined;
+  const record = value as { error?: unknown; name?: unknown };
+  for (const candidate of [record.error, record.name]) {
+    if (typeof candidate === "string" && PROVIDER_ERROR_CODES.has(candidate as PayPalLoginProviderErrorCode)) {
+      return candidate as PayPalLoginProviderErrorCode;
+    }
+  }
+  return undefined;
+}
+
+async function boundedProviderErrorCode(response: Response, stage: PayPalLoginFailureStage) {
+  try {
+    return providerErrorCode(await readJsonLimited(response, stage));
+  } catch {
+    return undefined;
+  }
+}
+
 export class PayPalLoginError extends Error {
-  constructor(readonly code: "MISCONFIGURED" | "UNAVAILABLE" | "INVALID_RESPONSE") {
+  constructor(
+    readonly code: "MISCONFIGURED" | "UNAVAILABLE" | "INVALID_RESPONSE",
+    readonly failure: PayPalLoginFailure = { stage: "configuration", reason: "misconfigured" },
+  ) {
     super("PayPal sign-in could not be completed.");
     this.name = "PayPalLoginError";
   }
@@ -58,7 +140,10 @@ export function paypalLoginCallbackUrl(env: Environment = process.env): string {
   return new URL(PAYPAL_LOGIN_CALLBACK_PATH, paypalLoginOrigin(env)).toString();
 }
 
-function parseProfile(value: unknown): { subject: string; profile: PayPalLoginProfile } {
+function parseProfile(value: unknown, httpStatus: number): { subject: string; profile: PayPalLoginProfile } {
+  if (typeof value !== "object" || value === null || Array.isArray(value) || !("sub" in value)) {
+    throw new PayPalLoginError("INVALID_RESPONSE", { stage: "profile_validation", reason: "missing_sub", httpStatus });
+  }
   const schema = z.object({
     sub: z.string().min(1).max(255).refine((value) => value.trim().length > 0 && !/[\u0000-\u001f\u007f]/.test(value)),
     name: z.string().trim().max(160).optional(),
@@ -67,7 +152,18 @@ function parseProfile(value: unknown): { subject: string; profile: PayPalLoginPr
     email: z.email().max(320).optional(),
   });
   const parsed = schema.safeParse(value);
-  if (!parsed.success) throw new PayPalLoginError("INVALID_RESPONSE");
+  if (!parsed.success) {
+    const subject = (value as { sub?: unknown }).sub;
+    const field = parsed.error.issues[0]?.path[0];
+    const reason: PayPalLoginFailureReason = field === "sub"
+      ? typeof subject === "string" && subject.trim().length > 0 ? "invalid_subject" : "missing_sub"
+      : field === "name" ? "invalid_name"
+        : field === "given_name" ? "invalid_given_name"
+          : field === "family_name" ? "invalid_family_name"
+            : field === "email" ? "invalid_email"
+              : "invalid_profile";
+    throw new PayPalLoginError("INVALID_RESPONSE", { stage: "profile_validation", reason, httpStatus });
+  }
   const displayName = (parsed.data.name || [parsed.data.given_name, parsed.data.family_name].filter(Boolean).join(" ")).slice(0, 160);
   return {
     subject: parsed.data.sub,
@@ -75,26 +171,35 @@ function parseProfile(value: unknown): { subject: string; profile: PayPalLoginPr
   };
 }
 
-async function readJsonLimited(response: Response): Promise<unknown> {
+async function readJsonLimited(
+  response: Response,
+  stage: PayPalLoginFailureStage,
+): Promise<unknown> {
+  const httpStatus = response.status;
   const reader = response.body?.getReader();
-  if (!reader) throw new PayPalLoginError("INVALID_RESPONSE");
+  if (!reader) throw new PayPalLoginError("INVALID_RESPONSE", { stage, reason: "invalid_response", httpStatus });
   const chunks: Uint8Array[] = [];
   let size = 0;
-  for (;;) {
-    const { done, value } = await reader.read();
-    if (done) break;
-    size += value.byteLength;
-    if (size > RESPONSE_LIMIT_BYTES) {
-      await reader.cancel().catch(() => {});
-      throw new PayPalLoginError("INVALID_RESPONSE");
+  try {
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      size += value.byteLength;
+      if (size > RESPONSE_LIMIT_BYTES) {
+        await reader.cancel().catch(() => {});
+        throw new PayPalLoginError("INVALID_RESPONSE", { stage, reason: "invalid_response", httpStatus });
+      }
+      chunks.push(value);
     }
-    chunks.push(value);
+  } catch (error) {
+    if (error instanceof PayPalLoginError) throw error;
+    throw new PayPalLoginError("INVALID_RESPONSE", { stage, reason: "invalid_response", httpStatus });
   }
-  if (size === 0) throw new PayPalLoginError("INVALID_RESPONSE");
+  if (size === 0) throw new PayPalLoginError("INVALID_RESPONSE", { stage, reason: "invalid_response", httpStatus });
   try {
     return JSON.parse(Buffer.concat(chunks.map((chunk) => Buffer.from(chunk)), size).toString("utf8")) as unknown;
   } catch {
-    throw new PayPalLoginError("INVALID_RESPONSE");
+    throw new PayPalLoginError("INVALID_RESPONSE", { stage, reason: "invalid_json", httpStatus });
   }
 }
 
@@ -144,11 +249,21 @@ export function createPayPalLoginAdapter(
         body: new URLSearchParams({ grant_type: "authorization_code", code }),
       });
     } catch {
-      throw new PayPalLoginError("UNAVAILABLE");
+      throw new PayPalLoginError("UNAVAILABLE", { stage: "token_exchange", reason: "transport_error" });
     }
-    if (!tokenResponseValue.ok) throw new PayPalLoginError("UNAVAILABLE");
-    const token = tokenResponse.safeParse(await readJsonLimited(tokenResponseValue));
-    if (!token.success) throw new PayPalLoginError("INVALID_RESPONSE");
+    if (!tokenResponseValue.ok) {
+      throw new PayPalLoginError("UNAVAILABLE", {
+        stage: "token_response",
+        reason: "http_error",
+        httpStatus: tokenResponseValue.status,
+        providerCode: await boundedProviderErrorCode(tokenResponseValue, "token_response"),
+      });
+    }
+    const tokenBody = await readJsonLimited(tokenResponseValue, "token_response");
+    const token = tokenResponse.safeParse(tokenBody);
+    if (!token.success) {
+      throw new PayPalLoginError("INVALID_RESPONSE", { stage: "token_response", reason: "invalid_response", httpStatus: tokenResponseValue.status });
+    }
 
     let profileResponse: Response;
     try {
@@ -159,10 +274,17 @@ export function createPayPalLoginAdapter(
         headers: { authorization: `Bearer ${token.data.access_token}`, accept: "application/json" },
       });
     } catch {
-      throw new PayPalLoginError("UNAVAILABLE");
+      throw new PayPalLoginError("UNAVAILABLE", { stage: "userinfo_request", reason: "transport_error" });
     }
-    if (!profileResponse.ok) throw new PayPalLoginError("UNAVAILABLE");
-    return parseProfile(await readJsonLimited(profileResponse));
+    if (!profileResponse.ok) {
+      throw new PayPalLoginError("UNAVAILABLE", {
+        stage: "userinfo_request",
+        reason: "http_error",
+        httpStatus: profileResponse.status,
+        providerCode: await boundedProviderErrorCode(profileResponse, "userinfo_request"),
+      });
+    }
+    return parseProfile(await readJsonLimited(profileResponse, "profile_validation"), profileResponse.status);
   }
 
   return { assertConfigured, authorizationUrl, userInfo };

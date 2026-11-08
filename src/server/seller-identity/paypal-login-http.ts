@@ -9,8 +9,10 @@ import {
   createPayPalLoginAttempt,
   PAYPAL_LOGIN_CALLBACK_PATH,
   PAYPAL_LOGIN_STATE_COOKIE,
+  PayPalLoginError,
   paypalLoginCallbackUrl,
   paypalLoginOrigin,
+  type PayPalLoginFailure,
 } from "./paypal-login";
 import {
   clearLegacySellerSessionCookie,
@@ -111,6 +113,19 @@ function safeAlreadySignedInRedirect(env: Environment, cookies: string[] = []): 
   }
 }
 
+function logCallbackFailure(error: unknown, fallback: PayPalLoginFailure): void {
+  const failure = error instanceof PayPalLoginError ? error.failure : fallback;
+  const event: PayPalLoginFailure = {
+    stage: failure.stage,
+    reason: failure.reason,
+    ...(Number.isInteger(failure.httpStatus) && failure.httpStatus! >= 100 && failure.httpStatus! <= 599
+      ? { httpStatus: failure.httpStatus }
+      : {}),
+    ...(failure.providerCode ? { providerCode: failure.providerCode } : {}),
+  };
+  console.warn(JSON.stringify({ event: "paypal_login_failed", ...event }));
+}
+
 async function ownerSessionState(request: Request, store: IdentityStore, now: Date) {
   const hasCookie = request.headers.get("cookie")?.split(";").some((part) => {
     const separator = part.indexOf("=");
@@ -188,6 +203,7 @@ export function createPayPalLoginHttpHandlers(input: {
       try {
         origin = paypalLoginOrigin(env);
       } catch {
+        logCallbackFailure(undefined, { stage: "configuration", reason: "misconfigured" });
         const clear = clearStateCookie(new URL(request.url).protocol === "https:");
         return safeErrorRedirect(env, "paypal_login_state_invalid", [clear]);
       }
@@ -202,6 +218,7 @@ export function createPayPalLoginHttpHandlers(input: {
       try {
         consumed = await consumePayPalLoginAttempt(input.store, state, browserBinding, now());
       } catch {
+        logCallbackFailure(undefined, { stage: "login_state", reason: "persistence_failure" });
         return safeErrorRedirect(env, "paypal_login_failed", [clear]);
       }
       if (!consumed) return safeErrorRedirect(env, "paypal_login_state_invalid", [clear]);
@@ -218,14 +235,21 @@ export function createPayPalLoginHttpHandlers(input: {
       try {
         ownerState = await ownerSessionState(request, input.store, now());
       } catch {
+        logCallbackFailure(undefined, { stage: "owner_read", reason: "persistence_failure" });
         return safeErrorRedirect(env, "paypal_login_failed", [clear]);
       }
       if (ownerState.active) return safeAlreadySignedInRedirect(env, [clear]);
 
+      let identity: Awaited<ReturnType<typeof paypal.userInfo>>;
       try {
-        const identity = await paypal.userInfo(code);
-        const authenticated = await authenticatePayPalOwner(input.store, identity, now());
+        identity = await paypal.userInfo(code);
+      } catch (error) {
+        logCallbackFailure(error, { stage: "token_exchange", reason: "unexpected_error" });
+        return safeErrorRedirect(env, "paypal_login_failed", [clear]);
+      }
 
+      try {
+        const authenticated = await authenticatePayPalOwner(input.store, identity, now());
         const cookieEnv = cookieEnvironment(env, origin.protocol === "https:");
         const cookies = [
           ...(ownerState.stale ? clearOwnerCookies(cookieEnv) : []),
@@ -236,7 +260,8 @@ export function createPayPalLoginHttpHandlers(input: {
         ];
         const destination = authenticated.shops.length === 0 ? "/seller/paypal-onboarding" : "/seller/shops";
         return redirect(new URL(destination, origin).toString(), cookies);
-      } catch {
+      } catch (error) {
+        logCallbackFailure(error, { stage: "owner_session", reason: "persistence_failure" });
         return safeErrorRedirect(env, "paypal_login_failed", [clear]);
       }
     },

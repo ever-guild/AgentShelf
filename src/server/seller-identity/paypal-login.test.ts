@@ -1,5 +1,5 @@
-import { describe, expect, it } from "vitest";
 import { createHash } from "node:crypto";
+import { describe, expect, it, vi } from "vitest";
 
 import type { AttemptLimiter, IdentityStore } from "./service";
 import { createPayPalLoginHttpHandlers } from "./paypal-login-http";
@@ -187,19 +187,26 @@ describe("PayPal sandbox login HTTP handlers", () => {
   });
 
   it.each([
-    ["token endpoint failure", async () => new Response("{}", { status: 401 }), "stop"],
-    ["malformed token response", async () => Response.json({ access_token: "", token_type: "Bearer", expires_in: 300 }), "stop"],
-    ["userinfo network failure", async () => Response.json({ access_token: "token", token_type: "Bearer", expires_in: 300 }), "network"],
-    ["malformed profile", async () => Response.json({ access_token: "token", token_type: "Bearer", expires_in: 300 }), "profile"],
-  ])("does not create an owner after %s", async (label, tokenResponse, failure) => {
+    ["token endpoint HTTP failure", async () => Response.json({ error: "invalid_grant", error_description: "TOKEN_DESCRIPTION_SENTINEL" }, { status: 401 }), "token_http", { stage: "token_response", reason: "http_error", httpStatus: 401, providerCode: "invalid_grant" }],
+    ["unknown provider error", async () => Response.json({ error: "ERROR_SECRET_SENTINEL", name: "NAME_SECRET_SENTINEL", message: "MESSAGE_SECRET_SENTINEL" }, { status: 401 }), "token_http", { stage: "token_response", reason: "http_error", httpStatus: 401 }],
+    ["malformed token JSON", async () => new Response("TOKEN_JSON_SENTINEL", { status: 200 }), "stop", { stage: "token_response", reason: "invalid_json", httpStatus: 200 }],
+    ["malformed token response", async () => Response.json({ access_token: "", token_type: "Bearer", expires_in: 300 }), "stop", { stage: "token_response", reason: "invalid_response", httpStatus: 200 }],
+    ["userinfo network failure", async () => Response.json({ access_token: "ACCESS_TOKEN_SENTINEL", token_type: "Bearer", expires_in: 300 }), "network", { stage: "userinfo_request", reason: "transport_error" }],
+    ["userinfo HTTP failure", async () => Response.json({ access_token: "ACCESS_TOKEN_SENTINEL", token_type: "Bearer", expires_in: 300 }), "userinfo_http", { stage: "userinfo_request", reason: "http_error", httpStatus: 401 }],
+    ["profile missing sub", async () => Response.json({ access_token: "ACCESS_TOKEN_SENTINEL", token_type: "Bearer", expires_in: 300 }), "missing_sub", { stage: "profile_validation", reason: "missing_sub", httpStatus: 200 }],
+    ["profile invalid email", async () => Response.json({ access_token: "ACCESS_TOKEN_SENTINEL", token_type: "Bearer", expires_in: 300 }), "invalid_email", { stage: "profile_validation", reason: "invalid_email", httpStatus: 200 }],
+  ])("does not create an owner after %s", async (label, tokenResponse, failure, expectedLog) => {
     const { store, owners, sessions } = makeStore();
     const limiter = new Limiter();
+    const warning = vi.spyOn(console, "warn").mockImplementation(() => {});
     let fetchCalls = 0;
     const fetchImpl: typeof fetch = async () => {
       fetchCalls += 1;
       if (fetchCalls === 1) return await tokenResponse();
       if (failure === "network") throw new Error("simulated provider transport failure");
-      if (failure === "profile") return Response.json({ email: "unverified@example.test" });
+      if (failure === "userinfo_http") return new Response("USERINFO_BODY_SENTINEL", { status: 401 });
+      if (failure === "missing_sub") return Response.json({ email: "EMAIL_SENTINEL@example.test", payer_id: "PROFILE_SENTINEL" });
+      if (failure === "invalid_email") return Response.json({ sub: "SUBJECT_SENTINEL", email: "EMAIL_SENTINEL", name: "PROFILE_SENTINEL" });
       throw new Error("unexpected second provider request");
     };
     const handlers = createPayPalLoginHttpHandlers({ store, limiter, env, fetchImpl });
@@ -214,5 +221,54 @@ describe("PayPal sandbox login HTTP handlers", () => {
     expect(new URL(callback.headers.get("location")!).searchParams.get("error")).toBe("paypal_login_failed");
     expect(owners.size).toBe(0);
     expect(sessions.size).toBe(0);
+    expect(warning).toHaveBeenCalledTimes(1);
+    const event = warning.mock.calls[0][0];
+    expect(JSON.parse(event!)).toEqual({ event: "paypal_login_failed", ...expectedLog });
+    const serialized = JSON.stringify(warning.mock.calls);
+    for (const sentinel of [
+      "TOKEN_BODY_SENTINEL", "TOKEN_JSON_SENTINEL", "TOKEN_DESCRIPTION_SENTINEL", "ERROR_SECRET_SENTINEL", "NAME_SECRET_SENTINEL", "MESSAGE_SECRET_SENTINEL",
+      "ACCESS_TOKEN_SENTINEL", "USERINFO_BODY_SENTINEL", "EMAIL_SENTINEL", "PROFILE_SENTINEL", "SUBJECT_SENTINEL",
+      "code=code", authorization.searchParams.get("state")!,
+    ]) {
+      expect(serialized).not.toContain(sentinel);
+    }
+    warning.mockRestore();
+  });
+
+  it("logs only a closed owner-session persistence diagnostic on database failure", async () => {
+    const { store, owners, sessions } = makeStore();
+    (store as IdentityStore).findOrCreatePayPalOwnerIdentityAtomic = async () => {
+      throw new Error("DB_SENTINEL email=EMAIL_SENTINEL sub=SUBJECT_SENTINEL token=TOKEN_SENTINEL");
+    };
+    const limiter = new Limiter();
+    const warning = vi.spyOn(console, "warn").mockImplementation(() => {});
+    let fetchCalls = 0;
+    const fetchImpl: typeof fetch = async () => {
+      fetchCalls += 1;
+      if (fetchCalls === 1) return Response.json({ access_token: "ACCESS_TOKEN_SENTINEL", token_type: "Bearer", expires_in: 300 });
+      return Response.json({ sub: "SUBJECT_SENTINEL", name: "PROFILE_SENTINEL", email: "EMAIL_SENTINEL@example.test" });
+    };
+    const handlers = createPayPalLoginHttpHandlers({ store, limiter, env, fetchImpl });
+    const started = await handlers.start(new Request("https://agentshelf.example/api/seller/identity/paypal/start", {
+      headers: { "cf-connecting-ip": "203.0.113.12" },
+    }));
+    const authorization = new URL(started.headers.get("location")!);
+    const stateCookie = cookiePair(getCookie(started, "agentshelf_paypal_login_state")!);
+    const callback = await handlers.callback(new Request(`https://agentshelf.example/api/seller/identity/paypal/callback?state=${authorization.searchParams.get("state")}&code=CODE_SENTINEL`, {
+      headers: { cookie: stateCookie },
+    }));
+    expect(new URL(callback.headers.get("location")!).searchParams.get("error")).toBe("paypal_login_failed");
+    expect(owners.size).toBe(0);
+    expect(sessions.size).toBe(0);
+    expect(warning).toHaveBeenCalledTimes(1);
+    expect(warning).toHaveBeenCalledWith(JSON.stringify({ event: "paypal_login_failed",
+      stage: "owner_session",
+      reason: "persistence_failure",
+    }));
+    const serialized = JSON.stringify(warning.mock.calls);
+    for (const sentinel of ["DB_SENTINEL", "EMAIL_SENTINEL", "SUBJECT_SENTINEL", "TOKEN_SENTINEL", "ACCESS_TOKEN_SENTINEL", "PROFILE_SENTINEL", "CODE_SENTINEL"]) {
+      expect(serialized).not.toContain(sentinel);
+    }
+    warning.mockRestore();
   });
 });
