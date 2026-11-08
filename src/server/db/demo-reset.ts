@@ -78,7 +78,7 @@ async function restoreDemoStock(tx: Parameters<Parameters<Db["transaction"]>[0]>
     .from(products)
     .where(inArray(products.id, productsToRestore))
     .orderBy(asc(products.id))
-    .for("update");
+    .for("no key update");
 
   const stockRows = await tx
     .select({
@@ -218,7 +218,7 @@ export async function resetDemoData(
       .from(products)
       .where(inArray(products.id, kept))
       .orderBy(asc(products.id))
-      .for("update");
+      .for("no key update");
 
     // Check held stock before seed, fixture, or catalog writes so a refused reset is a no-op.
     const stockRowsBeforeSeed = await tx
