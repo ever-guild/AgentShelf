@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import { setupMigratedDatabase } from "../../../test/database";
 import { createProduct, createService, createShop } from "../../../test/fixtures";
 import { searchProductsResult } from "../contracts/commerce";
+import { inventoryStock } from "../db/schema";
 import { DEMO_PRODUCT_ID, DEMO_SHOP_ID, seedDemoData } from "../db/seed";
 import { searchProducts } from "./catalog";
 
@@ -50,6 +51,49 @@ describe("searchProducts", () => {
       "Blue cable",
       "Red cable",
     ]);
+  });
+
+  it("reports effective inventory availability without hiding unavailable published products", async () => {
+    const db = getDb();
+    const shop = await createShop(db);
+    await createProduct(db, shop.id, { title: "Missing policy stock" });
+    const zero = await createProduct(db, shop.id, { title: "Zero stock item" });
+    const reserved = await createProduct(db, shop.id, { title: "Reserved stock item" });
+    const positive = await createProduct(db, shop.id, { title: "Positive stock item" });
+    const untracked = await createProduct(db, shop.id, { title: "Untracked stock item" });
+    const legacyUnavailable = await createProduct(db, shop.id, {
+      title: "Legacy unavailable stock",
+      availability: "unavailable",
+    });
+    await createService(db, shop.id, { title: "Stock service" });
+
+    await db.insert(inventoryStock).values([
+      { shopId: shop.id, productId: zero.id, mode: "tracked", onHand: 0, reserved: 0 },
+      { shopId: shop.id, productId: reserved.id, mode: "tracked", onHand: 2, reserved: 2 },
+      { shopId: shop.id, productId: positive.id, mode: "tracked", onHand: 3, reserved: 1 },
+      { shopId: shop.id, productId: untracked.id, mode: "untracked", onHand: null, reserved: 0 },
+      { shopId: shop.id, productId: legacyUnavailable.id, mode: "tracked", onHand: 3, reserved: 0 },
+    ]);
+
+    const result = await searchProducts(db, { query: "stock" });
+    expect(result.products.map((product) => product.title).sort()).toEqual([
+      "Legacy unavailable stock",
+      "Missing policy stock",
+      "Positive stock item",
+      "Reserved stock item",
+      "Stock service",
+      "Untracked stock item",
+      "Zero stock item",
+    ]);
+    expect(Object.fromEntries(result.products.map(({ title, availability }) => [title, availability]))).toEqual({
+      "Missing policy stock": "unavailable",
+      "Zero stock item": "unavailable",
+      "Reserved stock item": "unavailable",
+      "Positive stock item": "available",
+      "Untracked stock item": "available",
+      "Legacy unavailable stock": "unavailable",
+      "Stock service": "available",
+    });
   });
 
   it.each(["draft", "unpublished"] as const)(

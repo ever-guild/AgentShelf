@@ -12,7 +12,7 @@ import {
   readOrder,
   type PaymentHarness,
 } from "../../../test/payments";
-import { orders, products } from "../db/schema";
+import { inventoryStock, orders, products } from "../db/schema";
 import { ServiceError } from "../errors";
 import { createCheckout } from "./checkout";
 import { reconcileForBuyer } from "./payment-reconciliation";
@@ -94,10 +94,51 @@ describe("getStorefront", () => {
       descriptionLanguage: null,
       priceMinor: 1250,
       currency: "EUR",
-      availability: "available",
+      availability: "unavailable",
       serviceDurationMinutes: null,
       depositMinor: null,
     });
+  });
+
+  it("uses effective inventory availability in the shop and product views", async () => {
+    const db = getDb();
+    const shop = await createShop(db, { name: "Inventory shop" });
+    const missing = await createProduct(db, shop.id, { title: "Missing policy stock" });
+    const zero = await createProduct(db, shop.id, { title: "Zero stock item" });
+    const reserved = await createProduct(db, shop.id, { title: "Reserved stock item" });
+    const positive = await createProduct(db, shop.id, { title: "Positive stock item" });
+    const untracked = await createProduct(db, shop.id, { title: "Untracked stock item" });
+    const legacyUnavailable = await createProduct(db, shop.id, {
+      title: "Legacy unavailable stock",
+      availability: "unavailable",
+    });
+    const service = await createService(db, shop.id, { title: "Stock service" });
+    const productsById = [missing, zero, reserved, positive, untracked, legacyUnavailable, service];
+
+    await db.insert(inventoryStock).values([
+      { shopId: shop.id, productId: zero.id, mode: "tracked", onHand: 0, reserved: 0 },
+      { shopId: shop.id, productId: reserved.id, mode: "tracked", onHand: 2, reserved: 2 },
+      { shopId: shop.id, productId: positive.id, mode: "tracked", onHand: 3, reserved: 1 },
+      { shopId: shop.id, productId: untracked.id, mode: "untracked", onHand: null, reserved: 0 },
+      { shopId: shop.id, productId: legacyUnavailable.id, mode: "tracked", onHand: 3, reserved: 0 },
+    ]);
+
+    const listing = await getStorefront(db, shop.slug, "en", harness.deps.paypalFor);
+    const expected = {
+      "Missing policy stock": "unavailable",
+      "Zero stock item": "unavailable",
+      "Reserved stock item": "unavailable",
+      "Positive stock item": "available",
+      "Untracked stock item": "available",
+      "Legacy unavailable stock": "unavailable",
+      "Stock service": "available",
+    };
+    expect(Object.fromEntries(listing.products.map(({ title, availability }) => [title, availability]))).toEqual(expected);
+
+    const details = await Promise.all(productsById.map((product) =>
+      getStorefrontProduct(db, shop.slug, product.id, "en", harness.deps.paypalFor),
+    ));
+    expect(Object.fromEntries(details.map(({ product }) => [product.title, product.availability]))).toEqual(expected);
   });
 
   it("gives a page nothing it could leak: no merchant, credential reference or secret", async () => {

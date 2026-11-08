@@ -9,13 +9,14 @@ import {
   storefrontCheckoutResult,
 } from "../contracts/commerce";
 import type { Db } from "../db/client";
-import { orderLines, orders, products, shops } from "../db/schema";
+import { inventoryStock, orderLines, orders, products, shops } from "../db/schema";
 import { ServiceError, parseInput } from "../errors";
 import { errorResponse, readBodyWithin } from "../http";
 import { paypalFor as defaultPayPalFor, type PayPalProvider } from "../paypal/orders";
 import { merchantEligibilityPool, resolveShopPayPalRoute } from "../paypal/merchant-eligibility";
 import { createCheckout, type CheckoutDeps } from "./checkout";
 import { getOrderStatus } from "./order-status";
+import { effectiveProductAvailability } from "./product-availability";
 
 // The public shop pages. Everything a page shows comes through here, as explicit fields, so a new
 // shop or product column stays private until someone adds it. The merchant ID and credential
@@ -103,6 +104,9 @@ const productColumns = {
   description: products.description,
   priceMinor: products.priceMinor,
   availability: products.availability,
+  inventoryMode: inventoryStock.mode,
+  inventoryOnHand: inventoryStock.onHand,
+  inventoryReserved: inventoryStock.reserved,
   serviceDurationMinutes: products.serviceDurationMinutes,
   depositMinor: products.depositMinor,
 };
@@ -114,6 +118,9 @@ type ProductRow = {
   description: string;
   priceMinor: number | null;
   availability: "available" | "unavailable";
+  inventoryMode: string | null;
+  inventoryOnHand: number | null;
+  inventoryReserved: number | null;
   serviceDurationMinutes: number | null;
   depositMinor: number | null;
   descriptionEn?: string | null;
@@ -138,7 +145,11 @@ function toStorefrontProduct(
     descriptionLanguage: description.language,
     priceMinor: row.priceMinor,
     currency,
-    availability: row.availability,
+    availability: effectiveProductAvailability(row.kind, row.availability, {
+      mode: row.inventoryMode,
+      onHand: row.inventoryOnHand,
+      reserved: row.inventoryReserved,
+    }),
     serviceDurationMinutes: row.serviceDurationMinutes,
     depositMinor: row.depositMinor,
   };
@@ -197,6 +208,13 @@ export async function getStorefront(
   const rows = (await db
     .select({ ...productColumns, ...reviewedTextColumns() })
     .from(products)
+    .leftJoin(
+      inventoryStock,
+      and(
+        eq(inventoryStock.shopId, products.shopId),
+        eq(inventoryStock.productId, products.id),
+      ),
+    )
     .where(and(eq(products.shopId, shop.id), eq(products.status, "published")))
     .orderBy(asc(products.availability), asc(products.title), asc(products.id))) as ProductRow[];
   return {
@@ -225,6 +243,13 @@ export async function getStorefrontProduct(
   const [row] = (await db
     .select({ ...productColumns, ...reviewedTextColumns() })
     .from(products)
+    .leftJoin(
+      inventoryStock,
+      and(
+        eq(inventoryStock.shopId, products.shopId),
+        eq(inventoryStock.productId, products.id),
+      ),
+    )
     .where(
       and(
         eq(products.id, productId),

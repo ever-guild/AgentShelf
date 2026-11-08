@@ -9,9 +9,10 @@ import {
   type ProductSummary,
 } from "../contracts/commerce";
 import type { Db } from "../db/client";
-import { productSearchTerms, products, shops } from "../db/schema";
+import { inventoryStock, productSearchTerms, products, shops } from "../db/schema";
 import { ServiceError, parseInput } from "../errors";
 import { recordSearch, type SearchFilters } from "./search-events";
+import { effectiveProductAvailability } from "./product-availability";
 import {
   currentTerms,
   inLocation,
@@ -35,12 +36,19 @@ const summaryColumns = {
   priceMinor: products.priceMinor,
   currency: shops.currency,
   availability: products.availability,
+  inventoryMode: inventoryStock.mode,
+  inventoryOnHand: inventoryStock.onHand,
+  inventoryReserved: inventoryStock.reserved,
   serviceDurationMinutes: products.serviceDurationMinutes,
   depositMinor: products.depositMinor,
 };
 
-type SummaryRow = Omit<ProductSummary, "priceMinor"> & {
+type SummaryRow = Omit<ProductSummary, "priceMinor" | "availability"> & {
   priceMinor: number | null;
+  availability: ProductSummary["availability"];
+  inventoryMode: string | null;
+  inventoryOnHand: number | null;
+  inventoryReserved: number | null;
 };
 
 function toSummary(row: SummaryRow): ProductSummary {
@@ -48,7 +56,23 @@ function toSummary(row: SummaryRow): ProductSummary {
     // Unreachable while the products_published_requires_price constraint holds.
     throw new Error(`Published product ${row.productId} has no price`);
   }
-  return { ...row, priceMinor: row.priceMinor };
+  const { inventoryMode, inventoryOnHand, inventoryReserved, ...summary } = row;
+  return {
+    ...summary,
+    availability: effectiveProductAvailability(row.kind, row.availability, {
+      mode: inventoryMode,
+      onHand: inventoryOnHand,
+      reserved: inventoryReserved,
+    }),
+    priceMinor: row.priceMinor,
+  };
+}
+
+function joinInventoryStock() {
+  return and(
+    eq(inventoryStock.shopId, products.shopId),
+    eq(inventoryStock.productId, products.id),
+  );
 }
 
 async function assertShopExists(db: Db, shopId: string): Promise<void> {
@@ -71,6 +95,7 @@ export async function listPublishedProducts(
     .select(summaryColumns)
     .from(products)
     .innerJoin(shops, eq(products.shopId, shops.id))
+    .leftJoin(inventoryStock, joinInventoryStock())
     .where(and(eq(products.shopId, shopId), eq(products.status, "published")))
     .orderBy(asc(products.title));
   return rows.map(toSummary);
@@ -86,6 +111,7 @@ export async function getPublishedProduct(
     .select(summaryColumns)
     .from(products)
     .innerJoin(shops, eq(products.shopId, shops.id))
+    .leftJoin(inventoryStock, joinInventoryStock())
     .where(
       and(
         eq(products.id, productId),
@@ -128,6 +154,7 @@ async function findProducts(
     .select(summaryColumns)
     .from(products)
     .innerJoin(shops, eq(products.shopId, shops.id))
+    .leftJoin(inventoryStock, joinInventoryStock())
     .leftJoin(productSearchTerms, currentTerms)
     .where(
       and(
