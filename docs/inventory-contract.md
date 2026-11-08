@@ -1,8 +1,9 @@
 # Quantitative inventory contract (#36)
 
-This documents the inventory domain module, seller stock API, physical-order adapter, and the
-inventory migration. Checkout and payment-reconciliation wiring remains a separate integration
-slice under review.
+The inventory module, owner-scoped stock interfaces, PostgreSQL migrations, and physical purchase
+checkout/payment hooks are implemented in the runtime. The live one-unit sandbox settlement is
+recorded in [issue #36](https://github.com/ever-guild/AgentShelf/issues/36); that evidence verifies
+one purchase, while PostgreSQL tests cover concurrency and state transitions.
 
 ## Semantics
 
@@ -42,9 +43,14 @@ slice under review.
 - `createReservedPhysicalOrder` writes the purchase order, immutable line snapshots and stock
   reservation in one PostgreSQL transaction on the same client. Retries reuse the stored order and
   reservation; a different fingerprint conflicts. It does not create a PayPal order.
-- `beginPhysicalOrderCapture` loads the order's immutable allocation link and atomically claims the
-  live capture attempt. `settlePhysicalOrderCapture` consumes stock and marks the order paid in one
-  transaction; a late capture marks both for review and keeps any still-held units reserved.
+- Physical checkout creates the reservation before asking PayPal for an approval order. The
+  reconciliation path claims a live allocation immediately before a new capture request. An
+  already-started or ambiguous attempt is reconciled by reading its existing provider order rather
+  than issuing another capture.
+- `settlePhysicalOrderCapture` accepts only verified `COMPLETED` capture evidence with provider
+  capture ID and provider timestamp. Reconciliation also verifies the capture against the stored
+  order. It consumes stock and marks the order paid in one transaction; a late capture marks both
+  for review and keeps any still-held units reserved.
 - `closePhysicalOrderAfterVerifiedUnpaid` releases a purchase hold only after a verified unpaid,
   cancelled, or expired-unpaid provider result, and updates the order in the same transaction.
 
@@ -58,17 +64,28 @@ slice under review.
   decision. The initial policy cannot be reset or changed by retrying under another key.
 - Routes use the canonical owner-session/shop membership check and derive the tenant from the
   authenticated principal; the body cannot select a shop.
+- The protected seller MCP exposes `seller_manage_stock`. Reads require `read_shop`; setting a
+  policy or adjusting stock requires `manage_inventory`. The seller grant supplies the shop and
+  actor identity; tool arguments do not.
 
-## Required shared integration
+## Migration and catalog policy
 
-1. Catalog import must preserve a supplied quantity and require a seller decision if none was
-   supplied; it cannot silently invent unlimited stock.
-2. Checkout quote/create must call `createReservedPhysicalOrder` before issuing an approval link,
-   then claim `beginInventoryCapture` immediately before any new capture call. Unknown provider
-   outcomes keep the reservation while reconciliation reads the existing provider result.
-3. The verified capture/payment hook must pass provider-verified capture identity and timestamp to
-   the inventory commit adapter. Late completed captures need a review/refund-or-rebook path without
-   stock oversell.
-4. Seller routes and MCP tools must bind to an identity-derived principal. The Drizzle schema and
-   ordered migration journal need the migration owner's integration of
-   `drizzle/inventory-module-draft.sql`; this standalone draft is not production migration-ready.
+- Numbered migration `0013_inventory_stock_reservations.sql` creates inventory and reservation
+  tables and adds the tenant-scoped order link. Migration `0015_legacy_and_demo_inventory.sql`
+  records historical non-import products as untracked because their quantities were unknown; it
+  does not assign them invented quantities. The demo seed gives only its fixed synthetic products
+  explicit tracked quantities and does not overwrite existing stock on reseed.
+- Imported products are not silently given an unlimited or untracked policy. A product without an
+  inventory row cannot be reserved; its seller must explicitly set tracked stock or choose
+  untracked through the policy endpoint or seller MCP before checkout. CSV/import quantity values
+  are not currently wired into the inventory policy automatically, so sellers must review/set the
+  inventory decision separately.
+- `drizzle/inventory-module-draft.sql` is a historical standalone draft, not part of the migration
+  journal or the production upgrade path. Runtime setup uses the numbered migrations.
+
+## Completion evidence and remaining gate
+
+The implementation is deployed and its PostgreSQL concurrency/payment-settlement regression checks
+passed. A real sandbox physical purchase settled the single allocated unit exactly once; issue #36
+contains the sanitized result and its limitations. #36 remains open only while its declared #34
+dependency is open; this is a delivery gate, not a missing checkout/inventory integration.
