@@ -17,7 +17,10 @@ export type ReservedPhysicalOrder = Readonly<{
   reused: boolean;
 }>;
 
-export type PhysicalCaptureGate = InventoryCapturePermit | { allowed: false; reason: "missing_reservation" };
+export type PhysicalCaptureGate =
+  | InventoryCapturePermit
+  | { allowed: true; reason: "retry" }
+  | { allowed: false; reason: "missing_reservation" | "ambiguous_expired" };
 export type PhysicalRefusalDisposition = "rearmed" | "expired" | "terminal";
 
 export async function assertPhysicalOrderAllocationLive(pool: Pool, orderId: string, now = new Date()): Promise<void> {
@@ -76,6 +79,54 @@ export async function beginPhysicalOrderCapture(pool: Pool, orderId: string, now
     if (!result.rowCount || !result.rows[0].inventory_reservation_id) return { allowed: false, reason: "missing_reservation" };
     return beginInventoryCaptureInTransaction(client, result.rows[0].shop_id, result.rows[0].inventory_reservation_id, now);
   });
+}
+
+/**
+ * Reclaims a timed-out physical capture request only after the caller has just verified that
+ * PayPal still reports the order as approved. The fixed PayPal-Request-Id makes this retry
+ * idempotent. Once the allocation expires, the outcome is ambiguous and stock stays held for
+ * review; expiry alone is never evidence that the provider did not capture.
+ */
+export async function retryPhysicalOrderCapture(pool: Pool, orderId: string, now = new Date()): Promise<PhysicalCaptureGate> {
+  return withTransaction(pool, async (client) => {
+    const order = await client.query<{
+      shop_id: string;
+      inventory_reservation_id: string | null;
+      payment_status: string;
+    }>(
+      "SELECT shop_id, inventory_reservation_id, payment_status FROM orders WHERE id=$1 AND kind='purchase' FOR UPDATE",
+      [orderId],
+    );
+    if (!order.rowCount || !order.rows[0].inventory_reservation_id) {
+      return { allowed: false, reason: "missing_reservation" };
+    }
+    if (!["pending", "approved"].includes(order.rows[0].payment_status)) {
+      return { allowed: false, reason: "terminal" };
+    }
+
+    const reservation = await client.query<{ state: string; expires_at: Date }>(
+      "SELECT state, expires_at FROM inventory_reservations WHERE shop_id=$1 AND id=$2 FOR UPDATE",
+      [order.rows[0].shop_id, order.rows[0].inventory_reservation_id],
+    );
+    if (!reservation.rowCount || reservation.rows[0].state !== "capture_pending") {
+      return { allowed: false, reason: "terminal" };
+    }
+    if (reservation.rows[0].expires_at <= now) {
+      return { allowed: false, reason: "ambiguous_expired" };
+    }
+    return { allowed: true, reason: "retry" };
+  });
+}
+
+/** Allows review-state reconciliation to read a previously started provider capture, never start one. */
+export async function hasUnresolvedPhysicalCapture(pool: Pool, orderId: string): Promise<boolean> {
+  const result = await pool.query(
+    `SELECT 1 FROM orders o
+     JOIN inventory_reservations r ON r.id=o.inventory_reservation_id AND r.shop_id=o.shop_id
+     WHERE o.id=$1 AND o.kind='purchase' AND r.state='capture_pending'`,
+    [orderId],
+  );
+  return result.rows.length > 0;
 }
 
 /**

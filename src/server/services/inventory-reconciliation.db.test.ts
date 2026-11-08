@@ -10,7 +10,7 @@ import { createDb, type Db } from "../db/client";
 import { runMigrations } from "../db/migrate";
 import { createCheckout } from "./checkout";
 import { createSellerInventoryAdapter } from "../inventory/seller-adapter";
-import { beginPhysicalOrderCapture } from "../inventory/physical-orders";
+import { beginPhysicalOrderCapture, closePhysicalOrderAfterVerifiedUnpaid } from "../inventory/physical-orders";
 import { reconcileOrder } from "./payment-reconciliation";
 
 let temporary: Awaited<ReturnType<typeof createTemporaryDatabase>>;
@@ -69,7 +69,7 @@ describe("physical inventory payment reconciliation", () => {
 
   it("does not capture an approved PayPal order after its stock hold expires", async () => {
     const order = await place();
-    await pool.query("UPDATE inventory_reservations SET expires_at=now()-interval '1 second' WHERE id=$1", [order.reservationId]);
+    await pool.query("UPDATE inventory_reservations SET expires_at='2026-11-06T09:00:00Z' WHERE id=$1", [order.reservationId]);
     harness.paypal.approve(order.paypalOrderId);
 
     const settled = await reconcileOrder(db, order.orderId, harness.deps);
@@ -79,20 +79,97 @@ describe("physical inventory payment reconciliation", () => {
     expect(await createSellerInventoryAdapter(pool).read({ actorId: "00000000-0000-4000-8000-000000000099", shopId }, productId)).toMatchObject({ onHand: 1, reserved: 0, available: 1 });
   });
 
-  it("keeps stock reserved after an ambiguous capture, and never retries it after expiry", async () => {
+  it("retries an ambiguous capture with the same PayPal request ID while its allocation is live", async () => {
     const order = await place();
     harness.paypal.approve(order.paypalOrderId);
     harness.paypal.nextCapture({ type: "timeout", captured: false });
 
     await expect(reconcileOrder(db, order.orderId, harness.deps)).rejects.toMatchObject({ code: "PAYMENT_UNAVAILABLE" });
     expect(harness.paypal.captureRequests()).toHaveLength(1);
-    await pool.query("UPDATE inventory_reservations SET expires_at=now()-interval '1 second' WHERE id=$1", [order.reservationId]);
+    expect(await createSellerInventoryAdapter(pool).read({ actorId: "00000000-0000-4000-8000-000000000099", shopId }, productId)).toMatchObject({ onHand: 1, reserved: 1, available: 0 });
+
+    const settled = await reconcileOrder(db, order.orderId, harness.deps);
+
+    const captureRequests = harness.paypal.captureRequests();
+    expect(settled?.paymentStatus).toBe("paid");
+    expect(captureRequests).toHaveLength(2);
+    expect(captureRequests.map((request) => harness.paypal.requestIdOf(request))).toEqual([
+      `capture-${order.orderId}`,
+      `capture-${order.orderId}`,
+    ]);
+    expect(harness.paypal.charges()).toBe(1);
+    expect(await createSellerInventoryAdapter(pool).read({ actorId: "00000000-0000-4000-8000-000000000099", shopId }, productId)).toMatchObject({ onHand: 0, reserved: 0, available: 0 });
+  });
+
+  it("keeps an ambiguous capture held for review after its allocation expires", async () => {
+    const order = await place();
+    harness.paypal.approve(order.paypalOrderId);
+    harness.paypal.nextCapture({ type: "timeout", captured: false });
+
+    await expect(reconcileOrder(db, order.orderId, harness.deps)).rejects.toMatchObject({ code: "PAYMENT_UNAVAILABLE" });
+    expect(harness.paypal.captureRequests()).toHaveLength(1);
+    await pool.query("UPDATE inventory_reservations SET expires_at='2026-11-06T09:00:00Z' WHERE id=$1", [order.reservationId]);
 
     const retried = await reconcileOrder(db, order.orderId, harness.deps);
 
-    expect(retried?.paymentStatus).toBe("approved");
+    expect(retried?.paymentStatus).toBe("review_required");
     expect(harness.paypal.captureRequests()).toHaveLength(1);
     expect(await createSellerInventoryAdapter(pool).read({ actorId: "00000000-0000-4000-8000-000000000099", shopId }, productId)).toMatchObject({ onHand: 1, reserved: 1, available: 0 });
+    const reservation = await pool.query<{ state: string }>("SELECT state FROM inventory_reservations WHERE id=$1", [order.reservationId]);
+    expect(reservation.rows[0].state).toBe("capture_pending");
+
+    const paypal = harness.deps.paypalFor("TEST_SHOP", order.merchantId);
+    await paypal!.captureOrder({ id: order.paypalOrderId, paypalRequestId: `capture-${order.orderId}`, body: {} });
+    const lateCaptureId = harness.paypal.captureIdOf(order.paypalOrderId);
+
+    const lateResult = await reconcileOrder(db, order.orderId, harness.deps);
+
+    expect(lateResult?.paymentStatus).toBe("review_required");
+    expect(harness.paypal.captureRequests()).toHaveLength(2);
+    expect(await createSellerInventoryAdapter(pool).read({ actorId: "00000000-0000-4000-8000-000000000099", shopId }, productId)).toMatchObject({ onHand: 1, reserved: 1, available: 0 });
+    const lateReservation = await pool.query<{ state: string; capture_id: string | null }>("SELECT state, capture_id FROM inventory_reservations WHERE id=$1", [order.reservationId]);
+    expect(lateReservation.rows[0]).toEqual({ state: "review_required", capture_id: lateCaptureId });
+    const lateOrder = await pool.query<{ payment_status: string; paypal_capture_id: string | null }>("SELECT payment_status, paypal_capture_id FROM orders WHERE id=$1", [order.orderId]);
+    expect(lateOrder.rows[0]).toEqual({ payment_status: "review_required", paypal_capture_id: lateCaptureId });
+  });
+
+  it("releases stock when PayPal confirms a buyer-cancelled purchase is still unpaid", async () => {
+    const order = await place();
+
+    const cancelled = await reconcileOrder(db, order.orderId, harness.deps, { buyerCancelled: true });
+
+    expect(cancelled?.paymentStatus).toBe("cancelled");
+    expect(harness.paypal.captureRequests()).toHaveLength(0);
+    expect(await createSellerInventoryAdapter(pool).read({ actorId: "00000000-0000-4000-8000-000000000099", shopId }, productId)).toMatchObject({ onHand: 1, reserved: 0, available: 1 });
+    const reservation = await pool.query<{ state: string; release_reason: string }>("SELECT state, release_reason FROM inventory_reservations WHERE id=$1", [order.reservationId]);
+    expect(reservation.rows[0]).toEqual({ state: "released", release_reason: "verified_cancelled" });
+  });
+
+  it("does not release an ambiguous capture when a buyer returns through the cancel link", async () => {
+    const order = await place();
+    await expect(beginPhysicalOrderCapture(pool, order.orderId)).resolves.toMatchObject({ allowed: true });
+
+    const unchanged = await reconcileOrder(db, order.orderId, harness.deps, { buyerCancelled: true });
+
+    expect(unchanged?.paymentStatus).toBe("pending");
+    expect(harness.paypal.captureRequests()).toHaveLength(0);
+    expect(await createSellerInventoryAdapter(pool).read({ actorId: "00000000-0000-4000-8000-000000000099", shopId }, productId)).toMatchObject({ onHand: 1, reserved: 1, available: 0 });
+    const reservation = await pool.query<{ state: string }>("SELECT state FROM inventory_reservations WHERE id=$1", [order.reservationId]);
+    expect(reservation.rows[0].state).toBe("capture_pending");
+  });
+
+  it("sends an approved legacy purchase without an allocation to review without capturing", async () => {
+    const order = await place();
+    expect(await closePhysicalOrderAfterVerifiedUnpaid(pool, order.orderId, "verified_unpaid", "failed")).toBe(true);
+    await pool.query("UPDATE orders SET inventory_reservation_id=NULL, payment_status='pending' WHERE id=$1", [order.orderId]);
+    harness.paypal.approve(order.paypalOrderId);
+
+    const reviewed = await reconcileOrder(db, order.orderId, harness.deps);
+
+    expect(reviewed?.paymentStatus).toBe("review_required");
+    expect(harness.paypal.captureRequests()).toHaveLength(0);
+    expect(harness.paypal.charges()).toBe(0);
+    expect(await createSellerInventoryAdapter(pool).read({ actorId: "00000000-0000-4000-8000-000000000099", shopId }, productId)).toMatchObject({ onHand: 1, reserved: 0, available: 1 });
   });
 
   it("records a late completed capture for review without overselling or replacing capture evidence", async () => {

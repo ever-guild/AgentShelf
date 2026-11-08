@@ -214,7 +214,7 @@ describe("an unknown capture outcome", () => {
     expect(harness.paypal.charges()).toBe(1);
   });
 
-  it("keeps a live stock hold when capture outcome is unknown and does not resend capture", async () => {
+  it("retries a still-approved capture with the same request ID while its stock hold is live", async () => {
     const { orderId, paypalOrderId } = await placeOrder(getDb(), harness);
     harness.paypal.approve(paypalOrderId);
     harness.paypal.nextCapture({ type: "timeout", captured: false });
@@ -222,9 +222,13 @@ describe("an unknown capture outcome", () => {
 
     const order = await reconcile(orderId);
 
-    expect(order?.paymentStatus).toBe("approved");
-    expect(harness.paypal.charges()).toBe(0);
-    expect(harness.paypal.captureRequests()).toHaveLength(1);
+    expect(order?.paymentStatus).toBe("paid");
+    expect(harness.paypal.charges()).toBe(1);
+    expect(harness.paypal.captureRequests()).toHaveLength(2);
+    expect(harness.paypal.captureRequests().map((request) => harness.paypal.requestIdOf(request))).toEqual([
+      `capture-${orderId}`,
+      `capture-${orderId}`,
+    ]);
   });
 
   it("stays open when PayPal cannot even be read after the capture", async () => {
@@ -572,15 +576,16 @@ describe("the buyer cancelling", () => {
     expect(order?.paymentStatus).toBe("paid");
   });
 
-  it("gives way if the buyer goes back and approves", async () => {
+  it("does not capture if a buyer approves again after their cancellation released stock", async () => {
     const { orderId, paypalOrderId } = await placeOrder(getDb(), harness);
     await reconcile(orderId, { buyerCancelled: true });
 
     harness.paypal.approve(paypalOrderId);
     const order = await reconcile(orderId);
 
-    expect(order?.paymentStatus).toBe("paid");
-    expect(harness.paypal.charges()).toBe(1);
+    expect(order?.paymentStatus).toBe("review_required");
+    expect(harness.paypal.captureRequests()).toHaveLength(0);
+    expect(harness.paypal.charges()).toBe(0);
   });
 
   it.each(["approved", "paid"] as const)(

@@ -7,7 +7,7 @@ import { quoteCheckout } from "../services/checkout-quote";
 import { createDb, type Db } from "../db/client";
 import { runMigrations } from "../db/migrate";
 import { createSellerInventoryAdapter } from "./seller-adapter";
-import { beginPhysicalOrderCapture, checkoutRequestFingerprint, createReservedPhysicalOrder, settlePhysicalOrderCapture } from "./physical-orders";
+import { beginPhysicalOrderCapture, checkoutRequestFingerprint, createReservedPhysicalOrder, retryPhysicalOrderCapture, settlePhysicalOrderCapture } from "./physical-orders";
 
 const actorId = "00000000-0000-4000-8000-000000000099";
 let temporary: Awaited<ReturnType<typeof createTemporaryDatabase>>;
@@ -72,7 +72,9 @@ describe("physical order inventory adapter", () => {
     ]);
     expect(captureClaims.filter((claim) => claim.allowed)).toHaveLength(1);
     expect(captureClaims.filter((claim) => !claim.allowed)).toEqual([{ allowed: false, reason: "already_started" }]);
+    await expect(retryPhysicalOrderCapture(pool, first.orderId)).resolves.toEqual({ allowed: true, reason: "retry" });
     await pool.query("UPDATE inventory_reservations SET expires_at=now()-interval '1 second' WHERE id=$1", [first.reservationId]);
+    await expect(retryPhysicalOrderCapture(pool, first.orderId)).resolves.toEqual({ allowed: false, reason: "ambiguous_expired" });
     await expect(beginPhysicalOrderCapture(pool, first.orderId)).resolves.toMatchObject({ allowed: false, reason: "already_started" });
     const lateProof = { captureId: "physical-capture-late-0001", providerStatus: "COMPLETED" as const, capturedAt: new Date(), verified: true as const };
     await expect(settlePhysicalOrderCapture(pool, first.orderId, lateProof)).resolves.toBe("review_required");

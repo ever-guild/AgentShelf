@@ -20,7 +20,7 @@ import {
 } from "../paypal/orders";
 import { isReadyConnectedMerchant } from "../paypal/merchant-eligibility";
 import { confirmBookingPayment, gateDepositCapture, type DepositCaptureDecision } from "./bookings";
-import { beginPhysicalOrderCapture, closePhysicalOrderAfterVerifiedUnpaid, rearmPhysicalOrderAfterVerifiedRefusal, settlePhysicalOrderCapture } from "../inventory/physical-orders";
+import { beginPhysicalOrderCapture, closePhysicalOrderAfterVerifiedUnpaid, hasUnresolvedPhysicalCapture, rearmPhysicalOrderAfterVerifiedRefusal, retryPhysicalOrderCapture, settlePhysicalOrderCapture } from "../inventory/physical-orders";
 
 // The one place that decides what a PayPal order means for a stored order. The buyer's return, a
 // verified webhook and the sweep are all only reasons to ask: each calls reconcileOrder, which
@@ -179,10 +179,19 @@ async function applyReading(
   switch (reading.outcome) {
     case "awaiting_buyer":
       if (options.buyerCancelled) {
-        await db
-          .update(orders)
-          .set({ paymentStatus: "cancelled" })
-          .where(and(eq(orders.id, order.id), eq(orders.paymentStatus, "pending")));
+        if (order.kind === "purchase") {
+          await closePhysicalOrderAfterVerifiedUnpaid(
+            inventoryPool(db),
+            order.id,
+            "verified_cancelled",
+            "cancelled",
+          );
+        } else {
+          await db
+            .update(orders)
+            .set({ paymentStatus: "cancelled" })
+            .where(and(eq(orders.id, order.id), eq(orders.paymentStatus, "pending")));
+        }
       }
       return;
 
@@ -312,9 +321,13 @@ export async function reconcileOrder(
     order.kind === "booking_deposit" &&
     order.paymentStatus === "review_required" &&
     !order.paypalCaptureId;
+  const physicalCaptureInReview =
+    order.kind === "purchase" &&
+    order.paymentStatus === "review_required" &&
+    await hasUnresolvedPhysicalCapture(inventoryPool(db), order.id);
   if (
     !paypalOrderId ||
-    (order.paymentStatus === "review_required" && !depositReviewWithoutCapture)
+    (order.paymentStatus === "review_required" && !depositReviewWithoutCapture && !physicalCaptureInReview)
   ) {
     return order;
   }
@@ -338,6 +351,12 @@ export async function reconcileOrder(
     });
 
   let reading = await read();
+  if (physicalCaptureInReview) {
+    // Review stops new capture attempts, but a webhook or buyer return may still reveal that the
+    // provider completed the already-started request. Record that evidence without restocking.
+    if (reading.outcome === "paid") await applyReading(db, order, reading, deps, options);
+    return (await loadOrder(db, order.id))?.order;
+  }
   if (depositReviewWithoutCapture) {
     await recordDepositCapture(db, order.id, reading);
     return (await loadOrder(db, order.id))?.order;
@@ -383,8 +402,17 @@ export async function reconcileOrder(
         }
         return (await loadOrder(db, order.id))?.order;
       }
-      const gate = await beginPhysicalOrderCapture(inventoryPool(db), order.id);
+      let gate = await beginPhysicalOrderCapture(inventoryPool(db), order.id);
+      if (!gate.allowed && gate.reason === "already_started") {
+        // PayPal just reported APPROVED, so retry only the same idempotent capture request and
+        // only while its original stock allocation remains live.
+        gate = await retryPhysicalOrderCapture(inventoryPool(db), order.id);
+      }
       if (!gate.allowed) {
+        if (gate.reason === "ambiguous_expired") {
+          await markForReview(db, order.id, "capture outcome is unresolved after stock allocation expiry");
+          return (await loadOrder(db, order.id))?.order;
+        }
         if (gate.reason === "expired") {
           await closePhysicalOrderAfterVerifiedUnpaid(
             inventoryPool(db),
@@ -395,12 +423,7 @@ export async function reconcileOrder(
           return (await loadOrder(db, order.id))?.order;
         }
         if (gate.reason === "missing_reservation") {
-          await closePhysicalOrderAfterVerifiedUnpaid(
-            inventoryPool(db),
-            order.id,
-            "verified_unpaid",
-            "cancelled",
-          );
+          await markForReview(db, order.id, "approved purchase has no inventory allocation");
           return (await loadOrder(db, order.id))?.order;
         }
         if (gate.reason === "already_started") {
@@ -415,9 +438,7 @@ export async function reconcileOrder(
           await applyReading(db, order, latest, deps, options);
           return (await loadOrder(db, order.id))?.order;
         }
-        if (order.paymentStatus === "pending" || order.paymentStatus === "approved") {
-          await markForReview(db, order.id, "physical inventory allocation is terminal");
-        }
+        await markForReview(db, order.id, "physical inventory allocation is terminal");
         return (await loadOrder(db, order.id))?.order;
       }
     }
