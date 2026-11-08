@@ -87,5 +87,8 @@ one purchase, while PostgreSQL tests cover concurrency and state transitions.
 
 The implementation is deployed and its PostgreSQL concurrency/payment-settlement regression checks
 passed. A real sandbox physical purchase settled the single allocated unit exactly once; issue #36
-contains the sanitized result and its limitations. #36 remains open only while its declared #34
-dependency is open; this is a delivery gate, not a missing checkout/inventory integration.
+contains the sanitized result and its limitations. This one-unit happy path does not resolve the
+[purchase-path findings](https://github.com/ever-guild/AgentShelf/issues/36#issuecomment-6707694617):
+stock-policy setup after publication, cancellation/sweep release, ambiguous capture retry,
+legacy orders without allocations, and demo stock reset. These require fixes and targeted
+regressions; #34 is an additional delivery gate. Catalog UI coordination remains pending.
