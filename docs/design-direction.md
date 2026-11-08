@@ -11,7 +11,8 @@ The direction for every AgentShelf screen, in the five lines the [unslop skill](
 ## What this means on a screen
 
 - **Surfaces and text** use the zinc ramp, and never take a tint from the world.
-- **`ink`** is the one accent, for the main action, the selection and the signature. **`blocked`**, **`doubt`** and **`accepted`** carry meaning only, and always come with words, so color is never the only signal.
+- **`ink` (`#0070ba`)** is the one accent, for the main action, the selection and the signature. **`blocked`**, **`doubt`** and **`accepted`** carry meaning only, and always come with words, so color is never the only signal.
+- **Action shape:** the homepage demo action uses a 24px radius, matching the hosted PayPal Login button.
 - **Type** is Geist Sans, in sentence case, with `tabular-nums` on every amount.
 - **Motion:** the line passing over a photo while it is being read is the one thing that moves by itself, and it stops for people who ask for reduced motion.
 

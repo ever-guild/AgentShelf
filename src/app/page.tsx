@@ -60,7 +60,7 @@ export default function Home() {
           <div className="flex flex-wrap items-center gap-x-6 gap-y-2 pt-2">
             <Link
               href="/shops/demo-phone-workshop"
-              className="inline-flex h-12 items-center rounded-lg bg-ink px-5 font-medium text-background transition-[background-color,transform] hover:bg-ink/90 active:scale-[0.98]"
+              className="inline-flex h-12 items-center rounded-[24px] bg-ink px-5 font-medium text-background transition-[background-color,transform] hover:bg-ink/90 active:scale-[0.98]"
             >
               See the demo workshop
             </Link>

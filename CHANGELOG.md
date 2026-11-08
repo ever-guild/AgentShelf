@@ -4,6 +4,7 @@ This project has no tagged releases yet, entries describe code present in the cu
 
 ## Unreleased
 
+- Set the shared ink accent to PayPal blue and match the homepage demo action to the hosted Login button radius
 - Use PayPal's official hosted login button across seller entry points and document rejected Login troubleshooting
 - Clarified that the privacy policy covers AI service providers and connected assistants
 - Added public Privacy policy and User agreement pages for Sandbox PayPal login consent

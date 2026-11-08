@@ -4,9 +4,8 @@
   color-scheme: light dark;
   --background: #ffffff;
   --foreground: #18181b;
-  /* The blue of a carbon-copy receipt book, for what the source said and for the main action, and
-     three states a row can be in. Each one reaches 4.5 to 1 on every zinc surface of its theme. */
-  --ink: #2438a6;
+  /* PayPal blue marks the main action and source values; the other colors describe row states. */
+  --ink: #0070ba;
   --blocked: #b42318;
   --doubt: #92560a;
   --accepted: #12704a;
