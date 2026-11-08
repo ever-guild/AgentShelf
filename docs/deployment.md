@@ -90,7 +90,7 @@ Either way, the seed uses the internal `DATABASE_URL` and these demo values from
 - `DEMO_PHONE_WORKSHOP_PAYPAL_MERCHANT_ID` and `DEMO_PHONE_WORKSHOP_SELLER_CODE`, and the same two for the second shop with `DEMO_SECOND_SHOP_`.
 - `DEMO_DATE`, to fix the demo's "today".
 
-Seeding again resets only the seed's own rows. `npm run demo:reset` also removes extra demo-shop listings and restores the demand fixtures, and runs only with `DEMO_ENVIRONMENT=true` on the service. [Demo data](architecture.md#demo-data) explains both.
+Seeding again resets only the seed's own rows. `npm run demo:reset` also removes extra demo-shop listings, restores fixed demo stock through audited adjustments, and restores the demand fixtures. It runs only with `DEMO_ENVIRONMENT=true` on the service and refuses to run while any demo inventory reservation is active or unresolved. [Demo data](architecture.md#demo-data) explains both.
 
 After seeding, run the [MCP smoke check](#smoke-check) so that it finds the product, restart the service, and run it again. That shows a record surviving a restart, and the result belongs in [#17](https://github.com/ever-guild/AgentShelf/issues/17).
 

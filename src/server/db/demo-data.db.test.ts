@@ -20,6 +20,11 @@ import { createCheckout } from "../services/checkout";
 import { DemoResetRefused, resetDemoData } from "./demo-reset";
 import {
   bookings,
+  inventoryAdjustments,
+  inventoryAudit,
+  inventoryReservationLines,
+  inventoryReservations,
+  inventoryStock,
   orderLines,
   orders,
   products,
@@ -253,11 +258,47 @@ describe("resetting the demo", () => {
     expect(await getDb().select().from(products).where(eq(products.id, extra.id))).toHaveLength(1);
   });
 
+  it("refuses an active or unresolved reservation without changing any demo rows", async () => {
+    await seedDemoData(getDb(), DEMO_ENV);
+    await getDb().update(products).set({ priceMinor: 1 }).where(eq(products.id, DEMO_PRODUCT_ID));
+    await getDb()
+      .update(inventoryStock)
+      .set({ onHand: 9, reserved: 0, version: 1 })
+      .where(eq(inventoryStock.productId, DEMO_PRODUCT_ID));
+    const reservationId = randomUUID();
+    await getDb().insert(inventoryReservations).values({
+      id: reservationId,
+      shopId: DEMO_SHOP_ID,
+      idempotencyKey: "demo-reset-held-reservation-0001",
+      requestHash: "a".repeat(64),
+      state: "capture_pending",
+      expiresAt: new Date(Date.now() + 60_000),
+    });
+    await getDb().insert(inventoryReservationLines).values({
+      reservationId,
+      shopId: DEMO_SHOP_ID,
+      productId: DEMO_PRODUCT_ID,
+      quantity: 1,
+    });
+
+    const auditBefore = await getDb().select().from(inventoryAudit);
+    await expect(resetDemoData(getDb(), DEMO_ENV)).rejects.toThrow("active or unresolved");
+
+    const [product] = await getDb().select().from(products).where(eq(products.id, DEMO_PRODUCT_ID));
+    const [stock] = await getDb().select().from(inventoryStock).where(eq(inventoryStock.productId, DEMO_PRODUCT_ID));
+    const [reservation] = await getDb().select().from(inventoryReservations).where(eq(inventoryReservations.id, reservationId));
+    expect(product.priceMinor).toBe(1);
+    expect(stock).toMatchObject({ onHand: 9, reserved: 0, version: 1 });
+    expect(reservation.state).toBe("capture_pending");
+    expect(await getDb().select().from(inventoryAudit)).toEqual(auditBefore);
+  });
+
   it("puts the demo back as seeded, twice over, with the same identifiers", async () => {
     await seedDemoData(getDb(), DEMO_ENV);
     const seeded = await rowIds();
 
     await getDb().update(products).set({ priceMinor: 1, status: "unpublished" }).where(eq(products.id, DEMO_PRODUCT_ID));
+    await getDb().update(inventoryStock).set({ onHand: 8, version: 2 }).where(eq(inventoryStock.productId, DEMO_PRODUCT_ID));
     const extra = await createProduct(getDb(), DEMO_SECOND_SHOP_ID, { title: "Left over" });
     const person = await createTechnician(getDb(), DEMO_SHOP_ID);
     await createWindow(getDb(), person, { weekday: 3 });
@@ -271,11 +312,24 @@ describe("resetting the demo", () => {
     const second = await resetDemoData(getDb(), DEMO_ENV);
 
     expect(first.removedProducts).toBe(1);
+    expect(first.restoredStock).toBe(1);
     expect(second.removedProducts).toBe(0);
+    expect(second.restoredStock).toBe(0);
     expect(await getDb().select().from(products).where(eq(products.id, extra.id))).toEqual([]);
     expect(await getDb().select().from(technicians).where(eq(technicians.id, person.id))).toEqual([]);
     const [product] = await getDb().select().from(products).where(eq(products.id, DEMO_PRODUCT_ID));
     expect(product).toMatchObject({ priceMinor: 990, status: "published" });
+    const [stock] = await getDb().select().from(inventoryStock).where(eq(inventoryStock.productId, DEMO_PRODUCT_ID));
+    expect(stock).toMatchObject({ onHand: 10, reserved: 0, version: 3 });
+    const stockAudits = await getDb().select().from(inventoryAudit).where(eq(inventoryAudit.productId, DEMO_PRODUCT_ID));
+    expect(stockAudits.at(-1)).toMatchObject({
+      eventType: "adjusted",
+      quantityDelta: 2,
+      reason: "Synthetic demo reset restored the fixed fixture quantity; not seller-reported stock.",
+      versionAfter: 3,
+    });
+    expect(stockAudits.at(-1)?.idempotencyKey).toBeTruthy();
+    expect(await getDb().select().from(inventoryAdjustments).where(eq(inventoryAdjustments.shopId, DEMO_SHOP_ID))).toHaveLength(1);
 
     // The same rows as a fresh seed, plus the one search somebody really made.
     const { events, ...rest } = await rowIds();
@@ -311,14 +365,17 @@ describe("resetting the demo", () => {
     const [orderBefore] = await getDb().select().from(orders);
     expect(orderBefore.paypalOrderId).toBeTruthy();
 
-    // No merchant IDs in this run: the stored ones must survive.
-    await resetDemoData(getDb(), { DEMO_ENVIRONMENT: "true", DEMO_DATE: "2026-11-09" });
+    // An unresolved checkout hold refuses reset. Nothing about its order, stock or provider
+    // references may be rewritten while PayPal's outcome is unknown.
+    await expect(
+      resetDemoData(getDb(), { DEMO_ENVIRONMENT: "true", DEMO_DATE: "2026-11-09" }),
+    ).rejects.toThrow("active or unresolved");
 
     const [orderAfter] = await getDb().select().from(orders);
     expect(orderAfter).toEqual(orderBefore);
     expect(await getDb().select({ n: count() }).from(orderLines)).toEqual([{ n: 1 }]);
     expect(await getDb().select().from(products).where(eq(products.id, sold.id))).toHaveLength(1);
-    expect(await getDb().select().from(products).where(eq(products.id, unsold.id))).toEqual([]);
+    expect(await getDb().select().from(products).where(eq(products.id, unsold.id))).toHaveLength(1);
     const [glass] = await getDb().select().from(products).where(eq(products.id, DEMO_PRODUCT_ID));
     expect(glass).toMatchObject({ paypalProductId: "AS-KEPT", paypalSyncStatus: "synced" });
     const merchants = await getDb().select({ id: shops.id, merchant: shops.paypalMerchantId }).from(shops).orderBy(asc(shops.id));

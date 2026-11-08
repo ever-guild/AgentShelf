@@ -99,14 +99,15 @@ one purchase, while PostgreSQL tests cover concurrency and state transitions.
 ## Completion evidence and remaining gate
 
 The deployed one-unit sandbox purchase settled its allocated unit exactly once; issue #36 contains
-the sanitized evidence and limitations. The current runtime candidates add provider-confirmed
-cancel release, same-request capture retry only while stock is live, review handling for legacy
-orders without allocations, and sweep behavior that preserves unresolved holds. Their PostgreSQL
-regression tests exercise stock and order state together.
+the sanitized evidence and limitations. Purchase reconciliation now handles verified unpaid
+cancellation, same-request capture retry while stock is live, ambiguous capture conflicts, and
+legacy orders without allocations. The sweep preserves unresolved holds.
 
-The one-unit happy path and these runtime changes do not complete #36, which remains open. Two
-product-flow gaps remain:
-the seller catalog UI still needs to collect or set the explicit stock decision for newly imported
-products, and `demo:reset` still does not restore depleted synthetic stock. Do not treat the
-inventory route, a passing test suite, or the live one-unit settlement as closure evidence for those
-remaining items.
+The guarded demo reset restores only fixed synthetic SKU/shop quantities through audited,
+versioned adjustments. It refuses active or unresolved reservations; tests verify restoration,
+repeat safety and atomic refusal. This command is not run against the public demo as proof.
+
+#36 remains open: the catalog UI must collect an explicit stock decision after publication, and
+buyer-facing availability must not imply that a stock-undecided product is purchasable. API access,
+a passing suite and one paid purchase do not complete that product flow.
+

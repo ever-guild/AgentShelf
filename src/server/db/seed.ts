@@ -11,6 +11,8 @@ import {
   inventoryStock,
 } from "./schema";
 
+type SeedDb = Pick<Db, "transaction">;
+
 // Synthetic demo data, written for this repository. No real shop, person or customer is behind any
 // of it, and none of it records a payment. docs/architecture.md says where each part comes from.
 // The identifiers are fixed, so seeding again updates these rows instead of adding new ones. Every
@@ -195,7 +197,7 @@ const fixtures: Fixture[] = [
 
 // Synthetic quantities exist only to make the fixed demo catalog purchasable. Conflicts are
 // ignored so a later seed never resets inventory changed by an operator or checkout.
-const demoInventory = [
+export const DEMO_INVENTORY = [
   { productId: DEMO_PRODUCT_ID, shopId: DEMO_SHOP_ID, onHand: 10 },
   { productId: DEMO_CHARGER_ID, shopId: DEMO_SHOP_ID, onHand: 4 },
   { productId: DEMO_CABLE_ID, shopId: DEMO_SHOP_ID, onHand: 12 },
@@ -224,7 +226,7 @@ export async function seedDemoDataIfEmpty(
 }
 
 export async function seedDemoData(
-  db: Db,
+  db: SeedDb,
   env: SeedEnv = process.env,
 ): Promise<void> {
   const phoneMerchant = env.DEMO_PHONE_WORKSHOP_PAYPAL_MERCHANT_ID || undefined;
@@ -285,7 +287,7 @@ export async function seedDemoData(
         .values({ id, ...product })
         .onConflictDoUpdate({ target: products.id, set: product });
     }
-    for (const stock of demoInventory) {
+    for (const stock of DEMO_INVENTORY) {
       const inserted = await tx
         .insert(inventoryStock)
         .values({ ...stock, mode: "tracked", reserved: 0, version: 0 })

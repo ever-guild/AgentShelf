@@ -10,7 +10,7 @@ async function main() {
   try {
     const summary = await resetDemoData(db);
     console.log(
-      `Demo data reset. Removed ${summary.removedProducts} extra product(s) and rewrote the demand fixtures.`,
+      `Demo data reset. Removed ${summary.removedProducts} extra product(s), restored ${summary.restoredStock} stock item(s), and rewrote the demand fixtures.`,
     );
   } finally {
     await close();
