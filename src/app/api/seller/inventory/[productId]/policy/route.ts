@@ -1,7 +1,7 @@
 import { z } from "zod";
 
 import { setInventoryModeBody } from "@/server/contracts/inventory";
-import { currentOwnerShopPrincipal } from "@/server/seller-identity/http-auth";
+import { currentInventoryPrincipal } from "../../principal";
 import { parseInput } from "@/server/errors";
 import { readJsonWithin } from "@/server/http";
 import { createSellerInventoryAdapter } from "@/server/inventory/seller-adapter";
@@ -12,7 +12,7 @@ const productIdSchema = z.uuid();
 
 export async function PUT(request: Request, { params }: { params: Promise<{ productId: string }> }) {
   try {
-    const principal = await currentOwnerShopPrincipal(request);
+    const principal = await currentInventoryPrincipal(request);
     const { productId } = await params;
     const id = parseInput(productIdSchema, productId);
     const decision = parseInput(setInventoryModeBody, await readJsonWithin(request));
