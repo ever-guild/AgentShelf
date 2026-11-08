@@ -11,9 +11,12 @@ const env = {
   PAYPAL_PARTNER_ATTRIBUTION_ID: "platform-bn-code",
 };
 const token = () => new Response(JSON.stringify({ access_token: "hidden-access-token", token_type: "Bearer", expires_in: 900 }), { status: 200 });
-const referral = (action = "https://www.sandbox.paypal.com/us/merchantsignup/partner/onboardingentry?token=hidden") => new Response(JSON.stringify({
+const referral = (
+  action = "https://www.sandbox.paypal.com/us/merchantsignup/partner/onboardingentry?token=hidden",
+  self = "https://api-m.sandbox.paypal.com/v2/customer/partner-referrals/ref-123",
+) => new Response(JSON.stringify({
   links: [
-    { rel: "self", href: "https://api-m.sandbox.paypal.com/v2/customer/partner-referrals/ref-123", method: "GET" },
+    { rel: "self", href: self, method: "GET" },
     { rel: "action_url", href: action, method: "GET" },
   ],
 }), { status: 201 });
@@ -51,6 +54,85 @@ describe("PayPal Partner Referrals adapter", () => {
       operations: [{ api_integration_preference: { rest_api_integration: { third_party_details: { features: ["PAYMENT"] } } } }],
       legal_consents: [{ type: "SHARE_DATA_CONSENT", granted: true }],
     });
+  });
+
+  it("accepts PayPal's documented sandbox api alias and bizsignup referral link", async () => {
+    const action = "https://api.sandbox.paypal.com/bizsignup/partner/entry?referralToken=one-time-referral-token";
+    const self = "https://api.sandbox.paypal.com/v2/customer/partner-referrals/referral-id";
+    const fetchImpl = vi.fn().mockResolvedValueOnce(token()).mockResolvedValueOnce(referral(action, self));
+    const adapter = createPartnerReferralsAdapter(env, fetchImpl);
+
+    await expect(adapter.createReferral({
+      trackingId: "b".repeat(43),
+      returnUrl: `https://agentshelf.example${MERCHANT_CONNECTION_CALLBACK_PATH}`,
+    })).resolves.toEqual({ referralUrl: self, actionUrl: action });
+  });
+
+  it("accepts the documented api-m sandbox bizsignup variant", async () => {
+    const action = "https://api-m.sandbox.paypal.com/bizsignup/partner/entry?referralToken=one-time-referral-token";
+    const fetchImpl = vi.fn().mockResolvedValueOnce(token()).mockResolvedValueOnce(referral(action));
+    const adapter = createPartnerReferralsAdapter(env, fetchImpl);
+
+    await expect(adapter.createReferral({
+      trackingId: "f".repeat(43),
+      returnUrl: `https://agentshelf.example${MERCHANT_CONNECTION_CALLBACK_PATH}`,
+    })).resolves.toMatchObject({ actionUrl: action });
+  });
+
+  it("accepts the observed www sandbox bizsignup link and requires its matching token key", async () => {
+    const action = "https://www.sandbox.paypal.com/bizsignup/partner/entry?referralToken=one-time-referral-token";
+    const self = "https://api.sandbox.paypal.com/v2/customer/partner-referrals/referral-id";
+    const fetchImpl = vi.fn().mockResolvedValueOnce(token()).mockResolvedValueOnce(referral(action, self));
+    const adapter = createPartnerReferralsAdapter(env, fetchImpl);
+
+    await expect(adapter.createReferral({
+      trackingId: "d".repeat(43),
+      returnUrl: `https://agentshelf.example${MERCHANT_CONNECTION_CALLBACK_PATH}`,
+    })).resolves.toEqual({ referralUrl: self, actionUrl: action });
+
+    const mismatchedKey = createPartnerReferralsAdapter(env, vi.fn()
+      .mockResolvedValueOnce(token())
+      .mockResolvedValueOnce(referral("https://www.sandbox.paypal.com/bizsignup/partner/entry?token=wrong-key")));
+    await expect(mismatchedKey.createReferral({
+      trackingId: "e".repeat(43),
+      returnUrl: `https://agentshelf.example${MERCHANT_CONNECTION_CALLBACK_PATH}`,
+    })).rejects.toMatchObject({ outcome: "unknown" });
+
+    const lookalikeHost = createPartnerReferralsAdapter(env, vi.fn()
+      .mockResolvedValueOnce(token())
+      .mockResolvedValueOnce(referral("https://api-m.sandbox.paypal.com.attacker.example/bizsignup/partner/entry?referralToken=wrong-host")));
+    await expect(lookalikeHost.createReferral({
+      trackingId: "g".repeat(43),
+      returnUrl: `https://agentshelf.example${MERCHANT_CONNECTION_CALLBACK_PATH}`,
+    })).rejects.toMatchObject({ outcome: "unknown" });
+  });
+
+  it("keeps referral failure diagnostics stage-safe when a successful response has unusable links", async () => {
+    const warning = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const trackingId = "c".repeat(43);
+    const secretAction = "https://attacker.example/leak?token=diagnostic-action-secret";
+    const fetchImpl = vi.fn().mockResolvedValueOnce(token()).mockResolvedValueOnce(referral(secretAction));
+    const adapter = createPartnerReferralsAdapter(env, fetchImpl);
+
+    try {
+      await expect(adapter.createReferral({
+        trackingId,
+        returnUrl: `https://agentshelf.example${MERCHANT_CONNECTION_CALLBACK_PATH}`,
+      })).rejects.toMatchObject({ outcome: "unknown" });
+
+      expect(warning).toHaveBeenCalledTimes(1);
+      const event = String(warning.mock.calls[0][0]);
+      expect(JSON.parse(event)).toEqual({
+        event: "paypal_partner_referral_failure",
+        stage: "referral_links",
+        reason: "invalid_links",
+      });
+      expect(event).not.toContain("attacker.example");
+      expect(event).not.toContain("diagnostic-action-secret");
+      expect(event).not.toContain(trackingId);
+    } finally {
+      warning.mockRestore();
+    }
   });
 
   it("validates a merchant only against the platform status response", async () => {

@@ -8,7 +8,9 @@ import {
 } from "./merchant-connection";
 
 const API_ORIGIN = "https://api-m.sandbox.paypal.com";
+const API_ORIGINS = [API_ORIGIN, "https://api.sandbox.paypal.com"] as const;
 const ACTION_ORIGIN = "https://www.sandbox.paypal.com";
+const BIZ_SIGNUP_ORIGINS = [...API_ORIGINS, ACTION_ORIGIN] as const;
 const TOKEN_URL = `${API_ORIGIN}/v1/oauth2/token`;
 const TOKEN_TIMEOUT_MS = 12_000;
 const REFERRAL_TIMEOUT_MS = 15_000;
@@ -71,19 +73,66 @@ function validateOriginUrl(value: string, expectedOrigin: string, pathRule: RegE
 }
 
 function referralApiUrl(value: string) {
-  const url = validateOriginUrl(value, API_ORIGIN, /^\/v2\/customer\/partner-referrals\/[A-Za-z0-9_%+=/-]+$/);
-  if (url.search) throw new PayPalAdapterError("INVALID_RESPONSE");
+  let url: URL;
+  try {
+    url = new URL(value);
+  } catch {
+    throw new PayPalAdapterError("INVALID_RESPONSE");
+  }
+  if (
+    !API_ORIGINS.includes(url.origin as (typeof API_ORIGINS)[number]) ||
+    url.protocol !== "https:" ||
+    url.username ||
+    url.password ||
+    url.hash ||
+    url.search ||
+    !/^\/v2\/customer\/partner-referrals\/[A-Za-z0-9_%+=/-]+$/.test(url.pathname)
+  ) {
+    throw new PayPalAdapterError("INVALID_RESPONSE");
+  }
   return url.toString();
 }
 
 function actionUrl(value: string) {
-  const url = validateOriginUrl(
-    value,
-    ACTION_ORIGIN,
-    /^\/(?:[a-z]{2}\/)?merchantsignup\/partner\/onboardingentry$/i,
+  let url: URL;
+  try {
+    url = new URL(value);
+  } catch {
+    throw new PayPalAdapterError("INVALID_RESPONSE");
+  }
+  const isKnownActionPath = url.origin === ACTION_ORIGIN && /^\/(?:[a-z]{2}\/)?merchantsignup\/partner\/onboardingentry$/i.test(url.pathname);
+  const isBizSignupPath =
+    BIZ_SIGNUP_ORIGINS.includes(url.origin as (typeof BIZ_SIGNUP_ORIGINS)[number]) &&
+    url.pathname === "/bizsignup/partner/entry";
+  const queryKeys = [...url.searchParams.keys()];
+  const hasExpectedSingleToken = queryKeys.length === 1 && (
+    (isKnownActionPath && queryKeys[0] === "token" && Boolean(url.searchParams.get("token"))) ||
+    (isBizSignupPath && queryKeys[0] === "referralToken" && Boolean(url.searchParams.get("referralToken")))
   );
-  if (!url.searchParams.get("token")) throw new PayPalAdapterError("INVALID_RESPONSE");
+  if (
+    url.protocol !== "https:" ||
+    url.username ||
+    url.password ||
+    url.hash ||
+    !(isKnownActionPath || isBizSignupPath) ||
+    !hasExpectedSingleToken
+  ) {
+    throw new PayPalAdapterError("INVALID_RESPONSE");
+  }
   return url.toString();
+}
+
+type PartnerReferralFailureStage = "referral_post" | "referral_response" | "referral_links";
+type PartnerReferralFailureReason = "transport_error" | "http_error" | "invalid_json" | "invalid_links";
+
+function logPartnerReferralFailure(stage: PartnerReferralFailureStage, reason: PartnerReferralFailureReason, httpStatus?: number) {
+  // Never include provider URLs, response data, tracking IDs, action tokens, or seller details here.
+  console.warn(JSON.stringify({
+    event: "paypal_partner_referral_failure",
+    stage,
+    reason,
+    ...(httpStatus === undefined ? {} : { httpStatus }),
+  }));
 }
 
 function linksFrom(payload: unknown) {
@@ -165,11 +214,15 @@ export function createPartnerReferralsAdapter(
         signal: AbortSignal.timeout(REFERRAL_TIMEOUT_MS),
       });
     } catch {
-      if (kind === "create") throw new PartnerReferralsRequestError("unknown");
+      if (kind === "create") {
+        logPartnerReferralFailure("referral_post", "transport_error");
+        throw new PartnerReferralsRequestError("unknown");
+      }
       throw new PayPalAdapterError("UNAVAILABLE");
     }
     if (!response.ok) {
       if (kind === "create") {
+        logPartnerReferralFailure("referral_post", "http_error", response.status);
         throw new PartnerReferralsRequestError(response.status >= 500 ? "unknown" : "rejected");
       }
       throw new PayPalAdapterError(response.status >= 500 ? "UNAVAILABLE" : "MISCONFIGURED");
@@ -177,7 +230,10 @@ export function createPartnerReferralsAdapter(
     try {
       return await readJsonLimited(response, 128 * 1024);
     } catch {
-      if (kind === "create") throw new PartnerReferralsRequestError("unknown");
+      if (kind === "create") {
+        logPartnerReferralFailure("referral_response", "invalid_json", response.status);
+        throw new PartnerReferralsRequestError("unknown");
+      }
       throw new PayPalAdapterError("INVALID_RESPONSE");
     }
   }
@@ -239,6 +295,7 @@ export function createPartnerReferralsAdapter(
         return linksFrom(payload);
       } catch {
         // A 2xx means PayPal may have created the referral. Never permit an automatic POST retry.
+        logPartnerReferralFailure("referral_links", "invalid_links");
         throw new PartnerReferralsRequestError("unknown");
       }
     },

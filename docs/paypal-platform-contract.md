@@ -27,6 +27,8 @@ Use the Sandbox host `https://api-m.sandbox.paypal.com`. OAuth client ID and sec
 
 PayPal's onboarding checklist requires Partner Referrals features to match the platform app configuration. Keep `PAYMENT` as the requested seller feature unless an approved, documented product change requires more. Do not request `PARTNER_FEE`, `REFUND`, or other features by implication
 
+PayPal's Partner Referrals responses may use either the `api-m.sandbox.paypal.com` or `api.sandbox.paypal.com` host for the `self` link. Signup action samples use `www.sandbox.paypal.com/{locale}/merchantsignup/partner/onboardingentry?token=...` or `{api-m|api}.sandbox.paypal.com/bizsignup/partner/entry?referralToken=...`; the observed Sandbox response also used the `www.sandbox.paypal.com` host with that exact `bizsignup` path. The adapter accepts only these exact Sandbox host/path/query combinations, with `token` restricted to the onboarding path and `referralToken` restricted to the `bizsignup` path; it does not follow redirects or accept arbitrary provider links. See [the PayPal Partner Referrals integration sample](https://developer.paypal.com/platforms/checkout/apm/pay-upon-invoice/integrate-pui-partners)
+
 ## Approval and proof status
 
 PayPal's onboarding and immediate-capture guides list partner approval as a requirement, while its [platform setup guide](https://developer.paypal.com/platforms/create-account/) says Sandbox APIs can be tested before approval. Treat approval as a production-readiness requirement, not a blocker to Sandbox API tests; this app's actual Sandbox access still needs proof. The onboarding guide names `MERCHANT.ONBOARDING.COMPLETED` and `MERCHANT.PARTNER-CONSENT.REVOKED`
