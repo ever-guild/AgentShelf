@@ -1,6 +1,6 @@
 # PayPal merchant connection module
 
-This module now includes the connection service, PostgreSQL repository, fixed-Sandbox adapter, and framework-neutral HTTP handlers. The app route wrappers, migration journal, checkout gate, and seller MCP integration remain separate. Completion remains gated by [platform credential/permission proof #2](https://github.com/ever-guild/AgentShelf/issues/2), [Sandbox account setup #33](https://github.com/ever-guild/AgentShelf/issues/33), and the owner identity/membership work in [#34](https://github.com/ever-guild/AgentShelf/issues/34).
+This module provides the connection service, PostgreSQL repository (`0012_paypal_merchant_connections.sql`), fixed-Sandbox Partner Referrals adapter, Next.js route wrappers under `/api/seller/paypal/connection*`, owner UI at `/seller/paypal-connection`, checkout eligibility gate (`src/server/paypal/merchant-eligibility.ts`), and seller MCP integration (`connect_paypal_sandbox` / `get_paypal_connection_status`).
 
 ## Service contract
 
@@ -11,7 +11,7 @@ const service = createMerchantConnectionService({
   repository, // atomic persistence contract below
   paypal, // fixed-Sandbox Partner Referrals adapter
   authorizeShop, // checks owner membership or explicit seller-agent grant
-  returnUrl: "https://<configured-app-origin>/seller/paypal/callback",
+  returnUrl: "https://<configured-app-origin>/api/seller/paypal/connection/callback",
 });
 
 await service.start(principal, { shopId, idempotencyKey, shareDataConsent: true });
@@ -34,7 +34,7 @@ The adapter in [`src/server/paypal/partner-referrals.ts`](../src/server/paypal/p
 
 ## Persistence contract for the owner
 
-The module injects `MerchantConnectionRepository`; its database implementation and migration remain separate from the shared shop schema in this worktree. The repository must provide:
+The module injects `MerchantConnectionRepository`, implemented by `PostgresMerchantConnectionRepository` in [`src/server/paypal/postgres-merchant-connection.ts`](../src/server/paypal/postgres-merchant-connection.ts) and backed by migration [`drizzle/0012_paypal_merchant_connections.sql`](../drizzle/0012_paypal_merchant_connections.sql). The repository provides:
 
 - Atomic `reserveStart(shopId, consentedByOwnerId, shareDataConsentAt, requestKeyHash, trackingId)`, with a composite owner-membership foreign key, unique `(shop_id, request_key_hash)`, and unique `tracking_id` constraints. A pending referral blocks creation of another referral for that shop.
 - Lookup by shop and tracking ID, both resolving to exactly one shop-bound record.
@@ -43,11 +43,11 @@ The module injects `MerchantConnectionRepository`; its database implementation a
 - Atomic revocation update keyed by verified event ID and bound seller merchant ID; duplicate events are no-ops. Verified unmatched events are retained as nullable-connection tombstones and stop a stale in-flight status check from restoring readiness.
 - Store only the status evidence required by the agreed owner/shop checkout contract. Do not store seller PayPal credentials or OAuth access tokens.
 
-The checkout consumer must treat every state except `ready` as unavailable. The future route/MCP integration belongs to #34 and [seller agent #37](https://github.com/ever-guild/AgentShelf/issues/37); the separately owned payment provider/reconciliation remains under #2 and #6/#11. Inventory and catalog work in [#36](https://github.com/ever-guild/AgentShelf/issues/36) stays shop-owned and does not establish PayPal consent.
+The checkout consumer (`resolveShopPayPalRoute` in [`src/server/paypal/merchant-eligibility.ts`](../src/server/paypal/merchant-eligibility.ts)) treats every state except a verified `ready` connection as unavailable (`PAYMENT_NOT_CONFIGURED`).
 
 ## Verification and current limits
 
-Mock and isolated PostgreSQL tests cover shop authorization, explicit consent, callback shop binding, tracking mismatch, ambiguous POST replay prevention, repeated ready callback, status readiness gates, webhook verification/deduplication/tombstones, fixed hosts, and sanitized errors. Tests make no PayPal network requests. The repository and framework-neutral handlers are not yet wired to the migration journal or app routes; there is no real Sandbox consent evidence, checkout handoff, or configured webhook ID. Do not mark #35 complete until real sandbox consent and exact seller status evidence are recorded after #2/#34 are ready.
+Mock and isolated PostgreSQL tests cover shop authorization, explicit consent, callback shop binding, tracking mismatch, ambiguous POST replay prevention, repeated ready callback, status readiness gates, webhook verification/deduplication/tombstones, fixed hosts, and sanitized errors. Tests make no PayPal network requests. Full closure of [#35](https://github.com/ever-guild/AgentShelf/issues/35) requires human completion of the second independent seller's PayPal Sandbox consent flow so two distinct connected merchants are verified in Sandbox.
 
 ## Primary PayPal documentation
 

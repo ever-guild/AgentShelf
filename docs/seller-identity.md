@@ -1,6 +1,6 @@
 # Seller identity module: integration contract
 
-This module defines owner credentials, revocable owner sessions, owner-to-shop membership and scoped seller-agent grants. Runtime HTTP handlers now exist at `/api/seller/identity/*` and use the PostgreSQL adapter, but they are not available in a deployed app until the coordinated identity migration is integrated and applied. The owner guard is wired into `currentSeller` in this review candidate; the demo access-code path remains available when no owner session cookie is present.
+This module defines owner credentials, PayPal Sandbox owner sign-in, revocable owner sessions, owner-to-shop membership and scoped seller-agent grants. Runtime HTTP handlers live at `/api/seller/identity/*` with the PostgreSQL adapter (`0011_identity_registration.sql` and `0014_paypal_owner_identity.sql`), and the owner guard is wired into `currentSeller` while preserving legacy demo access-code sessions when no owner session cookie is present.
 
 ## Service boundary
 
@@ -56,11 +56,11 @@ The adapter must enforce the following in SQL:
 
 Owner registration and shop creation write the operation row, owner, membership and shop in one transaction. An agent request must validate the grant and perform its idempotency lookup and writes in the same transaction. Unique slug errors must never trigger a second attempt that reuses an existing shop. The identity route suite runs the registered migration journal, including `0011_identity_registration.sql`, against a disposable PostgreSQL database. The lower-level `postgres-store.db.test.ts` also applies the DDL draft to a minimal shops fixture to isolate adapter constraints.
 
-## Integration points awaiting review
+## Runtime integration and verification
 
-- Publish the reviewed schema and migration candidate to the shared branch before enabling owner signup in production
-- Complete the owner registration UI and connect new seller-agent inventory and PayPal routes through `currentOwnerShopPrincipal`
-- Ensure every seller mutation obtains the shop from membership/session server state, not request input
-- Keep unconfigured shops in catalog flows and rely on the current checkout guard for payment rejection
+- Schema migrations `0011_identity_registration.sql` and `0014_paypal_owner_identity.sql` are registered in the migration journal and applied in production.
+- Owner registration, password sign-in, PayPal Sandbox sign-in (`/seller/paypal-onboarding`, `/seller/owner-sign-in`), shop creation/selection (`/seller/shops`, `/seller/shops/new`), and scoped agent grant management (`/seller/agent-access`) route through `currentOwnerShopPrincipal` and `currentSeller`.
+- Every seller mutation obtains the shop from membership/session server state, not request input.
+- Unconfigured and pending-consent shops remain available in catalog flows while the checkout guard (`resolveShopPayPalRoute` in `src/server/paypal/merchant-eligibility.ts`) rejects payment until a verified `ready` PayPal connection exists.
 
-The HTTP route suite exercises registration, sign-in, sign-out, shop selection, grant issuance, PayPal consent evidence and revocation against an isolated temporary PostgreSQL database with the registered migrations. This candidate also routes legacy seller calls through the owner guard while preserving legacy access-code sessions; it has not been published to the shared branch. The registration UI is included in the review candidate; live PayPal connection and production activation remain separate, so deployed end-to-end onboarding is still blocked.
+The HTTP route suite exercises registration, sign-in, sign-out, shop selection, grant issuance, PayPal consent evidence and revocation against an isolated temporary PostgreSQL database with the registered migrations. Legacy seeded shop access-code sessions continue to work alongside owner sessions when demo access codes are configured.
