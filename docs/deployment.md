@@ -99,16 +99,26 @@ After seeding, run the [MCP smoke check](#smoke-check) so that it finds the prod
 | Variable | Source | Purpose |
 | --- | --- | --- |
 | `DATABASE_URL` | Service secret, internal Render Postgres URL | Private network connection string, never commit its value |
+| `TEST_DATABASE_URL` | Local test environment only | Disposable database used by `npm test`; do not point it at demo data |
 | `APP_SIGNING_SECRET` | Service secret, generated once | Signs seller sessions and order status tokens, preserve it across redeploys |
 | `RENDER` | Set by Render | Seeds an empty database on start |
 | `RENDER_EXTERNAL_URL` | Set by Render | Public origin for PayPal return URLs and the MCP endpoint |
-| `APP_ORIGIN` | Optional, by hand | Overrides the public origin, for a custom domain or local use |
+| `APP_ORIGIN` | Optional, by hand | Overrides the public origin, for a custom domain or local use; `.env.example` sets the local default |
 | `MCP_ALLOWED_ORIGINS` | Optional, by hand | Extra browser origins for the MCP endpoint, comma separated. See [mcp.md](mcp.md#origin-handling) |
 | `NODE_VERSION`, `NEXT_TELEMETRY_DISABLED` | Service settings mirrored in the Blueprint | Runtime settings |
 | `ANTHROPIC_API_KEY` | Secret, by hand | Reads price list photos and suggests descriptions. Until it is set, photo upload explains that and CSV upload still works |
 | `RENDER_WORKFLOW_SLUG`, `RENDER_API_KEY` | By hand, optional | Run photo reading as a workflow. See [Render Workflows for photo import](#render-workflows-for-photo-import) |
+| `RENDER_USE_LOCAL_DEV`, `RENDER_LOCAL_DEV_URL` | Local workflow development only | Point the Render SDK at the CLI task server; see [Render's local workflow guide](https://render.com/docs/workflows-local-development) |
+| `PAYPAL_PLATFORM_CLIENT_ID`, `PAYPAL_PLATFORM_CLIENT_SECRET`, `PAYPAL_PLATFORM_MERCHANT_ID`, `PAYPAL_PARTNER_ATTRIBUTION_ID` | Platform app secrets and settings | Primary seller-consent and payment path; use [Sandbox platform setup](paypal-platform-setup.md) |
+| `PAYPAL_PLATFORM_WEBHOOK_ID`, `PAYPAL_PLATFORM_PAYMENT_WEBHOOK_ID` | Platform app webhook subscriptions | Separate consent-revocation and payment subscriptions, see [PayPal Sandbox setup](paypal-sandbox-setup.md#webhooks) |
+| `PAYPAL_LOGIN_CLIENT_ID`, `PAYPAL_LOGIN_CLIENT_SECRET` | Optional Sandbox app settings | Seller Login only; these may copy the Platform app values if that app has Log in with PayPal enabled, see [seller Login](paypal-login.md) |
+| `PAYPAL_CLIENT_ID_DEMO_*`, `PAYPAL_CLIENT_SECRET_DEMO_*`, `PAYPAL_WEBHOOK_ID_DEMO_*` | Optional legacy diagnostic app secrets | Direct-merchant demo checkout and `paypal:proof`; not required for Platform seller consent |
+| `DEMO_*_PAYPAL_MERCHANT_ID`, `DEMO_*_SELLER_CODE`, `DEMO_DATE`, `DEMO_ENVIRONMENT` | Optional demo seed/reset values | Configure the seeded shops and guarded demo reset, see [architecture](architecture.md#demo-data) |
+| `AG_STUDIO` | Optional license key | Read by the seller dashboard; without it, the dashboard uses Studio's trial state |
 
-PayPal, AI and partner variables are listed in [`.env.example`](../.env.example). Add them to the service in the Dashboard when the code that reads them lands. The code that reads the PayPal variables has landed, and [paypal-sandbox-setup.md](paypal-sandbox-setup.md) explains how to set them. Render ignores `sync: false` entries added to a blueprint after it was created, so the Dashboard is the one place to set them.
+Use [`.env.example`](../.env.example) as the local template, it lists the primary Platform app first and keeps direct-merchant diagnostics separate. Login has its own environment names even when it reuses the Platform app credentials. Configure service secrets through the Dashboard or API; Render ignores `sync: false` entries added to an existing Blueprint after creation
+
+The current schedule uses Bryntum Community and needs no license environment variable. A Business license is not wired into this runtime
 
 ## Render Workflows for photo import
 

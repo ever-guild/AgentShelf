@@ -5,14 +5,16 @@ Login identifies the owner, payment permissions require the separate [merchant c
 
 ## Configure the demo
 
-1. Open [Apps & Credentials](https://developer.paypal.com/dashboard/applications), select a Sandbox REST app, enable **Other features → Log in with PayPal → Advanced Settings**
+1. Open [Apps & Credentials](https://developer.paypal.com/dashboard/applications), select a Sandbox REST app with **Other features → Log in with PayPal → Advanced Settings** enabled, this may be the Platform app or a separate Login app
 2. Allow the basic profile and email information used by the `openid profile email` scopes
 3. Set the exact Return URL to `https://agentshelf-e5bk.onrender.com/api/seller/identity/paypal/callback`, for a local app use `http://localhost:3000/api/seller/identity/paypal/callback`
 4. Set Privacy policy URL to `https://agentshelf-e5bk.onrender.com/privacy` and User agreement URL to `https://agentshelf-e5bk.onrender.com/terms`
 5. Leave **Enable customers who have not yet confirmed their email with PayPal to log in to your app** unchecked for the demo; use confirmed Sandbox accounts. AgentShelf identifies owners by PayPal `sub`, not by email
-6. Store `PAYPAL_LOGIN_CLIENT_ID` and `PAYPAL_LOGIN_CLIENT_SECRET` in `.env.local` or Render's environment settings, restart or redeploy after changing configuration
+6. Put the two values in `.env.local` for local testing; for the hosted demo, add them to the existing Render service environment through the Dashboard or API and redeploy
 
-Login settings are separate from `PAYPAL_PLATFORM_*`, verify whether your Platform app exposes the Login feature before reusing its credentials, otherwise use a separate Sandbox Login app
+A local `.env.local` change does not update Render, preserve the existing `DATABASE_URL`, `APP_SIGNING_SECRET` and `APP_ORIGIN` values when changing service variables, and leave Render-managed `RENDER_EXTERNAL_URL` untouched
+
+The environment names `PAYPAL_LOGIN_CLIENT_ID` and `PAYPAL_LOGIN_CLIENT_SECRET` stay separate from `PAYPAL_PLATFORM_*`, copy the Platform app's values into them only when that app exposes Log in with PayPal, otherwise configure a separate Sandbox Login app
 Never enter a seller password or API secret into AgentShelf
 
 ## Try it

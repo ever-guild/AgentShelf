@@ -8,6 +8,7 @@ This project has no tagged releases yet, entries describe code present in the cu
 - Clarified that the privacy policy covers AI service providers and connected assistants
 - Added public Privacy policy and User agreement pages for Sandbox PayPal login consent
 - Clarified platform PayPal API paths, required permissions and the remaining Sandbox proof steps
+- Reorganized the environment template around the Platform app, marked direct-merchant settings as optional diagnostics and removed the unused Bryntum Business-key placeholder
 - Added PayPal Sandbox identity login and shop confirmation, separate from merchant payment consent, real Login verification requires app configuration
 - Added owner registration, shop creation, shop-scoped seller grants and seller MCP routes
 - Added quantity inventory and reservation behavior shared with checkout

@@ -161,16 +161,17 @@ task(
 
 ## Environment variables
 
-[`.env.example`](../.env.example) lists these names with no value. Names marked proposed are not vendor-defined.
+[`.env.example`](../.env.example) lists the active runtime settings with no secret values
 
 | Name | Where | Purpose |
 | --- | --- | --- |
 | `AG_STUDIO` | Render web service, `.env.local` | AG Studio licence key, the boilerplate's name. Reaches the browser, never commit it |
 | `ANTHROPIC_API_KEY` | Render web service and workflow, `.env.local` | Reads price list photos and suggests descriptions |
-| `NEXT_PUBLIC_BRYNTUM_LICENSE_KEY` (proposed) | Render build, `.env.local` | Only on the Business track. Inlined at build time |
 | `RENDER_API_KEY` | Render web service | Starts and reads task runs. Secret, created under Account Settings |
-| `RENDER_WORKFLOW_SLUG` (proposed) | Render web service | Prefix for task slugs |
+| `RENDER_WORKFLOW_SLUG` | Render web service | Prefix for task slugs |
 | `RENDER_USE_LOCAL_DEV`, `RENDER_LOCAL_DEV_URL` | `.env.local` only | Point the SDK at the local task server |
+
+The current schedule uses Bryntum Community and has no license environment variable. A Business license needs a deliberate product choice and runtime wiring before it is added to the template
 
 ## Owner actions
 
