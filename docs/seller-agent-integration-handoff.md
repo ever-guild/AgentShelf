@@ -40,7 +40,7 @@ Seller authorization comes from the bearer header and persisted grant, tool argu
 
 Import produces a draft, publication requires review, new products use the import/review path and existing catalog actions support list, edit, publish and unpublish, stock actions support reading, explicit policy selection and versioned adjustments
 
-The supported configured-client path is documented in [seller MCP](seller-agent-mcp.md), SDK HTTP evidence does not establish an actual Claude Code session or seller OAuth support in ChatGPT
+The supported configured-client path is documented in [seller MCP](seller-agent-mcp.md), an actual Claude Code session is recorded in the [rehearsal](seller-agent-rehearsal.md#external-claude-code-session), ChatGPT seller OAuth is not supported
 
 ## Migrations and inventory
 
@@ -90,7 +90,7 @@ Keep values only in ignored local configuration or deployment secrets, follow th
 
 - Actual platform app permissions, two human seller consents and buyer-approved Sandbox payment with verified recipient and capture in [proof #2](https://github.com/ever-guild/AgentShelf/issues/2)
 - Actual delivery of both webhook subscriptions, including revocation and payment reconciliation
-- An external seller assistant session using the documented connector
+- External seller assistant: Claude Code passed the documented connector scenario on the deployed demo, see [rehearsal](seller-agent-rehearsal.md#external-claude-code-session)
 - Shared integration review, exact-SHA CI and Render verification after main integration
 - The complete rehearsal and evidence requested by [#18](https://github.com/ever-guild/AgentShelf/issues/18) and [#19](https://github.com/ever-guild/AgentShelf/issues/19)
 

@@ -2,9 +2,9 @@
 
 ## Purpose
 
-This guide prepares a local environment for the current demo and the future owner-led seller-agent rehearsal
+This guide prepares a local environment for the seeded demo and the owner-led seller-agent rehearsal
 
-The current seller login is for two seeded demo shops, it is not a public shop-registration flow or an external seller-agent authorization system
+The access-code login below covers the two seeded demo shops only. Owners register through `/seller/register` and authorize agents in `/seller/agent-access`; connect an external assistant with the [seller MCP guide](seller-agent-mcp.md#connect-claude-code)
 
 ## Requirements
 

@@ -1,6 +1,6 @@
 # Seller MCP contract
 
-`src/server/mcp/seller-server.ts` builds a separate MCP server named `agentshelf-seller`. It does not change the buyer connector at `/mcp`. The current factory is an isolated server integration seam, not a deployed endpoint.
+`src/server/mcp/seller-server.ts` builds a separate MCP server named `agentshelf-seller`. It does not change the buyer connector at `/mcp`. The production composition is served by the routes below and is deployed with the application.
 
 ## Contract and authorization
 
@@ -21,26 +21,62 @@ The Identity integration contract being implemented separately uses `create_shop
 
 Only a capability with an injected service adapter and the required grant resolver is registered. A production composition root must provide adapters only for operations with implemented backend support. `availableSellerAgentTools` reports what that composition can actually expose. This prevents a mock or a tool name from being treated as backend readiness.
 
-## HTTP routes and current gate
+## HTTP routes
 
-The isolated Streamable HTTP route is mounted at `POST /mcp/seller/onboarding` for owner-level `create_shop` grants and `POST /mcp/seller/shop/{shopId}` for a shop-bound grant. The shop ID is selected from the URL and rechecked against persisted grant scope. Each request requires a Bearer grant, checks exact configured Host and allowed Origin, enables the SDK's DNS rebinding checks, and caps JSON bodies at 10 MiB for photo uploads. The existing buyer MCP route remains separate.
+| Route | Grant | Tools |
+| --- | --- | --- |
+| `POST /mcp/seller/onboarding` | Owner-level `create_shop` | `seller_create_shop` |
+| `POST /mcp/seller/shop/{shopId}` | Live grant for exactly that shop | Import, review, catalog, stock and PayPal connection tools |
 
-The composition root calls existing identity, import/review/publication, catalog, inventory and durable merchant-connection services. Supported catalog actions are list/edit/publish/unpublish; product creation uses the existing CSV/photo import and seller review flow. The PayPal runtime is initialized only when its tool is called and is cached per database pool. Missing sandbox credentials or a non-HTTPS local callback configuration return an explicit blocked status without affecting other seller tools. Runtime integration still requires review and end-to-end verification against the owner grant UI, migrations, real Postgres, and sandbox partner referrals. Contract tests and adapters alone do not prove deployment readiness. No PayPal API, seller credential, or external MCP client was exercised here.
+The shop ID is selected from the URL and rechecked against the persisted grant. Each request requires a Bearer grant, checks the exact configured Host and allowed Origin, enables the SDK DNS rebinding checks and caps JSON bodies at 10 MiB for photo uploads. An invalid, expired, revoked or foreign-shop grant is rejected with HTTP 401 before discovery. The buyer route stays separate.
 
-## MCP client support
+The route lists every tool its composition supports; each call then checks the scope it needs:
 
-The official MCP TypeScript SDK v1 documentation identifies `StreamableHTTPClientTransport` as its remote HTTP client and Streamable HTTP as the recommended modern transport. This repository currently pins `@modelcontextprotocol/sdk` 1.32.2. The SDK does not issue seller grants; the identity subsystem owns grant issuance and revocation. Tests exercise the pinned SDK `Client` and `McpServer` over an in-memory protocol transport, and boundary tests cover Host, Origin and missing-grant rejection. A remote Streamable HTTP SDK smoke and a real Claude Code session have not yet been run.
+| Operation | Scope |
+| --- | --- |
+| Import, review and every catalog action, including `list` | `manage_catalog` |
+| Stock `read` | `read_shop` |
+| Stock `set_mode` and `adjust` | `manage_inventory` |
+| `seller_connect_paypal` | `connect_paypal` with recorded data-sharing consent |
 
-- [MCP TypeScript SDK v1 client guide](https://ts.sdk.modelcontextprotocol.io/client)
-- [MCP TypeScript SDK v1 server guide](https://ts.sdk.modelcontextprotocol.io/server)
-- [MCP TypeScript SDK v2 authorization overview](https://ts.sdk.modelcontextprotocol.io/v2/serving/authorization) (consulted as current protocol guidance; implementation must follow the repository's pinned v1 API)
+A newly published product has no inventory policy, so buyers cannot check it out and stock `read`/`adjust` return `NOT_FOUND` until `set_mode` chooses `tracked` with `onHand` or `untracked`. Adjustments need the current `version` from `read`; a stale version returns `CONFLICT`.
 
-Claude Code supports a remote HTTP MCP server with a custom `Authorization` header. After an owner creates a shop-bound grant, keep the token in a local shell variable and register that shop's endpoint:
+Errors return a stable `code` with fixed recovery guidance. Service messages, row data and the existence of records in other shops are not exposed.
 
-```sh
-read -s SELLER_MCP_TOKEN
-claude mcp add --transport http --header "Authorization: Bearer ${SELLER_MCP_TOKEN}" agentshelf-seller "https://<deployment-host>/mcp/seller/shop/<shop-id>"
-unset SELLER_MCP_TOKEN
+## Connect Claude Code
+
+Verified with Claude Code 2.1.319 against the deployed demo on 8 November 2026, see [rehearsal evidence](seller-agent-rehearsal.md#external-claude-code-session). Claude Code connects through its `http` (Streamable HTTP) transport with a static `Authorization` header.
+
+1. Sign in as the owner and open `/seller/agent-access`. Issue an owner-level grant with `create_shop`, copy the token, it is shown once and expires after 15 minutes.
+2. Keep the token in an environment variable and reference it from a private config file outside the repository, so it never appears in a shared config or command line:
+
+```json
+{
+  "mcpServers": {
+    "agentshelf-seller": {
+      "type": "http",
+      "url": "https://<deployment-host>/mcp/seller/onboarding",
+      "headers": { "Authorization": "Bearer ${SELLER_MCP_TOKEN}" }
+    }
+  }
+}
 ```
 
-The owner-level onboarding endpoint is `/mcp/seller/onboarding`. ChatGPT custom connectors require OAuth or no authentication in the documented setup; this Bearer-header route is not presented as a ChatGPT connector. No client session has been connected yet.
+```sh
+read -rs SELLER_MCP_TOKEN && export SELLER_MCP_TOKEN
+claude --mcp-config ./agentshelf-seller.json --strict-mcp-config
+```
+
+3. Ask the assistant to create the shop with `seller_create_shop`. The result returns the shop ID and `paymentStatus: "not_configured"`.
+4. Back in `/seller/agent-access`, select the new shop and issue a shop grant with only the scopes the task needs, for example `read_shop`, `manage_catalog` and `manage_inventory`. Point the config at `/mcp/seller/shop/<shop-id>`, set the new token and start a new session.
+5. Import a CSV or photo once, review and publish the rows, then choose a stock policy for every published product.
+6. Revoke the grants in `/seller/agent-access` when finished, `unset SELLER_MCP_TOKEN` and delete the config file.
+
+A rejected grant shows as a failed `agentshelf-seller` server in `/mcp` with `AUTH_HEADER_REJECTED`; issue a new grant rather than retrying the old one.
+
+ChatGPT custom connectors require OAuth or no authentication in the documented setup, so this Bearer-header route is not offered as a ChatGPT connector.
+
+The pinned `@modelcontextprotocol/sdk` 1.32.2 contract tests and `npm run smoke:runtime` cover the same routes locally; they do not replace the external client evidence above.
+
+- [Claude Code MCP configuration](https://code.claude.com/docs/en/mcp)
+- [MCP TypeScript SDK v1 server guide](https://ts.sdk.modelcontextprotocol.io/server)

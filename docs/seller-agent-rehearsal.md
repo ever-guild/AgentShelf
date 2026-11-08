@@ -66,10 +66,35 @@ Use synthetic data only, API-based fixture creation must be identified separatel
 | Per-shop consent UI | Switching shops and successful grant issuance reset acknowledgement | Chrome PASS at [a7c2f62](https://github.com/ever-guild/AgentShelf/commit/a7c2f62ad07136c39f7871b3c4432ceb3e66fccf), including reset after successful issuance |
 | Platform payment webhook | Signature-first verification, identifier agreement, deduplication and revoked-completed order | Run the platform webhook suite on the final revision, real delivery remains unverified |
 | Sandbox seller/payment flow | Two consents, approval, recipient, capture and both webhook subscriptions | BLOCKED on app configuration and human Sandbox actions |
-| External seller assistant | Real configured-client session performing seller tools | NOT RUN |
+| External seller assistant | Real configured-client session performing seller tools | PASS with Claude Code 2.1.319 on the deployed demo at `0c8e262`, see [below](#external-claude-code-session) |
 | Public deployment | Exact Render live SHA plus health and functional checks | Pending main integration, a draft PR does not deploy |
 
 For an actual Sandbox rehearsal, follow [Sandbox setup](paypal-sandbox-setup.md), [merchant connection](paypal-merchant-connection.md) and [inventory behavior](inventory-contract.md), use separate subscription IDs for consent revocation and platform payment events
+
+## External Claude Code session
+
+On 8 November 2026 Claude Code 2.1.319 ran the seller scenario against the deployed demo at [`0c8e262`](https://github.com/ever-guild/AgentShelf/commit/0c8e26249c92b97428c01a2816cf22ed15fe7688) in non-interactive sessions (`claude -p --mcp-config --strict-mcp-config`, `http` transport, `Authorization` header from an environment variable). Every tool call below was issued by the client; the owner session and grants came from the documented `/api/seller/identity/*` owner endpoints used by `/seller/agent-access`.
+
+| Step | Tool or check | Result |
+| --- | --- | --- |
+| Owner | Account-only registration of a synthetic owner, `create_shop` grant | 201, 201 |
+| Discovery on `/mcp/seller/onboarding` | Server status and tools | Connected, only `seller_create_shop` |
+| Create shop | `seller_create_shop` once with an idempotency key | Synthetic test shop created, `paymentStatus: "not_configured"` |
+| Shop grant | `read_shop`, `manage_catalog`, `manage_inventory` | 201, five shop tools listed |
+| Import | `seller_import_price_list`, two-row test CSV, called once | `needs_review` |
+| Review | `seller_review_import` `get`, `edit_row` for the missing price, `accept_clean`, `get`, `publish` | Blocker cleared, both rows accepted, `publishedCount: 2` |
+| Catalog | `seller_manage_catalog` `list` | Both products published, PayPal sync `not_configured` |
+| Stock before policy | `seller_manage_stock` `read` | `NOT_FOUND`, the product had no inventory policy |
+| Stock | `set_mode` tracked 3, `read`, `adjust` -1 with version 0, `read` | 3 at version 0, then 2 at version 1 |
+| Stale version | `adjust` again with version 0 | `CONFLICT`, quantity unchanged |
+| Untracked | `set_mode` untracked on the second product | Untracked, version 0 |
+| Foreign shop | Same grant on a seeded shop's URL | Server failed with `AUTH_HEADER_REJECTED` (HTTP 401), no tools |
+| Read-only grant | `read_shop` grant: stock `read`, `adjust`, catalog `unpublish`, catalog `list` | Read allowed; adjust, unpublish and list `UNAUTHORIZED` |
+| Cleanup | `seller_manage_catalog` `unpublish` both products | Both unpublished |
+| Revocation | Same client with the revoked shop grant and the revoked `create_shop` grant | Both fail with HTTP 401 |
+| Buyer route | Claude Code connected to `/mcp`, no tool called | Connected, the five buyer tools listed |
+
+No PayPal connection, order, capture or refund was attempted. Before this run, failed stock and scope calls returned only a generic message; seller MCP errors now carry fixed recovery guidance per code. That change is verified by contract tests and is not part of the deployed `0c8e262` run.
 
 ## Evidence record
 
