@@ -31,4 +31,4 @@ This project has no tagged releases yet, entries describe code present in the cu
 - Added `DEVELOP.md` and `CONTRIBUTING.md`, and updated operator documentation for registration, integrations, deployment and proof boundaries
 - Fixed merchant connection origin handling on Render and the PayPal return URL
 
-PayPal Sandbox consent, OAuth, order approval, capture and webhook delivery still need end-to-end evidence; see [the proof runbook](docs/paypal-sandbox-proof.md)
+Verified evidence and remaining rehearsal limits are recorded in [the proof runbook](docs/paypal-sandbox-proof.md) and [merchant connection contract](docs/paypal-merchant-connection.md); implementation entries alone do not certify end-to-end acceptance.

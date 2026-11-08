@@ -47,7 +47,7 @@ The checkout consumer (`resolveShopPayPalRoute` in [`src/server/paypal/merchant-
 
 ## Verification and current limits
 
-Mock and isolated PostgreSQL tests cover shop authorization, explicit consent, callback shop binding, tracking mismatch, ambiguous POST replay prevention, repeated ready callback, status readiness gates, webhook verification/deduplication/tombstones, fixed hosts, and sanitized errors. Tests make no PayPal network requests. Full closure of [#35](https://github.com/ever-guild/AgentShelf/issues/35) requires human completion of the second independent seller's PayPal Sandbox consent flow so two distinct connected merchants are verified in Sandbox.
+Mock and isolated PostgreSQL tests cover shop authorization, explicit consent, callback shop binding, tracking mismatch, ambiguous POST replay prevention, repeated ready callback, status readiness gates, webhook verification/deduplication/tombstones, fixed hosts, and sanitized errors. Tests make no PayPal network requests. On 8 November, [#35](https://github.com/ever-guild/AgentShelf/issues/35) closed after both synthetic sellers completed human Sandbox consent: two ready records had distinct merchant IDs and matching consent/capability evidence. The second seller also passed a provider-backed refresh and the production Connected UI check. Cancellation/error branches were tested locally; no live revocation or second payment is claimed. Payment evidence remains in [#2](https://github.com/ever-guild/AgentShelf/issues/2).
 
 ## Primary PayPal documentation
 
