@@ -4,7 +4,7 @@ import { asc, count, eq } from "drizzle-orm";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { setupMigratedDatabase } from "../../../test/database";
-import { createProduct, createService, createShop, createTrackedProduct, createTechnician, createWindow } from "../../../test/fixtures";
+import { createOrder, createProduct, createService, createShop, createTrackedProduct, createTechnician, createWindow } from "../../../test/fixtures";
 import { createFakePayPal } from "../../../test/paypal-fake";
 import {
   addDays,
@@ -293,6 +293,51 @@ describe("resetting the demo", () => {
     expect(await getDb().select().from(inventoryAudit)).toEqual(auditBefore);
   });
 
+  it.each(["pending", "approved", "review_required"] as const)(
+    "refuses a %s demo purchase without an inventory allocation before any reset writes",
+    async (paymentStatus) => {
+      await seedDemoData(getDb(), DEMO_ENV);
+      await getDb().update(products).set({ priceMinor: 1 }).where(eq(products.id, DEMO_PRODUCT_ID));
+      await getDb()
+        .update(inventoryStock)
+        .set({ onHand: 9, version: 1 })
+        .where(eq(inventoryStock.productId, DEMO_PRODUCT_ID));
+      await getDb()
+        .update(searchEvents)
+        .set({ queryNormalized: "existing fixture edit" })
+        .where(eq(searchEvents.id, DEMO_FIXTURE_EVENT_IDS[0]));
+      const order = await createOrder(getDb(), DEMO_SHOP_ID, {
+        kind: "purchase",
+        paymentStatus,
+        paypalOrderId: paymentStatus === "pending" ? null : `DEMO-RESET-${paymentStatus}`,
+      });
+      expect(order.inventoryReservationId).toBeNull();
+
+      const auditBefore = await getDb().select().from(inventoryAudit);
+      const adjustmentsBefore = await getDb().select().from(inventoryAdjustments);
+      const fixturesBefore = await getDb()
+        .select()
+        .from(searchEvents)
+        .where(eq(searchEvents.origin, "fixture"));
+
+      await expect(resetDemoData(getDb(), DEMO_ENV)).rejects.toThrow("unresolved payment");
+
+      const [product] = await getDb().select().from(products).where(eq(products.id, DEMO_PRODUCT_ID));
+      const [stock] = await getDb().select().from(inventoryStock).where(eq(inventoryStock.productId, DEMO_PRODUCT_ID));
+      expect(product.priceMinor).toBe(1);
+      expect(stock).toMatchObject({ onHand: 9, reserved: 0, version: 1 });
+      expect(await getDb().select().from(inventoryAudit)).toEqual(auditBefore);
+      expect(await getDb().select().from(inventoryAdjustments)).toEqual(adjustmentsBefore);
+      expect(
+        await getDb()
+          .select()
+          .from(searchEvents)
+          .where(eq(searchEvents.origin, "fixture")),
+      ).toEqual(fixturesBefore);
+      expect(await getDb().select().from(orders).where(eq(orders.id, order.id))).toEqual([order]);
+    },
+  );
+
   it("puts the demo back as seeded, twice over, with the same identifiers", async () => {
     await seedDemoData(getDb(), DEMO_ENV);
     const seeded = await rowIds();
@@ -369,7 +414,7 @@ describe("resetting the demo", () => {
     // references may be rewritten while PayPal's outcome is unknown.
     await expect(
       resetDemoData(getDb(), { DEMO_ENVIRONMENT: "true", DEMO_DATE: "2026-11-09" }),
-    ).rejects.toThrow("active or unresolved");
+    ).rejects.toThrow(/active or unresolved|unresolved payment/);
 
     const [orderAfter] = await getDb().select().from(orders);
     expect(orderAfter).toEqual(orderBefore);

@@ -8,6 +8,7 @@ import {
   inventoryAudit,
   inventoryReservations,
   inventoryStock,
+  orders,
   products,
   searchEvents,
   shops,
@@ -187,6 +188,27 @@ export async function resetDemoData(
 
   return db.transaction(async (tx) => {
     await assertOnlyDemoShops(tx);
+
+    // A legacy purchase can be awaiting payment without an inventory link. Lock one unresolved
+    // order before stock rows so settlement's order→reservation→stock lock order cannot deadlock
+    // with reset. A pending create timeout is unresolved even if PayPal never returned an ID.
+    const [unresolvedPurchase] = await tx
+      .select({ id: orders.id })
+      .from(orders)
+      .where(
+        and(
+          inArray(orders.shopId, [...DEMO_SHOP_IDS]),
+          eq(orders.kind, "purchase"),
+          inArray(orders.paymentStatus, ["pending", "approved", "review_required"]),
+        ),
+      )
+      .limit(1)
+      .for("update");
+    if (unresolvedPurchase) {
+      throw new DemoResetRefused(
+        "a demo purchase has an unresolved payment; reconcile or review it before resetting.",
+      );
+    }
 
     // Lock the fixed SKU rows before checking holds. Reservation creation and seller adjustments
     // lock these same stock rows, so neither can race a restoration or be erased by it.

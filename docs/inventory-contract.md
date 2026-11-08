@@ -104,7 +104,8 @@ cancellation, same-request capture retry while stock is live, ambiguous capture 
 legacy orders without allocations. The sweep preserves unresolved holds.
 
 The guarded demo reset restores only fixed synthetic SKU/shop quantities through audited,
-versioned adjustments. It refuses active or unresolved reservations; tests verify restoration,
+versioned adjustments. It refuses active or unresolved reservations and pending, approved or review-state physical
+purchases, including legacy orders without an allocation; tests verify restoration,
 repeat safety and atomic refusal. This command is not run against the public demo as proof.
 
 #36 remains open: the catalog UI must collect an explicit stock decision after publication, and
