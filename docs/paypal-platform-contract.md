@@ -1,42 +1,50 @@
-# AgentShelf platform and seller PayPal contract
+# PayPal platform contract: sandbox authorization
 
-This is a target integration contract for sandbox seller onboarding. It does not change the existing checkout, order, webhook, or database services. The direct-merchant proof remains a separate diagnostic path and is not evidence that platform onboarding works.
+This contract describes the implemented platform-app path and the PayPal evidence still needed to use it. The server keeps one platform REST app secret, each shop owner starts a Partner Referrals consent flow, and the verified seller merchant ID selects the payee for that shop. No PayPal credential or access token is given to a shop owner, buyer, or agent
 
-## Ownership and lifecycle
+## Implemented boundary
 
-- AgentShelf owns shop registration, catalog, prices, stock, and fulfillment state. A PayPal account is separate from an AgentShelf shop.
-- AgentShelf owns one platform REST app and its credentials. Do not ask each seller to create a REST app, provide client secrets, or configure Render credentials.
-- The seller owns their PayPal account and explicitly grants AgentShelf the features requested through a PayPal Partner Referrals consent flow. The seller can sign in to an existing account or create one. For PayPal Checkout, PayPal documents personal-account eligibility subject to account intent and country/product rules.
-- Persist the AgentShelf shop ID, a unique referral tracking ID, referral state, PayPal merchant ID after callback, and verified integration status. Never store seller PayPal credentials. The action URL is single-use and should be treated as a short-lived secret; do not log it or expose it beyond the intended seller.
+- `src/server/paypal/partner-referrals.ts` obtains a platform client-credentials token, creates a referral, reads merchant-integration status, and verifies consent-revocation webhooks
+- `src/server/paypal/orders.ts` selects the platform app only for a persisted ready seller connection, adds a seller `PayPal-Auth-Assertion` and the platform BN code to Orders calls, and rejects an order whose `payee` differs from the selected seller
+- `src/server/paypal/catalog.ts` sends product metadata with the platform token and seller assertion; AgentShelf remains the source for price, quantity, and reservations
+- These adapters and local tests prove request construction and policy checks only. They do not prove app permissions, token scopes, seller consent, a Sandbox capture, or actual webhook delivery
 
-## Future server flow
+## API and authorization map
 
-1. An authenticated shop owner requests PayPal connection. The server creates one Partner Referrals request for that AgentShelf shop, using a stable tracking ID, configured return URL, and only the approved `products` and `features`. The server returns the resulting PayPal `action_url` to the owner's browser. Creating the referral is a mutating API operation and is intentionally absent from the preflight script.
-2. PayPal handles login/account signup and explicit consent. The browser returns with tracking/merchant/permission query parameters. Treat them as untrusted input: resolve the shop from the server-stored tracking ID, validate the expected callback, and query PayPal's merchant-integration status before changing the shop to connected.
-3. The status check must confirm `payments_receivable === true`, `primary_email_confirmed === true`, and the required granted permissions/scopes for the configured payment solution. If status is incomplete, show PayPal's documented next action and keep the shop disconnected. Revoke/disconnect events must disable checkout.
-4. Existing Orders v2 code may be adapted separately to platform authentication: obtain an access token with the platform app, set `PayPal-Auth-Assertion` for the selected seller, set `PayPal-Partner-Attribution-Id` to the platform BN code, and set the order's `payee` to that same seller. Verify the selected shop/seller mapping server-side. Require buyer approval before capture. The platform assertion identifies the seller; it does not replace consent or status verification.
-5. Configure onboarding and payment event subscriptions on the platform REST app, then verify webhook signatures and deduplicate event IDs. PayPal documents that webhooks are associated with the app that generated the events. Webhook setup and end-to-end delivery remain a separate verification requirement.
+Use the Sandbox host `https://api-m.sandbox.paypal.com`. OAuth client ID and secret are server-only platform-app credentials. A client-credentials token identifies the platform app; it is not seller consent. Partner calls use the assigned BN code, while on-behalf-of-seller calls also identify the selected merchant with `PayPal-Auth-Assertion`
 
-## Product and inventory boundary
+| Operation | Implemented API path | Credential and permission boundary | Evidence still required |
+| --- | --- | --- | --- |
+| Platform OAuth | `POST /v1/oauth2/token` | Platform app client ID and secret via HTTP Basic, `grant_type=client_credentials`; inspect the returned scope set and `expires_in` | Successful token response from the configured Sandbox platform app |
+| Seller consent link | `POST /v2/customer/partner-referrals` | Platform bearer token, `PayPal-Partner-Attribution-Id`; app scope `https://uri.paypal.com/services/customer/partner-referrals/readwrite`. Current request asks for `API_INTEGRATION`, feature `PAYMENT`, product `EXPRESS_CHECKOUT`, and share-data consent | Each owner must complete PayPal consent. The request asks for access; it does not establish that PayPal granted it |
+| Referral refresh | `GET {referral self URL}` | Same platform bearer and BN code; URL is stored server-side and constrained to PayPal Sandbox | Successful refresh after an expired or consumed action URL |
+| Seller status | `GET /v1/customer/partners/{platform_merchant_id}/merchant-integrations/{seller_merchant_id}` | Platform bearer and BN code; documented app scope `https://uri.paypal.com/services/customer/partner`. This is the deprecated v1 status API currently used by the adapter; callback values are hints only | Verify returned merchant and tracking IDs, `payments_receivable`, confirmed primary email, active `EXPRESS_CHECKOUT`, and seller-granted `https://uri.paypal.com/services/payments/payment/authcapture`. These are readiness gates, not observed grants |
+| Create order | `POST /v2/checkout/orders` | Platform bearer with app scope `https://uri.paypal.com/services/payments/payment`, seller assertion `{ iss: platform_client_id, payer_id: seller_merchant_id }`, BN code, and matching `purchase_units[].payee.merchant_id`; seller must grant payment access | Confirm platform Sandbox access and seller's actual grant before checkout; create follows seller onboarding |
+| Read order | `GET /v2/checkout/orders/{id}` | Same platform bearer and seller assertion for the persisted order seller; keep order/shop authorization server-side | Verify payee, amount, currency, and status against the local order |
+| Capture order | `POST /v2/checkout/orders/{id}/capture` | Same platform bearer and seller assertion, idempotency key; buyer must first approve | Require current seller readiness and verified buyer approval; prove the Sandbox completed capture. PayPal's immediate-capture guide also lists partner approval |
+| Create/read catalog product | `POST /v1/catalogs/products`, `GET /v1/catalogs/products/{id}` | Platform bearer and BN code; current adapter also sends seller assertion. PayPal labels `https://uri.paypal.com/services/subscriptions` as product-management scope; confirm app authorization rather than inferring it from seller `PAYMENT` consent | Verify against intended Sandbox context. Catalog records do not set price, stock, or reservations |
+| Subscribe / verify webhook | `POST /v1/notifications/webhooks` (not implemented), `POST /v1/notifications/verify-webhook-signature` | Owning app's bearer; subscription management scope `https://uri.paypal.com/services/applications/webhooks`. Verification uses that subscription's ID, event, and PayPal transmission headers; it proves authenticity, not setup | Register separate onboarding and payment subscriptions on the platform app and retain each ID. Verify real Sandbox delivery and deduplication; simulator events alone are not payment evidence |
 
-PayPal Catalog Products creates product metadata (name, description, type, category, image and home URLs). Its documented create-product schema has no stock or reservation quantity. AgentShelf remains the source of truth for catalog inventory and available quantities; a PayPal catalog record does not replace local stock checks.
+PayPal's onboarding checklist requires Partner Referrals features to match the platform app configuration. Keep `PAYMENT` as the requested seller feature unless an approved, documented product change requires more. Do not request `PARTNER_FEE`, `REFUND`, or other features by implication
 
-## Test gates
+## Approval and proof status
 
-- Offline preflight passes without making a network call; direct-merchant diagnostics are clearly labeled as separate.
-- Platform Sandbox OAuth works with the platform app and does not expose credentials or tokens.
-- A sandbox seller completes a referral/consent round trip; the server verifies the exact shop-to-tracking-ID-to-merchant mapping and status response.
-- An incomplete/revoked seller is blocked from checkout. An onboarded seller can be selected only for their shop's order, followed by buyer approval and payment verification in the separately owned checkout/reconciliation work.
-- Webhook signature verification, deduplication, and status transitions are demonstrated independently.
-- No Live credentials, Live host, real payment, capture without buyer approval, or seller credential collection is part of this scope.
+PayPal's onboarding and immediate-capture guides list partner approval as a requirement, while its [platform setup guide](https://developer.paypal.com/platforms/create-account/) says Sandbox APIs can be tested before approval. Treat approval as a production-readiness requirement, not a blocker to Sandbox API tests; this app's actual Sandbox access still needs proof. The onboarding guide names `MERCHANT.ONBOARDING.COMPLETED` and `MERCHANT.PARTNER-CONSENT.REVOKED`
+
+For capture, PayPal's [immediate-capture guide](https://developer.paypal.com/platforms/checkout/immediate-capture) requires seller onboarding, a platform access token, seller assertion, BN code, and buyer approval. Keep immediate capture blocked until the buyer has approved and the app and seller permissions are verified
+
+AgentShelf currently handles revocation verification and payment webhook verification, but subscription setup and actual Sandbox delivery remain to be verified. App permissions, returned token scopes, seller consent, capture, and webhook delivery are not confirmed by code or public health checks
+
+The next proof is one owner-authorized Sandbox connection followed by merchant-status evidence, then a buyer-approved order and capture for that same seller, followed by verified webhook delivery. Keep the test in Sandbox and record only sanitized response fields
 
 ## Official references
 
-- [Platform getting started](https://developer.paypal.com/platforms/get-started)
-- [Seller onboarding overview](https://developer.paypal.com/platforms/seller-onboarding)
-- [Seller onboarding checklist](https://developer.paypal.com/platforms/seller-onboarding/onboarding-checklist/)
-- [Partner Referrals signup and status flow](https://developer.paypal.com/platforms/seller-onboarding/before-payment/)
-- [PayPal-Auth-Assertion and partner attribution headers](https://developer.paypal.com/api/make-api-requests)
-- [Immediate capture requirements and seller assertion](https://developer.paypal.com/platforms/checkout/immediate-capture)
-- [Webhook app association and verification](https://developer.paypal.com/api/rest/webhooks/)
-- [Catalog Products create schema](https://developer.paypal.com/api/catalog-products/v1/products-create/)
+- [Partner Referrals create](https://developer.paypal.com/api/partner-referrals/v2/partner-referrals-create/)
+- [Seller onboarding before payment](https://developer.paypal.com/platforms/seller-onboarding/before-payment/)
+- [Seller onboarding feature checklist](https://developer.paypal.com/platforms/seller-onboarding/onboarding-checklist/)
+- [Show seller status API (deprecated v1)](https://developer.paypal.com/api/deprecated/partner-referrals/v1/merchant-integration-status)
+- [Making REST API requests and partner headers](https://developer.paypal.com/api/make-api-requests)
+- [Orders create](https://developer.paypal.com/api/orders/v2/orders-create/), [Orders read](https://developer.paypal.com/api/orders/v2/orders-get/), and [Orders capture](https://developer.paypal.com/api/orders/v2/orders-capture/)
+- [Immediate capture requirements](https://developer.paypal.com/platforms/checkout/immediate-capture)
+- [Catalog Products create](https://developer.paypal.com/api/catalog-products/v1/products-create/)
+- [Webhook setup and signature verification](https://developer.paypal.com/api/rest/webhooks/rest/)

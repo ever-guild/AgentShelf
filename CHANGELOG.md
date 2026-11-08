@@ -4,6 +4,7 @@ This project has no tagged releases yet, entries describe code present in the cu
 
 ## Unreleased
 
+- Clarified platform PayPal API paths, required permissions and the remaining Sandbox proof steps
 - Added PayPal Sandbox identity login and shop confirmation, separate from merchant payment consent, real Login verification requires app configuration
 - Added owner registration, shop creation, shop-scoped seller grants and seller MCP routes
 - Added quantity inventory and reservation behavior shared with checkout
