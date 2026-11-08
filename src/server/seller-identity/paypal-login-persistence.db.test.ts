@@ -154,17 +154,27 @@ describe("PayPal Login Postgres persistence", () => {
       PAYPAL_LOGIN_CLIENT_ID: "test-login-client-id",
       PAYPAL_LOGIN_CLIENT_SECRET: "test-login-client-secret",
     };
+    let tokenCalls = 0;
+    const tokenGrants: URLSearchParams[] = [];
+    let userInfoAuthorization: string | null = null;
     const fetchImpl: typeof fetch = async (input, init) => {
       if (String(input).endsWith("/v1/oauth2/token")) {
-        expect(init?.method).toBe("POST");
-        return Response.json({ access_token: "test-only-access-token", token_type: "Bearer", expires_in: 300 });
+        const grant = new URLSearchParams(String(init?.body));
+        tokenGrants.push(grant);
+        tokenCalls += 1;
+        if (tokenCalls % 2 === 1) {
+          return Response.json({ access_token: "test-initial-access-token", refresh_token: "test-refresh-token", token_type: "Bearer", expires_in: 300 });
+        }
+        return Response.json({ access_token: "test-refreshed-access-token", token_type: "Bearer", expires_in: 300 });
       }
-      expect(String(input)).toBe("https://api-m.sandbox.paypal.com/v1/identity/openidconnect/userinfo?schema=openid");
+      userInfoAuthorization = new Headers(init?.headers).get("authorization");
       return Response.json({ sub: "stable-disposable-pg-subject", name: "PG Test Owner", email: "pg-owner@example.test" });
     };
     const handlers = createPayPalLoginHttpHandlers({ store, limiter, env, fetchImpl, now: () => callbackNow });
 
     const startAndCallback = async () => {
+      const previousTokenCalls = tokenCalls;
+      const previousGrantCount = tokenGrants.length;
       const started = await handlers.start(new Request(`${origin}/api/seller/identity/paypal/start`, {
         headers: { "cf-connecting-ip": "203.0.113.40" },
       }));
@@ -176,12 +186,19 @@ describe("PayPal Login Postgres persistence", () => {
         { headers: { cookie: stateCookie } },
       ));
       expect(callback.status).toBe(303);
+      expect(tokenCalls - previousTokenCalls).toBe(2);
+      expect(tokenGrants.slice(previousGrantCount).map((grant) => Object.fromEntries(grant.entries()))).toEqual([
+        { grant_type: "authorization_code", code: "test-code" },
+        { grant_type: "refresh_token", refresh_token: "test-refresh-token" },
+      ]);
+      expect(userInfoAuthorization).toBe("Bearer test-refreshed-access-token");
       const ownerCookie = cookiePair(callback, "agentshelf_owner_session");
       const me = await getOwnerMe(new Request(`${origin}/api/seller/identity/me`, { headers: { cookie: ownerCookie } }));
       return { callback, ownerCookie, me };
     };
 
     const first = await startAndCallback();
+    expect(tokenCalls).toBe(2);
     expect(first.callback.headers.get("location")).toBe(`${origin}/seller/paypal-onboarding`);
     expect(first.me.status).toBe(200);
     expect(first.me.headers.get("cache-control")).toBe("no-store");
@@ -202,6 +219,7 @@ describe("PayPal Login Postgres persistence", () => {
     expect(shop.id).toBeTruthy();
 
     const returning = await startAndCallback();
+    expect(tokenCalls).toBe(4);
     expect(returning.ownerCookie).not.toBe(first.ownerCookie);
     expect(returning.callback.headers.get("location")).toBe(`${origin}/seller/shops`);
     expect(returning.me.status).toBe(200);

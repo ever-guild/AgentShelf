@@ -46,11 +46,12 @@ If AgentShelf returns a generic sign-in failure after PayPal, inspect the Render
 render logs --resources srv-dbm8a6e1egvs73bl8d90 --text paypal_login_failed --limit 20 --output json
 ```
 
-Use the recorded step to distinguish token exchange, profile retrieval/validation and owner-session persistence before changing credentials or retrying
+Use the recorded step to distinguish code exchange, token refresh, profile retrieval/validation and owner-session persistence before changing credentials or retrying
 
 ## Verification boundary
 
 Automated checks use mocked PayPal responses, actual Login, consent and payment checks require configured Sandbox apps and human actions
+Following the [PayPal Login guide](https://developer.paypal.com/log-in/build/), the server exchanges the authorization code, exchanges the returned refresh token once, then requests UserInfo with the new access token; both tokens stay in memory for that callback only
 The adapter uses the [Identity API](https://developer.paypal.com/api/identity/v1/schema.json) UserInfo path with `?schema=openid` to request the `sub` identity claim, as shown in [PayPal's profile-sharing example](https://github.com/paypal/PayPal-Android-SDK/blob/master/docs/profile_sharing_server.md#retrieve-customer-information-using-a-valid-access-token)
 The database regression covers callback cookies accepted by the next `/api/seller/identity/me` request for both a new owner and a returning owner with a shop
 Record sanitized results in [#45](https://github.com/ever-guild/AgentShelf/issues/45), keep authorization codes, tokens and profile values out of logs and issues

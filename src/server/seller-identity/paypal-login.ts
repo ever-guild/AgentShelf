@@ -25,6 +25,8 @@ export type PayPalLoginFailureStage =
   | "owner_read"
   | "token_exchange"
   | "token_response"
+  | "refresh_exchange"
+  | "refresh_response"
   | "userinfo_request"
   | "profile_validation"
   | "owner_session";
@@ -55,6 +57,9 @@ export type PayPalLoginProviderErrorCode =
   | "unsupported_grant_type"
   | "access_denied"
   | "AUTHENTICATION_FAILURE"
+  | "INVALID_CLIENT"
+  | "INVALID_REQUEST"
+  | "INVALID_TOKEN"
   | "NOT_AUTHORIZED"
   | "PERMISSION_DENIED";
 
@@ -75,6 +80,9 @@ const PROVIDER_ERROR_CODES = new Set<PayPalLoginProviderErrorCode>([
   "unsupported_grant_type",
   "access_denied",
   "AUTHENTICATION_FAILURE",
+  "INVALID_CLIENT",
+  "INVALID_REQUEST",
+  "INVALID_TOKEN",
   "NOT_AUTHORIZED",
   "PERMISSION_DENIED",
 ]);
@@ -203,10 +211,14 @@ async function readJsonLimited(
   }
 }
 
-const tokenResponse = z.object({
+const accessTokenResponse = z.object({
   access_token: z.string().min(1).max(8192),
   token_type: z.string().regex(/^Bearer$/i),
   expires_in: z.coerce.number().int().positive(),
+});
+
+const authorizationCodeTokenResponse = accessTokenResponse.extend({
+  refresh_token: z.string().min(1).max(8192),
 });
 
 /** Log in with PayPal uses its own Sandbox app credentials, separate from Partner Referrals. */
@@ -235,34 +247,39 @@ export function createPayPalLoginAdapter(
   async function userInfo(code: string) {
     const clientId = required(env, "PAYPAL_LOGIN_CLIENT_ID");
     const clientSecret = required(env, "PAYPAL_LOGIN_CLIENT_SECRET");
-    let tokenResponseValue: Response;
-    try {
-      tokenResponseValue = await fetchImpl(SANDBOX_TOKEN_URL, {
-        method: "POST",
-        redirect: "error",
-        signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
-        headers: {
-          authorization: `Basic ${Buffer.from(`${clientId}:${clientSecret}`).toString("base64")}`,
-          "content-type": "application/x-www-form-urlencoded",
-          accept: "application/json",
-        },
-        body: new URLSearchParams({ grant_type: "authorization_code", code }),
-      });
-    } catch {
-      throw new PayPalLoginError("UNAVAILABLE", { stage: "token_exchange", reason: "transport_error" });
-    }
-    if (!tokenResponseValue.ok) {
-      throw new PayPalLoginError("UNAVAILABLE", {
+    const authorizationCodeTokenResponseValue = await exchangeToken({
+      credentials: { clientId, clientSecret },
+      grant: new URLSearchParams({ grant_type: "authorization_code", code }),
+      exchangeStage: "token_exchange",
+      responseStage: "token_response",
+    });
+    const authorizationToken = authorizationCodeTokenResponse.safeParse(authorizationCodeTokenResponseValue.body);
+    if (!authorizationToken.success) {
+      throw new PayPalLoginError("INVALID_RESPONSE", {
         stage: "token_response",
-        reason: "http_error",
-        httpStatus: tokenResponseValue.status,
-        providerCode: await boundedProviderErrorCode(tokenResponseValue, "token_response"),
+        reason: "invalid_response",
+        httpStatus: authorizationCodeTokenResponseValue.httpStatus,
       });
     }
-    const tokenBody = await readJsonLimited(tokenResponseValue, "token_response");
-    const token = tokenResponse.safeParse(tokenBody);
-    if (!token.success) {
-      throw new PayPalLoginError("INVALID_RESPONSE", { stage: "token_response", reason: "invalid_response", httpStatus: tokenResponseValue.status });
+
+    // PayPal's Login guide instructs refreshing this code-exchange token before UserInfo:
+    // https://developer.paypal.com/log-in/build/ (Get access token, step 3).
+    const refreshedTokenResponseValue = await exchangeToken({
+      credentials: { clientId, clientSecret },
+      grant: new URLSearchParams({
+        grant_type: "refresh_token",
+        refresh_token: authorizationToken.data.refresh_token,
+      }),
+      exchangeStage: "refresh_exchange",
+      responseStage: "refresh_response",
+    });
+    const refreshedToken = accessTokenResponse.safeParse(refreshedTokenResponseValue.body);
+    if (!refreshedToken.success) {
+      throw new PayPalLoginError("INVALID_RESPONSE", {
+        stage: "refresh_response",
+        reason: "invalid_response",
+        httpStatus: refreshedTokenResponseValue.httpStatus,
+      });
     }
 
     let profileResponse: Response;
@@ -271,7 +288,7 @@ export function createPayPalLoginAdapter(
         method: "GET",
         redirect: "error",
         signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
-        headers: { authorization: `Bearer ${token.data.access_token}`, accept: "application/json" },
+        headers: { authorization: `Bearer ${refreshedToken.data.access_token}`, accept: "application/json" },
       });
     } catch {
       throw new PayPalLoginError("UNAVAILABLE", { stage: "userinfo_request", reason: "transport_error" });
@@ -285,6 +302,39 @@ export function createPayPalLoginAdapter(
       });
     }
     return parseProfile(await readJsonLimited(profileResponse, "profile_validation"), profileResponse.status);
+  }
+
+  async function exchangeToken(input: {
+    credentials: { clientId: string; clientSecret: string };
+    grant: URLSearchParams;
+    exchangeStage: "token_exchange" | "refresh_exchange";
+    responseStage: "token_response" | "refresh_response";
+  }): Promise<{ body: unknown; httpStatus: number }> {
+    let response: Response;
+    try {
+      response = await fetchImpl(SANDBOX_TOKEN_URL, {
+        method: "POST",
+        redirect: "error",
+        signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+        headers: {
+          authorization: `Basic ${Buffer.from(`${input.credentials.clientId}:${input.credentials.clientSecret}`).toString("base64")}`,
+          "content-type": "application/x-www-form-urlencoded",
+          accept: "application/json",
+        },
+        body: input.grant,
+      });
+    } catch {
+      throw new PayPalLoginError("UNAVAILABLE", { stage: input.exchangeStage, reason: "transport_error" });
+    }
+    if (!response.ok) {
+      throw new PayPalLoginError("UNAVAILABLE", {
+        stage: input.responseStage,
+        reason: "http_error",
+        httpStatus: response.status,
+        providerCode: await boundedProviderErrorCode(response, input.responseStage),
+      });
+    }
+    return { body: await readJsonLimited(response, input.responseStage), httpStatus: response.status };
   }
 
   return { assertConfigured, authorizationUrl, userInfo };

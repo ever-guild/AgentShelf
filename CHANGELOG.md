@@ -4,6 +4,7 @@ This project has no tagged releases yet, entries describe code present in the cu
 
 ## Unreleased
 
+- Refresh the PayPal Login access token before reading UserInfo, following PayPal's documented code-to-profile flow; tokens remain in memory only
 - Added bounded PayPal sign-in failure diagnostics without logging credentials, authorization codes or profile values
 - Fixed PayPal profile requests to use the OpenID schema and made PayPal the primary owner sign-in path, with legacy access under other options
 - Set the shared ink accent to PayPal blue and match the homepage demo action to the hosted Login button radius

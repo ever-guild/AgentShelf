@@ -128,15 +128,34 @@ describe("PayPal sandbox login HTTP handlers", () => {
     const { store, owners, profiles, subjects } = makeStore();
     const limiter = new Limiter();
     const now = new Date("2026-11-06T12:00:00Z");
+    let tokenCalls = 0;
+    const tokenRequests: Array<{ url: string; authorization: string | null; redirect: RequestRedirect | undefined; hasSignal: boolean }> = [];
     const fetchImpl: typeof fetch = async (input, init) => {
       const url = String(input);
       if (url.endsWith("/v1/oauth2/token")) {
+        tokenCalls += 1;
+        tokenRequests.push({
+          url,
+          authorization: new Headers(init?.headers).get("authorization"),
+          redirect: init?.redirect,
+          hasSignal: init?.signal instanceof AbortSignal,
+        });
         expect(init?.method).toBe("POST");
-        expect(String(init?.body)).toContain("grant_type=authorization_code");
-        return Response.json({ access_token: "opaque-access-token", token_type: "Bearer", expires_in: 300 });
+        expect(new Headers(init?.headers).get("authorization")).toMatch(/^Basic /);
+        const grant = new URLSearchParams(String(init?.body));
+        if (tokenCalls === 1) {
+          expect(grant.get("grant_type")).toBe("authorization_code");
+          expect(grant.get("code")).toBe("single-use");
+          return Response.json({ access_token: "initial-access-token-sentinel", refresh_token: "refresh-token-sentinel", token_type: "Bearer", expires_in: 300 });
+        }
+        expect(tokenCalls).toBe(2);
+        expect(grant.get("grant_type")).toBe("refresh_token");
+        expect(grant.get("refresh_token")).toBe("refresh-token-sentinel");
+        expect(grant.get("code")).toBeNull();
+        return Response.json({ access_token: "refreshed-access-token-sentinel", token_type: "Bearer", expires_in: 300 });
       }
       expect(url).toBe("https://api-m.sandbox.paypal.com/v1/identity/openidconnect/userinfo?schema=openid");
-      expect(new Headers(init?.headers).get("authorization")).toBe("Bearer opaque-access-token");
+      expect(new Headers(init?.headers).get("authorization")).toBe("Bearer refreshed-access-token-sentinel");
       return Response.json({ sub: " stable-subject ", name: "PayPal Seller", email: "seller@example.test" });
     };
     const handlers = createPayPalLoginHttpHandlers({ store, limiter, env, fetchImpl, now: () => now });
@@ -159,6 +178,11 @@ describe("PayPal sandbox login HTTP handlers", () => {
     const createdOwner = [...owners.values()][0];
     expect(createdOwner.passwordHash).toBeNull();
     expect(profiles.get(createdOwner.id)).toEqual({ displayName: "PayPal Seller", email: "seller@example.test" });
+    expect(tokenCalls).toBe(2);
+    expect(tokenRequests).toEqual([
+      { url: "https://api-m.sandbox.paypal.com/v1/oauth2/token", authorization: `Basic ${Buffer.from("sandbox-client-id:sandbox-client-secret").toString("base64")}`, redirect: "error", hasSignal: true },
+      { url: "https://api-m.sandbox.paypal.com/v1/oauth2/token", authorization: `Basic ${Buffer.from("sandbox-client-id:sandbox-client-secret").toString("base64")}`, redirect: "error", hasSignal: true },
+    ]);
     expect([...subjects.keys()]).toHaveLength(1);
     expect([...subjects.keys()][0]).not.toContain("seller@example.test");
     const replay = await callback();
@@ -191,18 +215,34 @@ describe("PayPal sandbox login HTTP handlers", () => {
     ["unknown provider error", async () => Response.json({ error: "ERROR_SECRET_SENTINEL", name: "NAME_SECRET_SENTINEL", message: "MESSAGE_SECRET_SENTINEL" }, { status: 401 }), "token_http", { stage: "token_response", reason: "http_error", httpStatus: 401 }],
     ["malformed token JSON", async () => new Response("TOKEN_JSON_SENTINEL", { status: 200 }), "stop", { stage: "token_response", reason: "invalid_json", httpStatus: 200 }],
     ["malformed token response", async () => Response.json({ access_token: "", token_type: "Bearer", expires_in: 300 }), "stop", { stage: "token_response", reason: "invalid_response", httpStatus: 200 }],
-    ["userinfo network failure", async () => Response.json({ access_token: "ACCESS_TOKEN_SENTINEL", token_type: "Bearer", expires_in: 300 }), "network", { stage: "userinfo_request", reason: "transport_error" }],
-    ["userinfo HTTP failure", async () => Response.json({ access_token: "ACCESS_TOKEN_SENTINEL", token_type: "Bearer", expires_in: 300 }), "userinfo_http", { stage: "userinfo_request", reason: "http_error", httpStatus: 401 }],
-    ["profile missing sub", async () => Response.json({ access_token: "ACCESS_TOKEN_SENTINEL", token_type: "Bearer", expires_in: 300 }), "missing_sub", { stage: "profile_validation", reason: "missing_sub", httpStatus: 200 }],
-    ["profile invalid email", async () => Response.json({ access_token: "ACCESS_TOKEN_SENTINEL", token_type: "Bearer", expires_in: 300 }), "invalid_email", { stage: "profile_validation", reason: "invalid_email", httpStatus: 200 }],
+    ["missing refresh token", async () => Response.json({ access_token: "INITIAL_ACCESS_SENTINEL", token_type: "Bearer", expires_in: 300 }), "missing_refresh", { stage: "token_response", reason: "invalid_response", httpStatus: 200 }],
+    ["refresh endpoint network failure", async () => Response.json({ access_token: "INITIAL_ACCESS_SENTINEL", refresh_token: "REFRESH_TOKEN_SENTINEL", token_type: "Bearer", expires_in: 300 }), "refresh_network", { stage: "refresh_exchange", reason: "transport_error" }],
+    ["refresh endpoint HTTP failure", async () => Response.json({ access_token: "INITIAL_ACCESS_SENTINEL", refresh_token: "REFRESH_TOKEN_SENTINEL", token_type: "Bearer", expires_in: 300 }), "refresh_http", { stage: "refresh_response", reason: "http_error", httpStatus: 401, providerCode: "AUTHENTICATION_FAILURE" }],
+    ["malformed refresh response", async () => Response.json({ access_token: "INITIAL_ACCESS_SENTINEL", refresh_token: "REFRESH_TOKEN_SENTINEL", token_type: "Bearer", expires_in: 300 }), "refresh_invalid", { stage: "refresh_response", reason: "invalid_response", httpStatus: 200 }],
+    ["userinfo network failure", async () => Response.json({ access_token: "INITIAL_ACCESS_SENTINEL", refresh_token: "REFRESH_TOKEN_SENTINEL", token_type: "Bearer", expires_in: 300 }), "network", { stage: "userinfo_request", reason: "transport_error" }],
+    ["userinfo HTTP failure", async () => Response.json({ access_token: "INITIAL_ACCESS_SENTINEL", refresh_token: "REFRESH_TOKEN_SENTINEL", token_type: "Bearer", expires_in: 300 }), "userinfo_http", { stage: "userinfo_request", reason: "http_error", httpStatus: 401 }],
+    ["profile missing sub", async () => Response.json({ access_token: "INITIAL_ACCESS_SENTINEL", refresh_token: "REFRESH_TOKEN_SENTINEL", token_type: "Bearer", expires_in: 300 }), "missing_sub", { stage: "profile_validation", reason: "missing_sub", httpStatus: 200 }],
+    ["profile invalid email", async () => Response.json({ access_token: "INITIAL_ACCESS_SENTINEL", refresh_token: "REFRESH_TOKEN_SENTINEL", token_type: "Bearer", expires_in: 300 }), "invalid_email", { stage: "profile_validation", reason: "invalid_email", httpStatus: 200 }],
   ])("does not create an owner after %s", async (label, tokenResponse, failure, expectedLog) => {
     const { store, owners, sessions } = makeStore();
     const limiter = new Limiter();
     const warning = vi.spyOn(console, "warn").mockImplementation(() => {});
     let fetchCalls = 0;
-    const fetchImpl: typeof fetch = async () => {
+    const fetchImpl: typeof fetch = async (input, init) => {
       fetchCalls += 1;
-      if (fetchCalls === 1) return await tokenResponse();
+      if (String(input).endsWith("/v1/oauth2/token")) {
+        const grant = new URLSearchParams(String(init?.body));
+        if (fetchCalls === 1) {
+          if (["missing_refresh", "token_http", "stop"].includes(failure)) return await tokenResponse();
+          return Response.json({ access_token: "INITIAL_ACCESS_SENTINEL", refresh_token: "REFRESH_TOKEN_SENTINEL", token_type: "Bearer", expires_in: 300 });
+        }
+        expect(grant.get("grant_type")).toBe("refresh_token");
+        expect(grant.get("refresh_token")).toBe("REFRESH_TOKEN_SENTINEL");
+        if (failure === "refresh_network") throw new Error("simulated refresh endpoint transport failure");
+        if (failure === "refresh_http") return Response.json({ name: "AUTHENTICATION_FAILURE", message: "REFRESH_BODY_SENTINEL" }, { status: 401 });
+        if (failure === "refresh_invalid") return Response.json({ access_token: "", token_type: "Bearer", expires_in: 300 });
+        return Response.json({ access_token: "REFRESHED_ACCESS_SENTINEL", token_type: "Bearer", expires_in: 300 });
+      }
       if (failure === "network") throw new Error("simulated provider transport failure");
       if (failure === "userinfo_http") return new Response("USERINFO_BODY_SENTINEL", { status: 401 });
       if (failure === "missing_sub") return Response.json({ email: "EMAIL_SENTINEL@example.test", payer_id: "PROFILE_SENTINEL" });
@@ -221,13 +261,17 @@ describe("PayPal sandbox login HTTP handlers", () => {
     expect(new URL(callback.headers.get("location")!).searchParams.get("error")).toBe("paypal_login_failed");
     expect(owners.size).toBe(0);
     expect(sessions.size).toBe(0);
+    if (["token_http", "missing_refresh", "stop"].includes(failure)) expect(fetchCalls).toBe(1);
+    else if (["refresh_network", "refresh_http", "refresh_invalid"].includes(failure)) expect(fetchCalls).toBe(2);
+    else expect(fetchCalls).toBe(3);
     expect(warning).toHaveBeenCalledTimes(1);
     const event = warning.mock.calls[0][0];
     expect(JSON.parse(event!)).toEqual({ event: "paypal_login_failed", ...expectedLog });
     const serialized = JSON.stringify(warning.mock.calls);
     for (const sentinel of [
       "TOKEN_BODY_SENTINEL", "TOKEN_JSON_SENTINEL", "TOKEN_DESCRIPTION_SENTINEL", "ERROR_SECRET_SENTINEL", "NAME_SECRET_SENTINEL", "MESSAGE_SECRET_SENTINEL",
-      "ACCESS_TOKEN_SENTINEL", "USERINFO_BODY_SENTINEL", "EMAIL_SENTINEL", "PROFILE_SENTINEL", "SUBJECT_SENTINEL",
+      "INITIAL_ACCESS_SENTINEL", "REFRESH_TOKEN_SENTINEL", "REFRESHED_ACCESS_SENTINEL", "REFRESH_BODY_SENTINEL",
+      "USERINFO_BODY_SENTINEL", "EMAIL_SENTINEL", "PROFILE_SENTINEL", "SUBJECT_SENTINEL",
       "code=code", authorization.searchParams.get("state")!,
     ]) {
       expect(serialized).not.toContain(sentinel);
@@ -245,7 +289,8 @@ describe("PayPal sandbox login HTTP handlers", () => {
     let fetchCalls = 0;
     const fetchImpl: typeof fetch = async () => {
       fetchCalls += 1;
-      if (fetchCalls === 1) return Response.json({ access_token: "ACCESS_TOKEN_SENTINEL", token_type: "Bearer", expires_in: 300 });
+      if (fetchCalls === 1) return Response.json({ access_token: "INITIAL_ACCESS_TOKEN_SENTINEL", refresh_token: "REFRESH_TOKEN_SENTINEL", token_type: "Bearer", expires_in: 300 });
+      if (fetchCalls === 2) return Response.json({ access_token: "REFRESHED_ACCESS_TOKEN_SENTINEL", token_type: "Bearer", expires_in: 300 });
       return Response.json({ sub: "SUBJECT_SENTINEL", name: "PROFILE_SENTINEL", email: "EMAIL_SENTINEL@example.test" });
     };
     const handlers = createPayPalLoginHttpHandlers({ store, limiter, env, fetchImpl });
@@ -266,7 +311,7 @@ describe("PayPal sandbox login HTTP handlers", () => {
       reason: "persistence_failure",
     }));
     const serialized = JSON.stringify(warning.mock.calls);
-    for (const sentinel of ["DB_SENTINEL", "EMAIL_SENTINEL", "SUBJECT_SENTINEL", "TOKEN_SENTINEL", "ACCESS_TOKEN_SENTINEL", "PROFILE_SENTINEL", "CODE_SENTINEL"]) {
+    for (const sentinel of ["DB_SENTINEL", "EMAIL_SENTINEL", "SUBJECT_SENTINEL", "TOKEN_SENTINEL", "INITIAL_ACCESS_TOKEN_SENTINEL", "REFRESH_TOKEN_SENTINEL", "REFRESHED_ACCESS_TOKEN_SENTINEL", "PROFILE_SENTINEL", "CODE_SENTINEL"]) {
       expect(serialized).not.toContain(sentinel);
     }
     warning.mockRestore();
