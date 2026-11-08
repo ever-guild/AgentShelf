@@ -5,10 +5,11 @@ import { useCallback, useEffect, useRef, useState, type FormEvent } from "react"
 
 import { isUnauthorized, readOwnerSession, type OwnerSession } from "../identity/owner-session";
 import {
+  createShopRequestGuard,
   deriveConnectionControls,
+  shouldKeepActionUrl,
   statusLabel,
   type ConnectionResponse,
-  type ConnectionStatus,
 } from "./connection-state";
 
 export function PayPalConnection() {
@@ -23,8 +24,10 @@ export function PayPalConnection() {
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const idempotencyKey = useRef<string | null>(null);
+  const requestGuard = useRef(createShopRequestGuard());
 
   const refreshConnection = useCallback(async (selectedShopId: string, recheckAtPayPal = false) => {
+    const ticket = requestGuard.current.beginRefresh(selectedShopId);
     setLoading(true);
     setError(null);
     try {
@@ -35,27 +38,31 @@ export function PayPalConnection() {
             body: JSON.stringify({ shopId: selectedShopId }),
           })
         : await fetch(`/api/seller/paypal/connection?shopId=${encodeURIComponent(selectedShopId)}`, { cache: "no-store" });
+      if (!requestGuard.current.isCurrentRefresh(ticket)) return;
       if (response.status === 401) {
         router.replace("/seller/owner-sign-in");
         return;
       }
       if (response.status === 503) {
+        setActionUrl(null);
         setConnection({ connection: { shopId: selectedShopId, status: "not_connected" }, configured: false });
         setLoading(false);
         return;
       }
       if (!response.ok) throw new Error("Connection status could not be loaded.");
       const result = (await response.json()) as { connection: ConnectionResponse["connection"]; configured?: boolean; webhookConfigured?: boolean };
+      if (!requestGuard.current.isCurrentRefresh(ticket, result.connection?.shopId)) return;
       setConnection((current) => ({
         connection: result.connection,
         configured: result.configured ?? current?.configured ?? true,
         webhookConfigured: result.webhookConfigured ?? current?.webhookConfigured,
       }));
-      if (result.connection.status !== "pending") setActionUrl(null);
+      if (!shouldKeepActionUrl(result.connection)) setActionUrl(null);
     } catch (reason) {
+      if (!requestGuard.current.isCurrentRefresh(ticket)) return;
       setError(reason instanceof Error ? reason.message : "Connection status could not be loaded.");
     }
-    setLoading(false);
+    if (requestGuard.current.isCurrentRefresh(ticket)) setLoading(false);
   }, [router]);
 
   useEffect(() => {
@@ -66,6 +73,7 @@ export function PayPalConnection() {
       const requestedShopId = new URLSearchParams(window.location.search).get("shopId");
       const callbackShopId = requestedShopId && value.shops.some(({ id }) => id === requestedShopId) ? requestedShopId : null;
       const initialShopId = callbackShopId ?? value.selectedShopId ?? value.shops[0]?.id ?? "";
+      requestGuard.current.switchShop(initialShopId);
       setShopId(initialShopId);
       if (initialShopId) await refreshConnection(initialShopId);
       else setLoading(false);
@@ -81,9 +89,13 @@ export function PayPalConnection() {
   }, [refreshConnection, router]);
 
   async function chooseShop(nextShopId: string) {
+    requestGuard.current.switchShop(nextShopId);
     setShopId(nextShopId);
+    setConnection(null);
     setActionUrl(null);
     setNotice(null);
+    setError(null);
+    setBusy(false);
     setShareDataConsent(false);
     idempotencyKey.current = null;
     await refreshConnection(nextShopId);
@@ -92,6 +104,8 @@ export function PayPalConnection() {
   async function startConnection(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!shareDataConsent || !shopId) return;
+    const targetShopId = shopId;
+    const ticket = requestGuard.current.beginStart(targetShopId);
     setBusy(true);
     setError(null);
     setNotice(null);
@@ -100,14 +114,16 @@ export function PayPalConnection() {
       const response = await fetch("/api/seller/paypal/connection", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ shopId, idempotencyKey: idempotencyKey.current ?? (idempotencyKey.current = crypto.randomUUID()), shareDataConsent: true }),
+        body: JSON.stringify({ shopId: targetShopId, idempotencyKey: idempotencyKey.current ?? (idempotencyKey.current = crypto.randomUUID()), shareDataConsent: true }),
       });
+      if (!requestGuard.current.isCurrentStart(ticket)) return;
       if (response.status === 401) {
         router.replace("/seller/owner-sign-in");
         return;
       }
       if (response.status === 503) {
-        setConnection({ connection: { shopId, status: "not_connected" }, configured: false });
+        setActionUrl(null);
+        setConnection({ connection: { shopId: targetShopId, status: "not_connected" }, configured: false });
         setBusy(false);
         return;
       }
@@ -116,18 +132,24 @@ export function PayPalConnection() {
         setBusy(false);
         return;
       }
-      const result = (await response.json()) as { connection: { shopId: string; status: ConnectionStatus }; actionUrl?: string };
+      const result = (await response.json()) as { connection: ConnectionResponse["connection"]; actionUrl?: string };
+      if (!requestGuard.current.isCurrentStart(ticket, result.connection?.shopId)) return;
       setConnection((current) => current ? { ...current, connection: result.connection } : { connection: result.connection, configured: true });
       idempotencyKey.current = null;
       setShareDataConsent(false);
-      if (result.actionUrl) setActionUrl(result.actionUrl);
-      else setNotice(result.connection.status === "pending"
-        ? "The connection must be resumed by the owner who started it. Contact the platform administrator if the link remains unavailable."
-        : "A connection is already in progress. Refresh the status after approving it on PayPal.");
+      if (result.actionUrl && shouldKeepActionUrl(result.connection)) {
+        setActionUrl(result.actionUrl);
+      } else {
+        setActionUrl(null);
+        setNotice(result.connection.status === "pending"
+          ? "The connection must be resumed by the owner who started it. Contact the platform administrator if the link remains unavailable."
+          : "A connection is already in progress. Refresh the status after approving it on PayPal.");
+      }
     } catch {
+      if (!requestGuard.current.isCurrentStart(ticket)) return;
       setError("The server did not answer. Check your connection and try again.");
     }
-    setBusy(false);
+    if (requestGuard.current.isCurrentStart(ticket)) setBusy(false);
   }
 
   const shops = session?.shops ?? [];

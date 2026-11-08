@@ -15,6 +15,70 @@ export type ConnectionResponse = {
   webhookConfigured?: boolean;
 };
 
+export type ShopRequestTicket = {
+  readonly shopId: string;
+  readonly generation: number;
+};
+
+export function shouldKeepActionUrl(
+  connection: ConnectionResponse["connection"] | null | undefined,
+): boolean {
+  return (
+    connection?.status === "pending" &&
+    connection.nextAction === "continue_paypal"
+  );
+}
+
+export function createShopRequestGuard(initialShopId = "") {
+  let activeShopId = initialShopId;
+  let refreshGeneration = 0;
+  let startGeneration = 0;
+
+  return {
+    currentShopId(): string {
+      return activeShopId;
+    },
+    switchShop(nextShopId: string): void {
+      activeShopId = nextShopId;
+      refreshGeneration += 1;
+      startGeneration += 1;
+    },
+    beginRefresh(shopId: string): ShopRequestTicket {
+      activeShopId = shopId;
+      refreshGeneration += 1;
+      return { shopId, generation: refreshGeneration };
+    },
+    isCurrentRefresh(
+      ticket: ShopRequestTicket,
+      responseShopId?: string,
+    ): boolean {
+      return (
+        Boolean(ticket.shopId) &&
+        activeShopId === ticket.shopId &&
+        refreshGeneration === ticket.generation &&
+        (responseShopId === undefined || responseShopId === ticket.shopId)
+      );
+    },
+    beginStart(shopId: string): ShopRequestTicket {
+      activeShopId = shopId;
+      refreshGeneration += 1;
+      startGeneration += 1;
+      return { shopId, generation: startGeneration };
+    },
+    isCurrentStart(
+      ticket: ShopRequestTicket,
+      responseShopId?: string,
+    ): boolean {
+      return (
+        Boolean(ticket.shopId) &&
+        activeShopId === ticket.shopId &&
+        startGeneration === ticket.generation &&
+        (responseShopId === undefined || responseShopId === ticket.shopId)
+      );
+    },
+  };
+}
+
 export function statusLabel(status: ConnectionStatus): string {
   switch (status) {
     case "ready":
@@ -42,6 +106,9 @@ export function statusGuidance(input: {
       if (input.nextAction === "contact_support") {
         return "PayPal did not confirm whether the connection request was created. Refresh the status in a moment or contact the platform administrator before trying again.";
       }
+      if (input.nextAction !== "continue_paypal") {
+        return "A connection request is in progress. Refresh the status in a moment.";
+      }
       return input.hasActionUrl
         ? "Finish the connection on PayPal. After you return, refresh this status."
         : "If you left before completing approval, the owner who started the connection can confirm data sharing below to resume. Contact the platform administrator if that owner is unavailable.";
@@ -66,12 +133,12 @@ export function deriveConnectionControls(input: {
 }) {
   const currentStatus = input.connection?.connection.status;
   const nextAction = input.connection?.connection.nextAction;
-  const continueUrl =
-    currentStatus === "pending" && nextAction !== "contact_support"
-      ? input.actionUrl
-      : null;
+  const canContinuePending = shouldKeepActionUrl(input.connection?.connection);
+  const continueUrl = canContinuePending ? input.actionUrl : null;
   const startBlockedByAction =
-    nextAction === "contact_support" || nextAction === "retry_status";
+    nextAction === "contact_support" ||
+    nextAction === "retry_status" ||
+    (currentStatus === "pending" && !canContinuePending);
   const canStart = Boolean(
     input.shopId &&
       input.shareDataConsent &&
