@@ -62,6 +62,7 @@ export function PayPalConnection() {
         configured: result.configured ?? current?.configured ?? true,
         webhookConfigured: result.webhookConfigured ?? current?.webhookConfigured,
       }));
+      if (result.connection.status === "ready") setActionUrl(null);
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "Connection status could not be loaded.");
     }
@@ -131,7 +132,9 @@ export function PayPalConnection() {
       idempotencyKey.current = null;
       setShareDataConsent(false);
       if (result.actionUrl) setActionUrl(result.actionUrl);
-      else setNotice("A connection is already in progress. Refresh the status after approving it on PayPal.");
+      else setNotice(result.connection.status === "pending"
+        ? "The connection must be resumed by the owner who started it. Contact the platform administrator if the link remains unavailable."
+        : "A connection is already in progress. Refresh the status after approving it on PayPal.");
     } catch {
       setError("The server did not answer. Check your connection and try again.");
     }
@@ -139,7 +142,19 @@ export function PayPalConnection() {
   }
 
   const shops = session?.shops ?? [];
-  const canStart = Boolean(shopId && shareDataConsent && connection?.configured && connection.connection.status !== "ready" && connection.connection.status !== "pending");
+  const currentStatus = connection?.connection.status;
+  const canStart = Boolean(shopId && shareDataConsent && connection?.configured && currentStatus !== "ready");
+  const showConnectionForm = Boolean(
+    !loading
+    && connection?.configured
+    && currentStatus !== "ready"
+    && !(currentStatus === "pending" && actionUrl),
+  );
+  const continueUrl = currentStatus === "ready" ? null : actionUrl;
+  const actionButtonLabel = currentStatus === "pending"
+    ? "Resume sandbox connection"
+    : "Start sandbox connection";
+  const busyButtonLabel = currentStatus === "pending" ? "Resuming connection" : "Starting connection";
 
   return (
     <div className="flex flex-col gap-5">
@@ -178,19 +193,23 @@ export function PayPalConnection() {
             <p className="rounded-lg bg-zinc-100 p-4 text-sm text-zinc-700 dark:bg-zinc-900 dark:text-zinc-300">This shop is connected to PayPal Sandbox. Payments remain in sandbox and require the buyer&rsquo;s approval.</p>
           ) : null}
           {!loading && connection?.configured && connection.connection.status === "pending" ? (
-            <p className="rounded-lg bg-zinc-100 p-4 text-sm text-zinc-700 dark:bg-zinc-900 dark:text-zinc-300">The shop owner must finish the connection on PayPal. After you return, refresh this status.</p>
+            <p className="rounded-lg bg-zinc-100 p-4 text-sm text-zinc-700 dark:bg-zinc-900 dark:text-zinc-300">
+              {actionUrl
+                ? "Finish the connection on PayPal. After you return, refresh this status."
+                : "If you left before completing approval, the owner who started the connection can confirm data sharing below to resume. Contact the platform administrator if that owner is unavailable."}
+            </p>
           ) : null}
-          {actionUrl ? (
-            <a href={actionUrl} target="_blank" rel="noopener noreferrer" className="inline-flex h-11 w-fit items-center rounded-lg bg-ink px-4 font-medium text-background transition-[background-color,transform] hover:bg-ink/90 active:scale-[0.98]">Continue to PayPal Sandbox</a>
+          {continueUrl ? (
+            <a href={continueUrl} target="_blank" rel="noopener noreferrer" className="inline-flex h-11 w-fit items-center rounded-lg bg-ink px-4 font-medium text-background transition-[background-color,transform] hover:bg-ink/90 active:scale-[0.98]">Continue to PayPal Sandbox</a>
           ) : null}
-          {!loading && connection?.configured && connection.connection.status !== "ready" && connection.connection.status !== "pending" ? (
+          {showConnectionForm ? (
             <form onSubmit={startConnection} className="flex flex-col gap-4 border-t border-zinc-200 pt-4 dark:border-zinc-800">
               <label className="flex items-start gap-3 text-sm">
                 <input type="checkbox" checked={shareDataConsent} onChange={(event) => setShareDataConsent(event.currentTarget.checked)} className="mt-1 accent-ink" />
                 <span>I agree to share this shop&rsquo;s data with PayPal to start connecting its Sandbox account</span>
               </label>
               <p className="text-sm text-zinc-600 dark:text-zinc-400">PayPal opens the consent and account steps. AgentShelf does not collect PayPal passwords or make live connections.</p>
-              <button type="submit" disabled={busy || !canStart} className="h-11 w-fit rounded-lg bg-ink px-4 font-medium text-background transition-[background-color,transform] hover:bg-ink/90 active:scale-[0.98] disabled:opacity-60">{busy ? "Starting connection" : "Start sandbox connection"}</button>
+              <button type="submit" disabled={busy || !canStart} className="h-11 w-fit rounded-lg bg-ink px-4 font-medium text-background transition-[background-color,transform] hover:bg-ink/90 active:scale-[0.98] disabled:opacity-60">{busy ? busyButtonLabel : actionButtonLabel}</button>
             </form>
           ) : null}
         </section>
