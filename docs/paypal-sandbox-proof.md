@@ -1,8 +1,8 @@
 # PayPal sandbox proof runbook
 
-Status on 6 November 2026: `BLOCKED`, neither seller has separate Sandbox app credentials and merchant ID configured, this proof has not obtained an OAuth token or created an order, and no buyer approval, capture or webhook registration has been verified
+Status on 8 November 2026: one seller completed platform-app consent and a buyer-approved EUR 1 MCP checkout was captured in Sandbox; the `CHECKOUT.ORDER.APPROVED` and `PAYMENT.CAPTURE.COMPLETED` events were received, and the matching database capture and verified receipts were processed. This is one-seller evidence only; the second seller remains blocked by PayPal UserInfo HTTP 401, and Catalog permissions and webhook redelivery deduplication are unverified
 
-This runbook describes the controlled `paypal:proof` CLI in [`scripts/paypal-proof.ts`](../scripts/paypal-proof.ts) for [proof issue #2](https://github.com/ever-guild/AgentShelf/issues/2), it records a candidate procedure and does not claim a completed payment
+This page retains the controlled `paypal:proof` CLI in [`scripts/paypal-proof.ts`](../scripts/paypal-proof.ts) as a historical direct-merchant diagnostic procedure from 6 November. It is not the current platform checkout path or evidence for the transaction above. See the [platform authorization contract](paypal-platform-contract.md) and [proof issue #2](https://github.com/ever-guild/AgentShelf/issues/2)
 
 ## Capability status
 
@@ -10,29 +10,27 @@ This runbook describes the controlled `paypal:proof` CLI in [`scripts/paypal-pro
 | --- | --- |
 | PayPal Server SDK | `@paypal/paypal-server-sdk` 2.5.0 is installed, methods checked against immutable [upstream commit `790be9be9b694be08157e1cd5d50321c72727a76`](https://github.com/paypal/PayPal-TypeScript-Server-SDK/tree/790be9be9b694be08157e1cd5d50321c72727a76) |
 | Harness | `create`, `inspect` and human-gated `capture` commands exist, tests use synthetic credentials and mock responses only |
-| Sandbox sellers | Proof readiness is per seller, each needs its own REST app, client ID, client secret and merchant ID, both are currently `BLOCKED` |
-| OAuth and Orders calls | Not run, credentials are missing |
-| Buyer approval and capture | Not run, no order exists |
-| Catalog Products and webhooks | Not tested or registered |
+| Platform seller connection | One seller completed human consent and a provider-backed merchant-status refresh reported ready; merchant-status readiness was verified. The second seller remains blocked by UserInfo HTTP 401 |
+| Platform OAuth and checkout | Platform OAuth/scopes/BN were verified; one EUR 1 MCP order was created for the connected payee |
+| Buyer approval and capture | Buyer manually approved; approval and completed-capture events received, matching database capture and verified receipts processed |
+| Catalog Products and webhook retries | Catalog permissions unverified; receipts for this order were verified and processed, subscription redelivery deduplication remains unverified |
 | PayPal Agent Toolkit | Not a project dependency, no Toolkit runtime or tools are used |
 
 ## Accounts and authorization
 
-The candidate flow uses a seller-owned Sandbox REST app and that seller's own merchant ID as `payee.merchantId`, with a separate Personal Sandbox buyer who manually approves each order
+The verified transaction used the platform app and the merchant connected through owner consent as the order payee; a human buyer approved it in PayPal Sandbox. The payment receipt proves this one seller path, not a second seller or every platform permission
 
-This self-payee approach is a hypothesis pending an actual sandbox result, it does not prove platform merchant permissions, seller consent, Partner Referrals enrollment or cross-merchant authorization
-
-Live payments, production credentials, real seller onboarding and Partner Referrals are outside this proof's scope
+The direct-merchant CLI below uses a seller-owned REST app and is retained only as a historical diagnostic. It is not the target self-service onboarding path. Live payments and production credentials remain outside scope; Sandbox Partner Referrals are in scope
 
 PayPal distinguishes first-party requests from platform requests on behalf of another merchant, its [REST authorization guide](https://developer.paypal.com/api/make-api-requests) describes `PayPal-Auth-Assertion`, `PayPal-Partner-Attribution-Id` and merchant consent for third-party calls, stop on any permission error rather than adding platform headers
 
 | Role | App and use | Status |
 | --- | --- | --- |
-| Demo Phone Workshop | Business Sandbox account and its own REST app, seller/payee for one EUR order | `BLOCKED`, credentials and merchant mapping absent |
-| Second shop | Separate Business Sandbox account and its own REST app, seller/payee for a different order | `BLOCKED`, credentials and merchant mapping absent, seed support also pending |
-| Buyer | Separate Personal Sandbox account, signs in and approves manually | Not configured in the CLI or server environment |
+| Connected seller | Platform app, human-approved Partner Referrals consent, verified as payee for one EUR 1 order | One Sandbox checkout captured; merchant-status readiness was verified |
+| Second seller | Separate Sandbox Business account, requires its own successful Login and consent flow | `BLOCKED`, PayPal UserInfo HTTP 401; restore account consent or contact PayPal support |
+| Buyer | Separate Personal Sandbox account | Human approval completed for the verified checkout |
 
-Use the current [PayPal Sandbox account setup](https://developer.paypal.com/sandbox-testing/accounts) and [REST API setup](https://developer.paypal.com/api/get-started/) instructions to create or confirm these roles
+Use the current [PayPal Sandbox account setup](https://developer.paypal.com/sandbox-testing/accounts) and [REST API setup](https://developer.paypal.com/api/get-started/) instructions when resolving the blocked second seller; do not create duplicate accounts unless needed
 
 ## SDK and API boundary
 
@@ -92,7 +90,7 @@ npm run paypal:proof -- capture \
   --confirm-human-approved
 ```
 
-Repeat with a different UUID and reference such as `proof-2026-11-06-second-01` and `--shop DEMO_SECOND_SHOP`, each order is separate and must be approved by the buyer before its capture command
+The commands above are retained only for the historical direct-merchant diagnostic. Do not use them as the current platform proof or create a duplicate order for the completed transaction
 
 ## Retry and evidence rules
 
@@ -122,6 +120,6 @@ The SDK facts were reviewed with `paypal-best-practices` and the APIMatic `types
 
 For a PayPal proof report, keep sanitized role, transaction result and HTTP codes, redact merchant, order and capture IDs, credentials and approval URLs, attach the tested commit and proof artifacts
 
-Verify public health checks separately as Render delivery evidence, HTTP health success does not establish OAuth, seller permission or a PayPal sandbox transaction
+Verify public health checks separately as Render delivery evidence; HTTP health success does not establish OAuth, seller permission or a PayPal Sandbox transaction
 
 This runbook is separate from the [MCP `get_order_status` proposal for ppmarkek](paypal-order-status-contract.md), it does not implement or complete [issue #5](https://github.com/ever-guild/AgentShelf/issues/5), [issue #11](https://github.com/ever-guild/AgentShelf/issues/11) or [proof issue #2](https://github.com/ever-guild/AgentShelf/issues/2)
