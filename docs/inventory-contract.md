@@ -88,11 +88,12 @@ one purchase, while PostgreSQL tests cover concurrency and state transitions.
   explicit tracked quantities and does not overwrite existing stock on reseed.
 - Imported products are not silently given an unlimited or untracked policy. A product without an
   inventory row cannot be reserved; its seller must explicitly set tracked stock or choose
-  untracked through the policy endpoint or seller MCP before checkout. CSV/import quantity values
-  are not currently wired into the inventory policy automatically, so sellers must review/set the
-  inventory decision separately. Legacy sellers can now call the stock HTTP routes after
-  publication, but `/seller/catalog` does not yet expose a stock control in the import-review and
-  publish flow; the end-to-end imported-product path still needs that UI step.
+  untracked through `/seller/catalog`, the policy endpoint, or seller MCP before checkout.
+  CSV/import quantity values are not wired into the inventory policy automatically. In
+  `/seller/catalog`, physical products without an `inventory_stock` row show an explicit
+  **Stock decision required** state with a policy form (`PUT /api/seller/inventory/{productId}/policy`),
+  and tracked products show `onHand`, `reserved`, `available`, and `version` with a versioned
+  adjustment form (`PATCH /api/seller/inventory/{productId}`).
 - `drizzle/inventory-module-draft.sql` is a historical standalone draft, not part of the migration
   journal or the production upgrade path. Runtime setup uses the numbered migrations.
 
@@ -115,6 +116,7 @@ versioned adjustments. It refuses active or unresolved reservations and pending,
 purchases, including legacy orders without an allocation; tests verify restoration,
 repeat safety and atomic refusal. This command is not run against the public demo as proof.
 
-#36 remains open until the seller catalog UI can collect an explicit stock decision after
-publication. API access, a passing suite and one paid purchase do not complete that seller flow.
-Buyer-facing availability improvements are tracked separately from this acceptance gate.
+The seller catalog now collects an explicit stock decision after publication and supports
+versioned adjustments. Its browser acceptance covers owner and legacy sessions, tracked/untracked
+policies, zero stock, stale-version reconfirmation and checkout eligibility. Final delivery and
+closure evidence are recorded in issue #36.

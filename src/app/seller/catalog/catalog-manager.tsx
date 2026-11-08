@@ -13,6 +13,11 @@ import type {
 
 import { AMOUNT_HINT } from "../amount-hint";
 import { RequestFailed, request } from "../imports/[id]/request";
+import { ProductStockControl } from "./product-stock-control";
+import {
+  type StockControlViewState,
+  formatSellerProductStockSummary,
+} from "./stock-control-state";
 
 const inputClass =
   "h-10 w-full min-w-0 rounded-lg border border-zinc-300 bg-transparent px-2 text-right text-base text-foreground tabular-nums transition-colors disabled:opacity-60 aria-invalid:border-blocked md:h-9 md:text-sm dark:border-zinc-700 dark:aria-invalid:border-blocked";
@@ -191,11 +196,20 @@ function ProductRow({
 }) {
   const [refused, setRefused] = useState<{ patch: CatalogProductPatch; message: string } | null>(null);
   const [saved, setSaved] = useState<string | null>(null);
+  const [stockState, setStockState] = useState<StockControlViewState>({
+    status: "loading",
+  });
   const onSale = product.status === "published";
   const length =
     product.serviceDurationMinutes === null
       ? "length not set"
       : `${product.serviceDurationMinutes} minutes`;
+  const productSubtitle =
+    product.kind === "service"
+      ? `Service, ${length}${onSale ? ", on sale" : ", not on sale"}`
+      : onSale
+        ? `Product · ${formatSellerProductStockSummary("available", stockState)}`
+        : "Product, not on sale";
 
   async function save(patch: CatalogProductPatch, savedWords: string | null = null) {
     setRefused(null);
@@ -219,10 +233,7 @@ function ProductRow({
     >
       <div className="min-w-0 md:pt-1.5">
         <p className={`break-words ${onSale ? "font-medium" : SECONDARY_TEXT}`}>{product.title}</p>
-        <p className={`text-sm ${SECONDARY_TEXT}`}>
-          {product.kind === "service" ? `Service, ${length}` : "Product"}
-          {onSale ? ", on sale" : ", not on sale"}
-        </p>
+        <p className={`text-sm ${SECONDARY_TEXT}`}>{productSubtitle}</p>
         {product.description ? (
           <p className={`mt-1 break-words text-sm ${SECONDARY_TEXT}`}>{product.description}</p>
         ) : null}
@@ -287,6 +298,14 @@ function ProductRow({
           {onSale ? "Unpublish" : "Publish again"}
         </button>
       </div>
+      {product.kind === "product" ? (
+        <div className="md:col-span-full">
+          <ProductStockControl
+            productId={product.id}
+            onStateChange={setStockState}
+          />
+        </div>
+      ) : null}
     </li>
   );
 }
