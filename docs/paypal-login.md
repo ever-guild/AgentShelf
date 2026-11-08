@@ -17,13 +17,25 @@ Never enter a seller password or API secret into AgentShelf
 
 ## Try it
 
-1. Select **Seller sign-in** on the home page and sign in with a Sandbox seller at PayPal
+1. Select **Log in with PayPal** on the home page and sign in with a Sandbox seller at PayPal
 2. Confirm the shop name, public slug, location and timezone, profile fields are suggestions and do not establish merchant readiness
 3. Continue to **PayPal connection**, acknowledge data sharing and complete PayPal's seller-consent flow
 4. Sign out and repeat login with the same Sandbox account, the existing owner and shops should be recovered
 
 Password owners can still use [owner sign-in](https://agentshelf-e5bk.onrender.com/seller/owner-sign-in), existing accounts are never silently linked by matching email
 Without Login configuration, the page explains that PayPal sign-in is unavailable and offers the existing access paths
+
+The button uses [PayPal's hosted image](https://developer.paypal.com/log-in/build-button/) without alteration or local hosting; it links to the server start route, which creates the one-time state and browser cookie
+
+## If PayPal rejects the login
+
+For `invalid client_id or redirect_uri`, check the same app under **Apps & Credentials → Sandbox**:
+
+1. **Log in with PayPal** is enabled and its settings are saved
+2. **Return URL** exactly matches `https://agentshelf-e5bk.onrender.com/api/seller/identity/paypal/callback`, including HTTPS and no trailing slash
+3. The deployed `PAYPAL_LOGIN_CLIENT_ID` and `PAYPAL_LOGIN_CLIENT_SECRET` belong to that app; redeploy after changing them
+
+MCP authorization and client-credentials OAuth do not verify these Login settings. Changing the button appearance does not resolve this provider error
 
 ## Verification boundary
 

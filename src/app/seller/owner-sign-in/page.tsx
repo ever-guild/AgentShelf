@@ -4,6 +4,7 @@ import { Suspense } from "react";
 
 import { IdentityForm } from "../identity/identity-form";
 import { paypalLoginErrorMessage } from "../paypal-onboarding/messages";
+import { PayPalLoginButton } from "../../paypal-login-button";
 
 export const metadata: Metadata = {
   title: "Owner sign in | AgentShelf",
@@ -36,8 +37,9 @@ export default function OwnerSignInPage({ searchParams }: { searchParams: Search
         <p className="text-sm text-zinc-600 dark:text-zinc-400">
           Need an owner account? <Link href="/seller/register" className="font-medium text-foreground underline underline-offset-4">Register</Link>
         </p>
-        <p className="flex flex-wrap gap-x-5 gap-y-2 text-sm text-zinc-600 dark:text-zinc-400">
-          <a href="/api/seller/identity/paypal/start" className="underline underline-offset-4">Sign in with PayPal Sandbox</a>
+        <p className="flex flex-wrap items-center gap-x-5 gap-y-2 text-sm text-zinc-600 dark:text-zinc-400">
+          <span>PayPal Sandbox sign-in</span>
+          <PayPalLoginButton />
           <Link href="/seller/sign-in" className="underline underline-offset-4">Use existing shop access</Link>
         </p>
       </main>

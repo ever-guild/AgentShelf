@@ -9,7 +9,7 @@ A person approves payment in PayPal
 
 ## Try the shop
 
-- Select **Seller sign-in** for PayPal Sandbox login, confirm your shop, then connect its PayPal merchant account, the operator must first complete [Login setup](docs/paypal-login.md)
+- Select **Log in with PayPal** for Sandbox login, confirm your shop, then connect its PayPal merchant account, the operator must first complete [Login setup](docs/paypal-login.md)
 - Existing password owners can [sign in](https://agentshelf-e5bk.onrender.com/seller/owner-sign-in) or [register](https://agentshelf-e5bk.onrender.com/seller/register)
 - Import CSV or a price-list photo at `/seller/imports`; CSV extraction is available, photo extraction needs the operator's Anthropic key and has not been verified with a real model
 - Review the rows before publishing, then manage the shop catalog and seller-agent access in the seller area

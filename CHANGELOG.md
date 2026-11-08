@@ -4,6 +4,7 @@ This project has no tagged releases yet, entries describe code present in the cu
 
 ## Unreleased
 
+- Use PayPal's official hosted login button across seller entry points and document rejected Login troubleshooting
 - Clarified that the privacy policy covers AI service providers and connected assistants
 - Added public Privacy policy and User agreement pages for Sandbox PayPal login consent
 - Clarified platform PayPal API paths, required permissions and the remaining Sandbox proof steps

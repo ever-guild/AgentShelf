@@ -6,6 +6,7 @@ import { publicOrigin } from "@/server/public-origin";
 
 import { CarbonSheet } from "./carbon-sheet";
 import { ConnectorAddress } from "./connector-address";
+import { PayPalLoginButton } from "./paypal-login-button";
 
 const SECONDARY_TEXT = "text-zinc-600 dark:text-zinc-400";
 
@@ -63,12 +64,7 @@ export default function Home() {
             >
               See the demo workshop
             </Link>
-            <a
-              href="/api/seller/identity/paypal/start"
-              className={`inline-flex h-12 items-center underline underline-offset-4 transition-colors hover:text-foreground focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ink ${SECONDARY_TEXT}`}
-            >
-              Seller sign-in
-            </a>
+            <PayPalLoginButton />
           </div>
         </div>
       </div>

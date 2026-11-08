@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState, type FormEvent } from "react";
 
+import { PayPalLoginButton } from "../../paypal-login-button";
 import type { OwnerShop } from "../identity/owner-session";
 import { OwnerNav } from "../identity/owner-nav";
 
@@ -155,12 +156,7 @@ export function PayPalOnboarding({ initialMessage }: { initialMessage: string | 
 
         {checked && !session && !loadError ? (
           <section className="flex flex-col gap-4 rounded-xl border border-zinc-200 p-5 dark:border-zinc-800">
-            <a
-              href="/api/seller/identity/paypal/start"
-              className="inline-flex h-11 w-fit items-center rounded-lg bg-ink px-4 font-medium text-background transition-[background-color,transform] hover:bg-ink/90 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ink active:scale-[0.98]"
-            >
-              Continue with PayPal Sandbox
-            </a>
+            <PayPalLoginButton />
             <p className={`text-sm ${quiet}`}>
               AgentShelf never asks for your PayPal password.
             </p>
