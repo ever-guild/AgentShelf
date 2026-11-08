@@ -4,6 +4,8 @@ This project has no tagged releases yet, entries describe code present in the cu
 
 ## Unreleased
 
+- Give seller MCP clients fixed recovery guidance, including the explicit inventory-policy step for newly published products; sanitize error codes and owner authorization links
+- Document the real external Claude Code seller rehearsal and distinguish live evidence from locally tested recovery behavior
 - Let owners resume pending PayPal Sandbox approval after re-confirming shop data sharing
 - Accept PayPal's documented Sandbox Partner Referrals `self` host alias and `bizsignup` action link while keeping exact host/path/query validation
 - Use PayPal City and Country only as editable shop-location suggestions
