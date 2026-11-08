@@ -64,7 +64,7 @@ describe("#36 F1: imported product stock policy -> checkout reservation & buyer 
       "Stock decision required",
     );
 
-    // Buyer discovery (catalog.ts / storefront.ts) still exposes products.availability = "available"
+    // Buyer discovery fails closed until the seller configures an explicit stock policy.
     const searchBefore = await searchProducts(
       db,
       { query: "Braided Cable", limit: 10 },
@@ -72,7 +72,7 @@ describe("#36 F1: imported product stock policy -> checkout reservation & buyer 
     );
     expect(
       searchBefore.products.find((p) => p.productId === product.id)?.availability,
-    ).toBe("available");
+    ).toBe("unavailable");
     const storefrontBefore = await getStorefront(
       db,
       shop.slug,
@@ -81,7 +81,7 @@ describe("#36 F1: imported product stock policy -> checkout reservation & buyer 
     );
     expect(
       storefrontBefore.products.find((p) => p.id === product.id)?.availability,
-    ).toBe("available");
+    ).toBe("unavailable");
 
     // Checkout fails closed before stock policy is configured
     await expect(
@@ -166,7 +166,7 @@ describe("#36 F1: imported product stock policy -> checkout reservation & buyer 
       version: 0,
     });
 
-    // Buyer discovery still reports availability: "available" even when available = 0
+    // Buyer discovery reports unavailable when tracked stock has no available units.
     const searchAtZero = await searchProducts(
       db,
       { query: "Zero Stock Protector", limit: 10 },
@@ -174,7 +174,7 @@ describe("#36 F1: imported product stock policy -> checkout reservation & buyer 
     );
     expect(
       searchAtZero.products.find((p) => p.productId === product.id)?.availability,
-    ).toBe("available");
+    ).toBe("unavailable");
 
     // Checkout fails closed when available = 0
     await expect(
