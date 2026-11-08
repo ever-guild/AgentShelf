@@ -15,7 +15,7 @@ A person approves payment in PayPal
 - Review the rows before publishing, then manage the shop catalog and seller-agent access in the seller area
 - After publishing, open the catalog and choose a tracked quantity or an explicit untracked policy for each physical product before buyers can check out
 - The buyer MCP endpoint is `/mcp`; its tools include product search, booking, checkout and order status, see [MCP setup and current client status](docs/mcp.md)
-- Seller MCP uses separate owner-authorized endpoints; see the [seller MCP contract](docs/seller-agent-mcp.md), no external seller-agent session has been verified
+- Seller MCP uses separate owner-authorized endpoints; see the [seller MCP setup](docs/seller-agent-mcp.md) and [verified Claude Code rehearsal](docs/seller-agent-rehearsal.md#external-claude-code-session)
 
 The operator configures one AgentShelf PayPal platform app, each shop owner gives PayPal consent from `/seller/paypal-connection`; a connection screen is not proof that Sandbox consent, checkout or capture has succeeded, see the [platform setup](docs/paypal-platform-setup.md) and [Sandbox proof status](docs/paypal-sandbox-proof.md)
 
