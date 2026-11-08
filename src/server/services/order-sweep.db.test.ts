@@ -1,15 +1,23 @@
+import { randomUUID } from "node:crypto";
+
 import { eq, sql } from "drizzle-orm";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { setupMigratedDatabase } from "../../../test/database";
-import { createOrder, createShop } from "../../../test/fixtures";
+import {
+  createOrder,
+  createProduct,
+  createShop,
+  setTestTrackedStock,
+} from "../../../test/fixtures";
 import {
   createPaymentHarness,
   placeOrder,
   readOrder,
   type PaymentHarness,
 } from "../../../test/payments";
-import { inventoryStock, orders } from "../db/schema";
+import { inventoryReservations, inventoryStock, orders } from "../db/schema";
+import { createCheckout } from "./checkout";
 import { sweepOpenOrders } from "./order-sweep";
 
 const getDb = setupMigratedDatabase();
@@ -40,6 +48,57 @@ function age(orderId: string, createdAgo: string, checkedAgo?: string) {
 }
 
 describe("sweepOpenOrders", () => {
+  it("releases an expired physical reservation only after PayPal verifies it is unpaid", async () => {
+    const { orderId, product } = await placeOrder(getDb(), harness);
+    const order = await readOrder(getDb(), orderId);
+    await getDb()
+      .update(inventoryReservations)
+      .set({ expiresAt: sql`now() - interval '1 second'` })
+      .where(eq(inventoryReservations.id, order.inventoryReservationId!));
+    await age(orderId, "73 hours");
+
+    await sweep();
+
+    expect((await readOrder(getDb(), orderId)).paymentStatus).toBe("cancelled");
+    const [reservation] = await getDb()
+      .select({ state: inventoryReservations.state, releaseReason: inventoryReservations.releaseReason })
+      .from(inventoryReservations)
+      .where(eq(inventoryReservations.id, order.inventoryReservationId!));
+    const [stock] = await getDb()
+      .select({ onHand: inventoryStock.onHand, reserved: inventoryStock.reserved })
+      .from(inventoryStock)
+      .where(eq(inventoryStock.productId, product.id));
+    expect(reservation).toMatchObject({ state: "released", releaseReason: "verified_expired_unpaid" });
+    expect(stock).toMatchObject({ onHand: 100, reserved: 0 });
+    expect(harness.paypal.charges()).toBe(0);
+  });
+
+  it("keeps an expired physical reservation held when PayPal cannot resolve the order", async () => {
+    const { orderId, product } = await placeOrder(getDb(), harness);
+    const order = await readOrder(getDb(), orderId);
+    await getDb()
+      .update(inventoryReservations)
+      .set({ expiresAt: sql`now() - interval '1 second'` })
+      .where(eq(inventoryReservations.id, order.inventoryReservationId!));
+    await age(orderId, "73 hours");
+    harness.paypal.nextRead({ type: "timeout" });
+
+    await sweep();
+
+    expect((await readOrder(getDb(), orderId)).paymentStatus).toBe("review_required");
+    const [reservation] = await getDb()
+      .select({ state: inventoryReservations.state })
+      .from(inventoryReservations)
+      .where(eq(inventoryReservations.id, order.inventoryReservationId!));
+    const [stock] = await getDb()
+      .select({ onHand: inventoryStock.onHand, reserved: inventoryStock.reserved })
+      .from(inventoryStock)
+      .where(eq(inventoryStock.productId, product.id));
+    expect(reservation.state).toBe("reserved");
+    expect(stock).toMatchObject({ onHand: 100, reserved: 1 });
+    expect(harness.paypal.charges()).toBe(0);
+  });
+
   it("captures for a buyer who approved and never came back", async () => {
     const { orderId, paypalOrderId } = await placeOrder(getDb(), harness);
     harness.paypal.approve(paypalOrderId);
@@ -205,18 +264,20 @@ describe("sweepOpenOrders", () => {
 });
 
 describe("after three days", () => {
-  it("cancels an order nobody ever approved", async () => {
-    const { orderId } = await placeOrder(getDb(), harness);
+  it("fails an unpaid booking deposit nobody approved", async () => {
+    const shop = await createShop(getDb());
+    const orderId = (await createOrder(getDb(), shop.id, { kind: "booking_deposit" })).id;
     await age(orderId, "73 hours");
 
     await sweep();
 
-    expect((await readOrder(getDb(), orderId)).paymentStatus).toBe("cancelled");
+    expect((await readOrder(getDb(), orderId)).paymentStatus).toBe("failed");
     expect(harness.paypal.charges()).toBe(0);
   });
 
-  it("cancels it even if PayPal no longer knows the order", async () => {
-    const { orderId } = await placeOrder(getDb(), harness);
+  it("fails an unpaid booking deposit even if PayPal no longer knows it", async () => {
+    const shop = await createShop(getDb());
+    const orderId = (await createOrder(getDb(), shop.id, { kind: "booking_deposit" })).id;
     await age(orderId, "73 hours");
     harness.paypal.nextRead({
       type: "respond",
@@ -226,7 +287,7 @@ describe("after three days", () => {
 
     await sweep();
 
-    expect((await readOrder(getDb(), orderId)).paymentStatus).toBe("cancelled");
+    expect((await readOrder(getDb(), orderId)).paymentStatus).toBe("failed");
   });
 
   it("still pays an order PayPal reports as approved", async () => {
@@ -258,10 +319,50 @@ describe("after three days", () => {
     expect(await sweep()).toBe(0);
   });
 
-  it("fails an order PayPal never acknowledged, whose link reached nobody", async () => {
+  it("reviews a physical order with an unknown create result and preserves its reservation", async () => {
+    const shop = await createShop(getDb(), { paypalMerchantId: "SWEEPMERCHANTUNKNOWN" });
+    const product = await createProduct(getDb(), shop.id);
+    await setTestTrackedStock(getDb(), shop.id, product.id, 1);
+    const idempotencyKey = `sweep-unknown-${randomUUID()}`;
+    harness.paypal.nextOrder({ type: "timeout", orderCreated: true });
+
+    await expect(
+      createCheckout(
+        getDb(),
+        { items: [{ productId: product.id, quantity: 1 }], idempotencyKey },
+        harness.deps,
+      ),
+    ).rejects.toMatchObject({ code: "PAYMENT_TIMEOUT" });
+    const [created] = await getDb()
+      .select()
+      .from(orders)
+      .where(eq(orders.idempotencyKey, idempotencyKey));
+    await getDb()
+      .update(inventoryReservations)
+      .set({ expiresAt: sql`now() - interval '1 second'` })
+      .where(eq(inventoryReservations.id, created.inventoryReservationId!));
+    await age(created.id, "73 hours");
+
+    await sweep();
+
+    expect((await readOrder(getDb(), created.id)).paymentStatus).toBe("review_required");
+    const [reservation] = await getDb()
+      .select({ state: inventoryReservations.state })
+      .from(inventoryReservations)
+      .where(eq(inventoryReservations.id, created.inventoryReservationId!));
+    const [stock] = await getDb()
+      .select({ onHand: inventoryStock.onHand, reserved: inventoryStock.reserved })
+      .from(inventoryStock)
+      .where(eq(inventoryStock.productId, product.id));
+    expect(reservation.state).toBe("reserved");
+    expect(stock).toMatchObject({ onHand: 1, reserved: 1 });
+    expect(harness.paypal.charges()).toBe(0);
+  });
+
+  it("fails a booking deposit with no PayPal order after the existing timeout", async () => {
     const shop = await createShop(getDb());
-    const old = await createOrder(getDb(), shop.id);
-    const recent = await createOrder(getDb(), shop.id);
+    const old = await createOrder(getDb(), shop.id, { kind: "booking_deposit" });
+    const recent = await createOrder(getDb(), shop.id, { kind: "booking_deposit" });
     await age(old.id, "73 hours");
 
     await sweep();

@@ -30,7 +30,21 @@ export async function sweepOpenOrders(
   // closes it, or finds a capture PayPal had already made, so that money reaches review.
   await expireHolds(db);
 
-  // PayPal never acknowledged these, so their link never reached anyone and nobody can pay them.
+  // Without a PayPal ID the create request may have timed out after PayPal accepted it. Keep
+  // physical purchases held for review; only a verified provider result can release stock.
+  await db
+    .update(orders)
+    .set({ paymentStatus: "review_required" })
+    .where(
+      and(
+        eq(orders.paymentStatus, "pending"),
+        isNull(orders.paypalOrderId),
+        eq(orders.kind, "purchase"),
+        lt(orders.createdAt, sql`now() - ${OPEN_ORDER_WINDOW}`),
+      ),
+    );
+
+  // Booking deposits do not reserve physical stock, so keep their existing timeout behavior.
   await db
     .update(orders)
     .set({ paymentStatus: "failed" })
@@ -38,6 +52,7 @@ export async function sweepOpenOrders(
       and(
         eq(orders.paymentStatus, "pending"),
         isNull(orders.paypalOrderId),
+        eq(orders.kind, "booking_deposit"),
         lt(orders.createdAt, sql`now() - ${OPEN_ORDER_WINDOW}`),
       ),
     );
@@ -75,10 +90,17 @@ export async function sweepOpenOrders(
       });
     }
     if (closing) {
+      // Reconciliation may leave a purchase pending when PayPal's answer is ambiguous or an
+      // expired allocation cannot safely be released. Do not let elapsed time cancel it.
+      await db
+        .update(orders)
+        .set({ paymentStatus: "review_required" })
+        .where(and(eq(orders.id, id), eq(orders.paymentStatus, "pending"), eq(orders.kind, "purchase")));
+      // Preserve the established deposit sweep behavior.
       await db
         .update(orders)
         .set({ paymentStatus: "cancelled" })
-        .where(and(eq(orders.id, id), eq(orders.paymentStatus, "pending")));
+        .where(and(eq(orders.id, id), eq(orders.paymentStatus, "pending"), eq(orders.kind, "booking_deposit")));
       // Approved with no verified outcome after three days: a person has to look.
       await db
         .update(orders)
