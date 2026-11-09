@@ -6,6 +6,7 @@ import { currentSellerOrSignIn } from "@/server/auth/current-seller";
 import { scheduleDate } from "@/server/contracts/seller-schedule";
 import { getDb } from "@/server/db";
 import { getSellerSchedule } from "@/server/services/seller-schedule";
+import { techniciansWithoutHours } from "@/server/services/seller-technicians";
 
 import { SellerHeader } from "../seller-header";
 import { ScheduleBoard } from "./schedule-board";
@@ -25,11 +26,14 @@ async function Schedule({ searchParams }: { searchParams: SearchParams }) {
   if (date !== undefined && !scheduleDate.safeParse(date).success) {
     redirect("/seller/schedule");
   }
-  const view = await getSellerSchedule(getDb(), shop, date ? { date } : {});
+  const [view, [waiting]] = await Promise.all([
+    getSellerSchedule(getDb(), shop, date ? { date } : {}),
+    techniciansWithoutHours(getDb(), shop),
+  ]);
   return (
     <>
       <SellerHeader shopName={shop.name} />
-      <ScheduleBoard initial={view} />
+      <ScheduleBoard initial={view} waiting={waiting ?? null} />
     </>
   );
 }

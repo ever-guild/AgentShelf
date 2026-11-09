@@ -23,6 +23,7 @@ import {
   statusLabel,
 } from "./schedule-labels";
 import type { TimelineBooking } from "./schedule-timeline";
+import { TechnicianSetup } from "./technician-setup";
 import { timelineHeight } from "./timeline-size";
 import "./schedule-status.css";
 
@@ -91,8 +92,18 @@ function stateClasses(status: ScheduleStatus, paymentStatus: ScheduleBooking["pa
     : `booking-state-${status}`;
 }
 
-export function ScheduleBoard({ initial }: { initial: ScheduleView }) {
+export function ScheduleBoard({
+  initial,
+  waiting,
+}: {
+  initial: ScheduleView;
+  // A technician with no working hours yet, whom the setup offers to finish.
+  waiting: { technicianId: string; name: string } | null;
+}) {
   const dateParam = useSearchParams().get("date");
+  // Stays open once shown, so a save that fails halfway keeps its message while the timeline
+  // changes underneath, and a finished one keeps its confirmation.
+  const [setupOpen] = useState(() => initial.technicians.length === 0 || waiting !== null);
 
   const [{ view, receivedAt }, setLatest] = useState<{
     view: ScheduleView;
@@ -304,13 +315,23 @@ export function ScheduleBoard({ initial }: { initial: ScheduleView }) {
         {announcement}
       </p>
 
+      {setupOpen && (
+        <TechnicianSetup
+          timezone={view.timezone}
+          waiting={waiting}
+          onSaved={() => setRetries((count) => count + 1)}
+        />
+      )}
+
       {!dayIsLoaded ? (
         <p className={SECONDARY_TEXT}>Loading {longDate(requestedDate)}</p>
       ) : view.technicians.length === 0 ? (
-        <p className="max-w-prose">
-          This shop has no technicians set up, so buyers cannot book repairs and there is nothing to
-          schedule.
-        </p>
+        setupOpen ? null : (
+          <p className="max-w-prose">
+            This shop has no technicians set up, so buyers cannot book repairs and there is nothing
+            to schedule.
+          </p>
+        )
       ) : (
         <>
           {/* The timeline's place stays free while it loads, so the list below does not jump. */}

@@ -9,6 +9,44 @@ export const scheduleDate = z.iso
 
 export const scheduleQuery = z.strictObject({ date: scheduleDate.optional() });
 
+// Setting up who works and when, by the shop's owner. Each body is strict, so naming a shop is
+// refused rather than ignored.
+
+export const technicianName = z
+  .string()
+  .trim()
+  .min(1)
+  .max(80)
+  .regex(/^[^\p{Cc}]*$/u, "Use letters, numbers and spaces only");
+
+export const addTechnicianBody = z.strictObject({ name: technicianName });
+
+// Shop wall clock, as the seller reads it. 24:00 is the end of the day and can only end a window.
+export const wallClock = z.string().regex(/^(?:[01]\d|2[0-3]):[0-5]\d$|^24:00$/, "Use HH:MM");
+
+export const weeklyWindow = z.strictObject({
+  // ISO weekday: 1 is Monday, 7 is Sunday.
+  weekday: z.number().int().min(1).max(7),
+  start: wallClock,
+  end: wallClock,
+});
+
+// Seven days with up to four windows each is more than a workshop needs.
+export const MAX_WEEKLY_WINDOWS = 28;
+
+export const setWeekBody = z.strictObject({
+  windows: z.array(weeklyWindow).max(MAX_WEEKLY_WINDOWS),
+});
+
+export type WeeklyWindow = z.infer<typeof weeklyWindow>;
+
+export type TechnicianWeek = {
+  technicianId: string;
+  name: string;
+  // Sorted by weekday, then start.
+  windows: WeeklyWindow[];
+};
+
 export type ScheduleStatus =
   | "held"
   | "confirmed"

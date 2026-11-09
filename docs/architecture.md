@@ -246,7 +246,7 @@ A view of what occupies the calendar filters on `blocksTime`. `depositCaptureId`
 
 ## Schedule
 
-`/seller/schedule` shows one shop's day, for [#13](https://github.com/ever-guild/AgentShelf/issues/13): technicians as rows and bookings as bars in Bryntum Scheduler, with a plain list of the same bookings underneath. It only reads. [`seller-schedule.ts`](../src/server/services/seller-schedule.ts) turns the read model into a page's view, and `GET /api/seller/schedule?date=YYYY-MM-DD` serves it with `Cache-Control: private, no-store`. With no `date` it answers for today in shop time.
+`/seller/schedule` shows one shop's day, for [#13](https://github.com/ever-guild/AgentShelf/issues/13): technicians as rows and bookings as bars in Bryntum Scheduler, with a plain list of the same bookings underneath. Bookings are only read here. [`seller-schedule.ts`](../src/server/services/seller-schedule.ts) turns the read model into a page's view, and `GET /api/seller/schedule?date=YYYY-MM-DD` serves it with `Cache-Control: private, no-store`. With no `date` it answers for today in shop time.
 
 **Status:** tested on real Postgres and on a production build in a browser. Confirmations were written to the database by hand or came through the real SDK against the PayPal stand-in. No real deposit has been paid, because the credentials from [#33](https://github.com/ever-guild/AgentShelf/issues/33) do not exist yet.
 
@@ -285,9 +285,24 @@ A hold ends at its exact instant on the page too. The page estimates the server'
 
 **Keyboard:** the timeline takes Tab, then arrow keys to reach a bar and Tab to move between bars, and every bar has a label with its full state. A link before it skips to the list, which is the simpler way to read the day, and to read it with a screen reader. A change in the bookings is announced through a live region.
 
-**Read-only:** there is no write route, and Bryntum's drag, resize, create, edit and menu features are off. Moving a booking would need its own concurrency rules, so it is out of scope until someone agrees them.
+**Bookings are read-only:** no route writes a booking, and Bryntum's drag, resize, create, edit and menu features are off. Moving a booking would need its own concurrency rules, so it is out of scope until someone agrees them.
 
-**Known limits:** only one day is shown at a time, and a shop with no technicians gets a message instead of a timeline. Refresh is per open page, so many open pages mean a request each per 5 seconds, which is fine at demo size.
+**Known limits:** only one day is shown at a time, and a shop with no technicians gets the setup form instead of a timeline. The form sets one window on each chosen day, and the route takes several per day. Refresh is per open page, so many open pages mean a request each per 5 seconds, which is fine at demo size.
+
+### Technicians and working hours
+
+A shop registered by its owner starts with nobody to do the work, so `get_slots` offers nothing until the owner sets up a technician, for [#47](https://github.com/ever-guild/AgentShelf/issues/47). `/seller/schedule` shows a form for this while the shop has no technicians, or has one with no hours: a name, the working days and one window from and to. [`seller-technicians.ts`](../src/server/services/seller-technicians.ts) does the writes, and the board picks the technician up on its next refresh.
+
+| Route | Body | Answer |
+| --- | --- | --- |
+| `POST /api/seller/schedule/technicians` | `{ name }`, trimmed, 1 to 80 characters, no control characters | 201 with `{ technicianId, name, windows: [] }`. A name the shop already has is `TECHNICIAN_EXISTS`, 409, and adds no row |
+| `PUT /api/seller/schedule/technicians/{id}/windows` | `{ windows: [{ weekday, start: "HH:MM", end: "HH:MM" }] }`, at most 28 | 200 with the whole week, sorted. It replaces the week in one transaction, so the same body twice changes nothing, and `[]` takes the technician out of new slots |
+
+- **Owner only.** The shop comes from the session through `currentSeller`. A body naming a shop is `INVALID_INPUT`, and a technician of another shop, or an id that is not one, is `TECHNICIAN_NOT_FOUND`, 404. Seller agent grants and MCP have no write access here.
+- **Shop time.** `weekday` is ISO, 1 for Monday to 7 for Sunday, and times are the shop's wall clock, as `technician_windows` stores them. `24:00` can only end a window.
+- **Checked before the database.** A window has to end later than it starts on the same day, and one technician's windows cannot overlap on a day: `WORKING_HOURS_INVALID`, 422, naming the day. Windows that touch, such as 09:00 to 12:00 and 12:00 to 18:00, are fine. The constraints `technician_windows_no_overlap` and `technician_windows_within_day` stay as the last guard, and their errors map to the same 422.
+- **Bookings stay.** Held and confirmed bookings are untouched when a week changes. Only new slots follow the new windows.
+- **Not in this release:** renaming or deleting a technician, since bookings restrict deletion, and tying technicians to services. Every technician of a shop can take every repair service.
 
 ## Seller dashboard
 
