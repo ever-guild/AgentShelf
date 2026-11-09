@@ -64,6 +64,9 @@ export type SearchTermsReading = {
 };
 
 export type SearchAi = {
+  // The prompt version this provider writes terms with. Terms written under another version are
+  // rewritten, so a better prompt reaches listings that have not changed.
+  readonly searchTermsPromptVersion: string;
   suggestSearchTerms(rows: readonly SearchTermFacts[]): Promise<SearchTermsReading>;
 };
 

@@ -6,7 +6,7 @@
 
 export const PRICE_LIST_PROMPT_VERSION = "price-list-v1";
 export const DESCRIPTIONS_PROMPT_VERSION = "descriptions-v1";
-export const SEARCH_TERMS_PROMPT_VERSION = "search-terms-v1";
+export const SEARCH_TERMS_PROMPT_VERSION = "search-terms-v2";
 export const DEMAND_EXPLANATION_PROMPT_VERSION = "demand-explanation-v1";
 export const DEMAND_ASSISTANT_PROMPT_VERSION = "demand-assistant-v1";
 
@@ -45,7 +45,7 @@ Rules:
 - english, latvian, russian: up to 15 words or short phrases in that language that a buyer would type for this exact item: what it is, its synonyms, common inflected forms, and for a repair the problem it fixes. Each is at most 5 words.
 - Use only what the row states. Never add a brand, model, size, capacity, number, material or compatibility it does not state, and never name a different product.
 - No words about price, quality, stock, delivery or promotion, such as cheap, best, free or in stock.
-- Keep brand and model names and their numbers exactly as written. You may add how buyers write a brand in that language's alphabet.
+- Keep brand and model names and their numbers exactly as written. In each language, also add how buyers write the stated brand in that language's own alphabet and everyday forms, such as айфон and айфона for iPhone in Russian. Only for a brand the row states.
 - places: the row's location in English, Latvian and Russian, with the forms a buyer would type, such as the Latvian locative or the Russian prepositional case. Give them on every row, even when rows share a location. Empty only when location is null. Never any other place.
 - Return one entry for every input row, with that row's position. Never merge rows.`;
 

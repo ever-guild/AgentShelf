@@ -4,6 +4,8 @@ This project has no tagged releases yet, entries describe code present in the cu
 
 ## Unreleased
 
+- Rewrite search terms written under an older prompt version, and ask for a brand's spelling in each language's alphabet (`search-terms-v2`), so Cyrillic `айфон` finds iPhone listings
+
 - Sync the demo AI provider settings from the GitHub Environment to the existing Render service before exact-SHA deployments, verify the new deployment, and allow manual same-SHA redeploys from `main`
 
 - Add an OpenAI adapter next to Claude for photo import, descriptions, search terms and demand insights, configured with `AGENT_SHELF_AI_PROVIDER`, `AGENT_SHELF_AI_PROVIDER_BASE_URL` and `AGENT_SHELF_AI_PROVIDER_API_KEY`, with the shared prompts in one module. A deployment with only `ANTHROPIC_API_KEY` keeps running on Claude

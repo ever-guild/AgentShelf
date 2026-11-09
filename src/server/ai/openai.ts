@@ -317,6 +317,8 @@ export function connectOpenAi(
       };
     },
 
+    searchTermsPromptVersion: SEARCH_TERMS_PROMPT_VERSION,
+
     async suggestSearchTerms(rows: readonly SearchTermFacts[]) {
       const reply = await ask(client, "Suggesting search terms", {
         instructions: SEARCH_TERMS_SYSTEM,

@@ -7,7 +7,7 @@ import { createProduct, createService, createShop } from "../../../test/fixtures
 import { createImportHarness } from "../../../test/imports";
 import { createFakeSearchAi } from "../../../test/search";
 import { createClaudeAi } from "../ai/claude";
-import { AiFailure } from "../ai/types";
+import { AiFailure, type SearchAi } from "../ai/types";
 import { productSearchTerms, products, searchEvents, shops } from "../db/schema";
 import { searchProducts } from "./catalog";
 import { applyBulkAction, createImport, finishImportReview } from "./imports";
@@ -220,6 +220,55 @@ describe("when a listing changes", () => {
   });
 });
 
+describe("when the prompt changes", () => {
+  // A provider whose terms come from a newer prompt, with different words for the same listing.
+  function withPrompt(version: string, terms: Parameters<typeof createFakeSearchAi>[0]) {
+    const fake = createFakeSearchAi(terms);
+    const ai: SearchAi = {
+      searchTermsPromptVersion: version,
+      async suggestSearchTerms(rows) {
+        return { ...(await fake.ai.suggestSearchTerms(rows)), promptVersion: version };
+      },
+    };
+    return { ai, requests: fake.requests };
+  }
+
+  it("rewrites terms written under another prompt once, though the listing did not change", async () => {
+    const { product } = await publishedThroughTheService();
+    await runSearchIndexing(getDb(), createFakeSearchAi({ "Screen repair": SCREEN }).ai);
+    expect(await titles("айфон экран")).toEqual([]);
+
+    const newer = withPrompt("fake-prompt-v2", {
+      "Screen repair": { ...SCREEN, russian: [...SCREEN.russian, "айфон экран"] },
+    });
+    await runSearchIndexing(getDb(), newer.ai);
+
+    expect(newer.requests).toHaveLength(1);
+    expect(await termsOf(product.id)).toMatchObject({ status: "indexed", promptVersion: "fake-prompt-v2" });
+    expect(await titles("айфон экран")).toEqual(["Screen repair"]);
+
+    await makeDue();
+    await runSearchIndexing(getDb(), newer.ai);
+    expect(newer.requests).toHaveLength(1);
+  });
+
+  it("keeps the listing findable by its own words while the new terms are written", async () => {
+    const { product } = await publishedThroughTheService();
+    await runSearchIndexing(getDb(), createFakeSearchAi({ "Screen repair": SCREEN }).ai);
+    const newer = withPrompt("fake-prompt-v2", { "Screen repair": SCREEN });
+    newer.ai.suggestSearchTerms = async () => {
+      throw new AiFailure("PROVIDER_UNAVAILABLE");
+    };
+
+    await runSearchIndexing(getDb(), newer.ai);
+
+    expect(await termsOf(product.id)).toMatchObject({ status: "failed", terms: [] });
+    const result = await search("screen repair");
+    expect(result.products.map((p) => p.productId)).toEqual([product.id]);
+    expect(result.matching.mode).toBe("degraded");
+  });
+});
+
 describe("the sweep", () => {
   it("shares a shop's place names with its rows that came back without them", async () => {
     const shop = await createShop(getDb(), { name: "Shop A", location: "Liepaja" });
@@ -366,6 +415,7 @@ describe("what comes back from a model", () => {
     });
 
     await runSearchIndexing(getDb(), {
+      searchTermsPromptVersion: "fake-prompt",
       async suggestSearchTerms(rows) {
         return {
           rows: [

@@ -309,6 +309,8 @@ export function connectClaude(
       };
     },
 
+    searchTermsPromptVersion: SEARCH_TERMS_PROMPT_VERSION,
+
     async suggestSearchTerms(rows: readonly SearchTermFacts[]) {
       const reply = await ask(client, "Suggesting search terms", {
         system: SEARCH_TERMS_SYSTEM,

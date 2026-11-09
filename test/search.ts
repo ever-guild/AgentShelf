@@ -19,6 +19,7 @@ export function createFakeSearchAi(table: Record<string, FakeTerms> = {}) {
   } = { failWith: undefined, onRequest: undefined, skip: new Set() };
 
   const ai: SearchAi = {
+    searchTermsPromptVersion: "fake-prompt",
     async suggestSearchTerms(rows) {
       requests.push([...rows]);
       await state.onRequest?.();

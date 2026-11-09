@@ -578,6 +578,7 @@ Ranks products across shops from a buyer's own words, and keeps a record of what
 | Price, deposit or availability changes | Nothing | None |
 | Unpublished | The row is deleted | None |
 | A row no hook saw, such as seeded data | The sweep adds it | Next sweep |
+| The configured provider writes with a newer prompt version, such as `search-terms-v2` | The sweep puts terms from any other version back in line, once. Until they are rewritten the listing is found by its own words | Next sweep |
 
 The sweep runs every 30 seconds in the server process. It takes up to 20 listings of one shop per request, and up to 5 requests per pass, with no transaction open during a call. A reply is stored only if the listing is still on sale and still what the model read. A row a reply left out is marked `failed` and retried.
 

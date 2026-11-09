@@ -1,6 +1,6 @@
 import "server-only";
 
-import { and, asc, eq, inArray, lte, sql } from "drizzle-orm";
+import { and, asc, eq, inArray, lte, or, sql } from "drizzle-orm";
 
 import { createSearchAi } from "../ai";
 import { cleanSearchTerms } from "../ai/search-terms";
@@ -41,7 +41,19 @@ const pendingAgain = {
 };
 
 // Terms for an older version of a listing no longer count anywhere, and here they go back in line.
-async function requeueChangedListings(db: Db | Tx, shopId?: string): Promise<void> {
+// With a prompt version, terms written under another one go back in line too, so a better prompt
+// reaches listings that have not changed. Until they are rewritten, those listings match on their
+// own words, as a newly published one does.
+async function requeueChangedListings(
+  db: Db | Tx,
+  shopId?: string,
+  promptVersion?: string,
+): Promise<void> {
+  const changed = sql`EXISTS (
+    SELECT 1 FROM ${products} JOIN ${shops} ON ${shops.id} = ${products.shopId}
+    WHERE ${products.id} = ${productSearchTerms.productId}
+      AND ${listingHash} IS DISTINCT FROM ${productSearchTerms.sourceHash}
+  )`;
   await db
     .update(productSearchTerms)
     .set(pendingAgain)
@@ -49,11 +61,9 @@ async function requeueChangedListings(db: Db | Tx, shopId?: string): Promise<voi
       and(
         eq(productSearchTerms.status, "indexed"),
         shopId ? eq(productSearchTerms.shopId, shopId) : undefined,
-        sql`EXISTS (
-          SELECT 1 FROM ${products} JOIN ${shops} ON ${shops.id} = ${products.shopId}
-          WHERE ${products.id} = ${productSearchTerms.productId}
-            AND ${listingHash} IS DISTINCT FROM ${productSearchTerms.sourceHash}
-        )`,
+        promptVersion
+          ? or(changed, sql`${productSearchTerms.promptVersion} IS DISTINCT FROM ${promptVersion}`)
+          : changed,
       ),
     );
 }
@@ -76,7 +86,7 @@ export async function queueSearchIndexing(tx: Tx, change: CatalogChange): Promis
 }
 
 // Catches what no hook saw, such as seeded rows, and removes what is no longer on sale.
-async function syncQueue(db: Db): Promise<void> {
+async function syncQueue(db: Db, promptVersion: string): Promise<void> {
   await db.delete(productSearchTerms).where(
     sql`NOT EXISTS (
       SELECT 1 FROM ${products}
@@ -89,7 +99,7 @@ async function syncQueue(db: Db): Promise<void> {
     WHERE ${products.status} = 'published'
     ON CONFLICT ("product_id") DO NOTHING
   `);
-  await requeueChangedListings(db);
+  await requeueChangedListings(db, undefined, promptVersion);
   // A shop has one place, and a real model often gives its names on only some rows of a request.
   // Changed listings are back in line by now, so no row here can hand on an old place.
   await db.execute(sql`
@@ -263,7 +273,7 @@ export async function runSearchIndexing(db: Db, ai: SearchAi | undefined): Promi
   if (!ai) {
     return;
   }
-  await syncQueue(db);
+  await syncQueue(db, ai.searchTermsPromptVersion);
   for (let batch = 0; batch < MAX_BATCHES_PER_PASS; batch += 1) {
     const claimed = await claimBatch(db);
     if (claimed.length === 0 || !(await indexBatch(db, ai, claimed))) {
