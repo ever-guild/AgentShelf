@@ -59,7 +59,7 @@ export function responseBody(response: FakeResponse) {
     object: "response",
     created_at: 1_794_000_000,
     status,
-    model: response.model ?? "gpt-6-astra",
+    model: response.model ?? "gpt-6.1-terra",
     output: response.items.map(outputItem),
     incomplete_details:
       status === "incomplete" ? { reason: response.incompleteReason ?? "max_output_tokens" } : null,

@@ -253,7 +253,7 @@ Every AI feature goes through the contracts in [`ai/types.ts`](../src/server/ai/
 | --- | --- | --- |
 | Adapter | [`claude.ts`](../src/server/ai/claude.ts) | [`openai.ts`](../src/server/ai/openai.ts) |
 | Key | `ANTHROPIC_API_KEY` | `OPENAI_API_KEY` |
-| Model | `claude-opus-5-5`, with the API's default fallbacks | `gpt-6-astra` |
+| Model | `claude-opus-5-5`, with the API's default fallbacks | `gpt-6.1-terra`, which OpenAI prices at a tenth of its flagship and describes for visual reasoning |
 | API | Messages, streamed | Responses, with `store: false` |
 | Output | Structured output from the Zod contract | Strict structured output from the same contract |
 | Effort | `medium` for photos and catalog text, `low` for demand | the same |

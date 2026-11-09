@@ -36,7 +36,7 @@ import {
 // that knows this provider. Like claude.ts it has no `server-only` guard, because a workflow task
 // loads it outside Next.js, and the key never reaches a client.
 
-export const OPENAI_MODEL = "gpt-6-astra";
+export const OPENAI_MODEL = "gpt-6.1-terra";
 
 // The same limits as the Claude adapter, so either provider fits a workflow task's five minutes and
 // keeps a seller waiting no longer.

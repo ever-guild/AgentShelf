@@ -117,13 +117,13 @@ describe("reading a price list", () => {
 
   it("returns the reading with the model that answered, its prompt version and usage", async () => {
     const { fake, ai } = setup();
-    fake.replyJson({ items: [item] }, { model: "gpt-6-astra-2026-10-01" });
+    fake.replyJson({ items: [item] }, { model: "gpt-6.1-terra-answering" });
 
     const reading = await ai.readPriceList(IMAGE);
 
     expect(reading).toEqual({
       items: [item],
-      model: "gpt-6-astra-2026-10-01",
+      model: "gpt-6.1-terra-answering",
       promptVersion: PRICE_LIST_PROMPT_VERSION,
       usage: { inputTokens: 120, outputTokens: 80 },
     });
