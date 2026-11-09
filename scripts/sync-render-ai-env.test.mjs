@@ -108,7 +108,11 @@ describe("syncRenderAiEnv", () => {
     const result = await syncRenderAiEnv({ env: desired, apiKey, fetchImpl: fake.fetchImpl, logger: fake.logger });
     expect(result.changed).toEqual([]);
     expect(fake.calls.some((call) => call.method === "PUT")).toBe(false);
-    expect(fake.logs).toEqual(["Render AI environment already matches GitHub Environment; no updates made."]);
+    expect(fake.logs).toEqual([
+      "Render AI environment already matches GitHub Environment; no updates made.",
+      "Render Workflow not configured; workflow settings not synced.",
+    ]);
+    expect(fake.calls.some((call) => call.url.includes("build-sources"))).toBe(false);
   });
 
   it("does not begin writes if any preflight read fails", async () => {
@@ -154,5 +158,115 @@ describe("syncRenderAiEnv", () => {
     expect(error?.message).toBe("Render read failed for AGENT_SHELF_AI_PROVIDER (HTTP 503).");
     expect(error?.message).not.toContain(secret);
     expect(fake.logs.join(" ")).not.toContain(secret);
+  });
+
+  describe("with RENDER_WORKFLOW_ID", () => {
+    const workflowEnv = { ...desired, RENDER_WORKFLOW_ID: "wfl-test123" };
+    const wfPath = "/v1/build-sources/wfl-test123/env-vars/";
+    const isWf = (call) => call.url.includes(wfPath);
+    const wfSeed = (extra = {}) => Object.fromEntries(
+      Object.entries(extra).map(([key, value]) => [key, value]));
+
+    // Separate stores per target, routed by URL.
+    function dual({ web = renderDesired, workflow = {} } = {}) {
+      const stores = { web: new Map(Object.entries(web)), wf: new Map(Object.entries(workflow)) };
+      const calls = [];
+      const logs = [];
+      let failWfGet = false;
+      let wrongWfReadback = false;
+      const fetchImpl = async (input, options) => {
+        const url = new URL(input);
+        const key = decodeURIComponent(url.pathname.split("/").at(-1));
+        const store = url.pathname.includes("build-sources") ? stores.wf : stores.web;
+        calls.push({ method: options.method, key, url: url.href, options, wf: store === stores.wf });
+        if (options.method === "GET") {
+          if (store === stores.wf && failWfGet) return new Response("echo " + secret, { status: 503 });
+          if (!store.has(key)) return new Response("nf", { status: 404 });
+          const value = store === stores.wf && wrongWfReadback && calls.some((c) => c.method === "PUT" && c.wf)
+            ? "wrong-value" : store.get(key);
+          return Response.json({ key, value });
+        }
+        store.set(key, JSON.parse(options.body).value);
+        return Response.json({ key });
+      };
+      return {
+        stores, calls, logs, fetchImpl,
+        failWfGet: () => { failWfGet = true; },
+        wrongWfReadback: () => { wrongWfReadback = true; },
+        logger: { log: (message) => logs.push(message) },
+      };
+    }
+
+    it("rejects an invalid workflow ID before any request", async () => {
+      const fake = dual();
+      await expect(syncRenderAiEnv({ env: { ...desired, RENDER_WORKFLOW_ID: "../x" }, apiKey, fetchImpl: fake.fetchImpl, logger: fake.logger }))
+        .rejects.toThrow("RENDER_WORKFLOW_ID is invalid.");
+      expect(fake.calls).toHaveLength(0);
+    });
+
+    it("treats a blank workflow ID as not configured", async () => {
+      const fake = dual();
+      const result = await syncRenderAiEnv({ env: { ...desired, RENDER_WORKFLOW_ID: "  " }, apiKey, fetchImpl: fake.fetchImpl, logger: fake.logger });
+      expect(result.workflowChanged).toEqual([]);
+      expect(fake.calls.some(isWf)).toBe(false);
+    });
+
+    it("reads both targets before writing and writes only changed workflow keys", async () => {
+      const fake = dual({
+        web: { ...renderDesired, AGENT_SHELF_AI_PROVIDER_API_KEY: "old" },
+        workflow: wfSeed({
+          AGENT_SHELF_AI_PROVIDER: "openai",
+          AGENT_SHELF_AI_PROVIDER_BASE_URL: desired.AGENT_SHELF_AI_PROVIDER_BASE_URL,
+          AGENT_SHELF_AI_PROVIDER_API_KEY: "old-wf",
+        }),
+      });
+      const result = await syncRenderAiEnv({ env: workflowEnv, apiKey, fetchImpl: fake.fetchImpl, logger: fake.logger });
+      const firstPut = fake.calls.findIndex((call) => call.method === "PUT");
+      const lastPreRead = fake.calls.findLastIndex((call, i) => i < firstPut && call.method === "GET");
+      expect(fake.calls.slice(0, firstPut).filter((c) => c.wf)).toHaveLength(3);
+      expect(lastPreRead).toBe(firstPut - 1);
+      expect(fake.calls.filter((c) => c.method === "PUT").map((c) => [c.wf, c.key])).toEqual([
+        [false, "AGENT_SHELF_AI_PROVIDER_API_KEY"],
+        [true, "AGENT_SHELF_AI_PROVIDER_API_KEY"],
+      ]);
+      expect(result).toEqual({
+        changed: ["AGENT_SHELF_AI_PROVIDER_API_KEY"],
+        workflowChanged: ["AGENT_SHELF_AI_PROVIDER_API_KEY"],
+      });
+      expect(fake.stores.wf.get("AGENT_SHELF_AI_PROVIDER_API_KEY")).toBe(secret);
+      expect(fake.logs.join(" ")).not.toContain(secret);
+    });
+
+    it("never touches AG_STUDIO or RENDER_API_KEY on the workflow", async () => {
+      const fake = dual();
+      await syncRenderAiEnv({ env: workflowEnv, apiKey, fetchImpl: fake.fetchImpl, logger: fake.logger });
+      expect([...fake.stores.wf.keys()].sort()).toEqual([
+        "AGENT_SHELF_AI_PROVIDER", "AGENT_SHELF_AI_PROVIDER_API_KEY", "AGENT_SHELF_AI_PROVIDER_BASE_URL",
+      ]);
+      expect(fake.calls.filter((c) => c.wf).every((c) => !["AG_STUDIO", "RENDER_API_KEY"].includes(c.key))).toBe(true);
+      expect(fake.logs.join(" ")).not.toContain(desired.AG_STUDIO);
+    });
+
+    it("writes nothing to either target if a workflow read fails", async () => {
+      const fake = dual({ web: { ...renderDesired, AGENT_SHELF_AI_PROVIDER_API_KEY: "old" } });
+      fake.failWfGet();
+      await expect(syncRenderAiEnv({ env: workflowEnv, apiKey, fetchImpl: fake.fetchImpl, logger: fake.logger }))
+        .rejects.toThrow("Render read failed for AGENT_SHELF_AI_PROVIDER (HTTP 503).");
+      expect(fake.calls.some((call) => call.method === "PUT")).toBe(false);
+    });
+
+    it("fails when workflow readback does not match, without leaking values", async () => {
+      const fake = dual();
+      fake.wrongWfReadback();
+      let error;
+      try {
+        await syncRenderAiEnv({ env: workflowEnv, apiKey, fetchImpl: fake.fetchImpl, logger: fake.logger });
+      } catch (caught) {
+        error = caught;
+      }
+      expect(error?.message).toContain("(workflow)");
+      expect(error?.message).not.toContain(secret);
+      expect(fake.logs.join(" ")).not.toContain(secret);
+    });
   });
 });

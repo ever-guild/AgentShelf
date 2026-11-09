@@ -9,6 +9,12 @@ const MAPPINGS = [
   { source: "AG_STUDIO", target: "AG_STUDIO" },
 ];
 const KEYS = MAPPINGS.map(({ target }) => target);
+// Only these keys are ever written to the workflow; AG_STUDIO and RENDER_API_KEY never are.
+const WORKFLOW_KEYS = KEYS.filter((key) => key.startsWith("AGENT_SHELF_AI_PROVIDER"));
+const WORKFLOW_ID_PATTERN = /^[A-Za-z0-9-]{3,64}$/;
+const WEB_TARGET = { label: "web service", base: `/v1/services/${SERVICE_ID}/env-vars` };
+// Render's env-var endpoint for workflows is keyed by "build source" ID (unverified against a live workflow).
+const workflowTarget = (workflowId) => ({ label: "workflow", base: `/v1/build-sources/${workflowId}/env-vars` });
 
 function readAndValidateConfig(env) {
   const config = Object.fromEntries(MAPPINGS.map(({ source, target }) => [target, env[source]]));
@@ -48,8 +54,8 @@ function valueFromPayload(payload, key) {
   return item.value;
 }
 
-async function getCurrentValue(fetchImpl, apiKey, key) {
-  const url = new URL(`/v1/services/${SERVICE_ID}/env-vars/${encodeURIComponent(key)}`, API_ORIGIN);
+async function getCurrentValue(fetchImpl, apiKey, key, target = WEB_TARGET) {
+  const url = new URL(`${target.base}/${encodeURIComponent(key)}`, API_ORIGIN);
   let response;
   try {
     response = await fetchImpl(url, {
@@ -72,8 +78,8 @@ async function getCurrentValue(fetchImpl, apiKey, key) {
   return valueFromPayload(payload, key);
 }
 
-async function putValue(fetchImpl, apiKey, key, value) {
-  const url = new URL(`/v1/services/${SERVICE_ID}/env-vars/${encodeURIComponent(key)}`, API_ORIGIN);
+async function putValue(fetchImpl, apiKey, key, value, target = WEB_TARGET) {
+  const url = new URL(`${target.base}/${encodeURIComponent(key)}`, API_ORIGIN);
   let response;
   try {
     response = await fetchImpl(url, {
@@ -98,22 +104,44 @@ export async function syncRenderAiEnv({ env, apiKey, fetchImpl = fetch, logger =
   if (typeof apiKey !== "string" || apiKey.trim() === "") {
     throw new Error("Missing required configuration: RENDER_API_KEY.");
   }
+  const rawWorkflowId = env.RENDER_WORKFLOW_ID;
+  const workflowId = typeof rawWorkflowId === "string" && rawWorkflowId.trim() !== "" ? rawWorkflowId.trim() : undefined;
+  if (workflowId !== undefined && !WORKFLOW_ID_PATTERN.test(workflowId)) {
+    throw new Error("RENDER_WORKFLOW_ID is invalid.");
+  }
+  const targets = [{ ...WEB_TARGET, keys: KEYS }];
+  if (workflowId !== undefined) targets.push({ ...workflowTarget(workflowId), keys: WORKFLOW_KEYS });
 
-  // Read all managed values before writing so a read failure never leaves a partial sync.
-  const current = {};
-  for (const key of KEYS) current[key] = await getCurrentValue(fetchImpl, apiKey, key);
+  // Read all managed values of every target before writing so a read failure never leaves a partial sync.
+  for (const target of targets) {
+    target.current = {};
+    for (const key of target.keys) target.current[key] = await getCurrentValue(fetchImpl, apiKey, key, target);
+    target.changed = target.keys.filter((key) => target.current[key] !== desired[key]);
+  }
+  for (const target of targets) {
+    for (const key of target.changed) await putValue(fetchImpl, apiKey, key, desired[key], target);
+  }
+  for (const target of targets) {
+    const mismatches = [];
+    for (const key of target.keys) {
+      if ((await getCurrentValue(fetchImpl, apiKey, key, target)) !== desired[key]) mismatches.push(key);
+    }
+    if (mismatches.length) {
+      const where = target.label === "workflow" ? " (workflow)" : "";
+      throw new Error(`Render readback did not match GitHub Environment for: ${mismatches.join(", ")}${where}.`);
+    }
+  }
 
-  const changed = KEYS.filter((key) => current[key] !== desired[key]);
-  for (const key of changed) await putValue(fetchImpl, apiKey, key, desired[key]);
-
-  const verified = {};
-  for (const key of KEYS) verified[key] = await getCurrentValue(fetchImpl, apiKey, key);
-  const mismatches = KEYS.filter((key) => verified[key] !== desired[key]);
-  if (mismatches.length) throw new Error(`Render readback did not match GitHub Environment for: ${mismatches.join(", ")}.`);
-
-  if (changed.length === 0) logger.log("Render AI environment already matches GitHub Environment; no updates made.");
-  else logger.log(`Render AI environment synchronized: ${changed.join(", ")}.`);
-  return { changed };
+  const [web, workflow] = targets;
+  if (web.changed.length === 0) logger.log("Render AI environment already matches GitHub Environment; no updates made.");
+  else logger.log(`Render AI environment synchronized: ${web.changed.join(", ")}.`);
+  if (workflow) {
+    if (workflow.changed.length === 0) logger.log("Render workflow AI environment already matches GitHub Environment; no updates made.");
+    else logger.log(`Render workflow AI environment synchronized: ${workflow.changed.join(", ")}.`);
+  } else {
+    logger.log("Render Workflow not configured; workflow settings not synced.");
+  }
+  return { changed: web.changed, workflowChanged: workflow ? workflow.changed : [] };
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {

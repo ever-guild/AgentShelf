@@ -4,6 +4,10 @@ const SERVICE_ID = "srv-dbm8a6e1egvs73bl8d90";
 const API_ORIGIN = "https://api.render.com";
 const HOOK_PATH = `/deploy/${SERVICE_ID}`;
 const PUBLIC_HOST = "agentshelf-e5bk.onrender.com";
+const WORKFLOW_ID_PATTERN = /^[A-Za-z0-9-]{3,64}$/;
+const WORKFLOW_TASK_NAME = "extractPriceList";
+const WORKFLOW_TIMEOUT_MS = 15 * 60_000;
+const WORKFLOW_CLOCK_SKEW_MS = 60_000;
 const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
 function validate(env) {
@@ -53,7 +57,12 @@ function validate(env) {
   ) {
     throw new Error("Public service URL does not match the expected demo.");
   }
-  return { commit, hookKey, publicUrl, apiKey: env.RENDER_API_KEY };
+  const rawWorkflowId = env.RENDER_WORKFLOW_ID;
+  const workflowId = typeof rawWorkflowId === "string" && rawWorkflowId.trim() !== "" ? rawWorkflowId.trim() : undefined;
+  if (workflowId !== undefined && !WORKFLOW_ID_PATTERN.test(workflowId)) {
+    throw new Error("RENDER_WORKFLOW_ID is invalid.");
+  }
+  return { commit, hookKey, publicUrl, apiKey: env.RENDER_API_KEY, workflowId };
 }
 
 async function renderRequest(fetchImpl, apiKey, path, init = {}) {
@@ -121,8 +130,107 @@ async function verifyHealth(fetchImpl, publicUrl, commit) {
   return true;
 }
 
+const unwrap = (entry, field) => (entry && typeof entry === "object" && entry[field] ? entry[field] : entry);
+
+async function workflowRequest(fetchImpl, apiKey, path, init = {}, okStatuses = [200]) {
+  const url = new URL(path, API_ORIGIN);
+  let response;
+  try {
+    response = await fetchImpl(url, {
+      ...init,
+      redirect: "error",
+      signal: AbortSignal.timeout(15_000),
+      headers: { Authorization: `Bearer ${apiKey}`, Accept: "application/json", ...init.headers },
+    });
+  } catch {
+    throw new Error("Render API request failed before receiving a response.");
+  }
+  if (!okStatuses.includes(response.status)) throw new Error(`Render API request failed (HTTP ${response.status}).`);
+  if (response.status === 202 || response.status === 204) return undefined;
+  try {
+    return await response.json();
+  } catch {
+    throw new Error("Render API returned invalid JSON.");
+  }
+}
+
+function parseVersion(entry) {
+  const version = unwrap(entry, "workflowVersion");
+  if (!version || typeof version.id !== "string" || typeof version.status !== "string") return undefined;
+  return version;
+}
+
+async function listWorkflowVersions(fetchImpl, apiKey, workflowId) {
+  const payload = await workflowRequest(fetchImpl, apiKey,
+    `/v1/workflowversions?workflowID=${encodeURIComponent(workflowId)}&limit=20`);
+  if (!Array.isArray(payload)) throw new Error("Render returned an invalid workflow version list.");
+  return payload.map(parseVersion).filter(Boolean);
+}
+
+async function findTask(fetchImpl, apiKey, versionId) {
+  const payload = await workflowRequest(fetchImpl, apiKey, "/v1/tasks?limit=100");
+  if (!Array.isArray(payload)) throw new Error("Render returned an invalid task list.");
+  return payload
+    .map((entry) => unwrap(entry, "task"))
+    .find((task) => task && task.name === WORKFLOW_TASK_NAME && task.workflowVersionId === versionId);
+}
+
+async function releaseWorkflow({ fetchImpl, apiKey, workflowId, commit, sleepImpl, now, logger }) {
+  const requestedAt = now();
+  const requestedWallClock = Date.now();
+  await workflowRequest(fetchImpl, apiKey, "/v1/workflowversions", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ workflowId, commit }),
+  }, [202]);
+  logger.log(`Render Workflow release requested for commit ${commit}.`);
+
+  const notBefore = requestedWallClock - WORKFLOW_CLOCK_SKEW_MS;
+  const deadline = requestedAt + WORKFLOW_TIMEOUT_MS;
+  let versionId;
+  let lastStatus;
+  while (now() < deadline) {
+    let version;
+    if (versionId === undefined) {
+      const versions = await listWorkflowVersions(fetchImpl, apiKey, workflowId);
+      version = versions
+        .filter((candidate) => {
+          const created = Date.parse(candidate.createdAt);
+          return Number.isFinite(created) && created >= notBefore;
+        })
+        .sort((a, b) => Date.parse(b.createdAt) - Date.parse(a.createdAt))[0];
+      if (version) versionId = version.id;
+    } else {
+      version = parseVersion(await workflowRequest(fetchImpl, apiKey, `/v1/workflowversions/${encodeURIComponent(versionId)}`));
+      if (!version) throw new Error("Render returned an invalid workflow version.");
+    }
+
+    if (version) {
+      if (version.status === "build_failed" || version.status === "registration_failed") {
+        throw new Error(`Render Workflow version ${version.id} failed (${version.status}) for commit ${commit}.`);
+      }
+      if (version.status === "ready") {
+        const task = await findTask(fetchImpl, apiKey, version.id);
+        if (!task) {
+          throw new Error(`Render Workflow version ${version.id} is ready but task ${WORKFLOW_TASK_NAME} is not registered.`);
+        }
+        const meta = await workflowRequest(fetchImpl, apiKey, `/v1/workflows/${encodeURIComponent(workflowId)}`);
+        const slug = typeof meta?.slug === "string" ? meta.slug : "unknown";
+        logger.log(`Render Workflow version ${version.id} is ready (slug ${slug}); task ${WORKFLOW_TASK_NAME} registered as ${task.id}.`);
+        return { versionId: version.id, status: version.status, slug, taskId: task.id };
+      }
+      if (version.status !== lastStatus) {
+        lastStatus = version.status;
+        logger.log(`Render Workflow version ${version.id} status: ${version.status}.`);
+      }
+    }
+    await sleepImpl(10_000);
+  }
+  throw new Error(`Render Workflow did not become ready for commit ${commit} within 15 minutes.`);
+}
+
 export async function deployAndVerify({ env, fetchImpl = fetch, sleepImpl = wait, now = Date.now, logger = console }) {
-  const { commit, hookKey, publicUrl, apiKey } = validate(env);
+  const { commit, hookKey, publicUrl, apiKey, workflowId } = validate(env);
 
   // Capture the baseline immediately before the exact-SHA deploy hook.
   const baseline = await listDeploys(fetchImpl, apiKey);
@@ -170,7 +278,12 @@ export async function deployAndVerify({ env, fetchImpl = fetch, sleepImpl = wait
       }
       if (candidate.status === "live" && await verifyHealth(fetchImpl, publicUrl, commit)) {
         logger.log(`A new Render deploy is live for commit ${commit}; health and readiness checks passed.`);
-        return { commit };
+        if (workflowId === undefined) {
+          logger.log("Render Workflow not configured; no workflow release requested.");
+          return { commit };
+        }
+        const workflow = await releaseWorkflow({ fetchImpl, apiKey, workflowId, commit, sleepImpl, now, logger });
+        return { commit, workflow };
       }
     }
 
