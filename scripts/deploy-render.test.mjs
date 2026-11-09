@@ -24,8 +24,10 @@ function harness({ afterHook = [[previous, current("live")]], hookStatus = 202, 
     calls.push({ url: url.href, method: options.method ?? "GET", headers: options.headers });
     if (url.hostname === "api.render.com" && url.pathname.endsWith("/deploys") && options.method !== "POST") {
       if (apiStatus !== 200) return response(apiStatus, { error: "upstream echoes render-secret and hook-secret" });
-      const afterHookSnapshot = afterHook[Math.min(deployListNumber++, afterHook.length - 1)];
-      const deploys = deployListNumber === 1 ? [previous] : afterHookSnapshot;
+      const listNumber = deployListNumber++;
+      const deploys = listNumber === 0
+        ? [previous]
+        : afterHook[Math.min(listNumber - 1, afterHook.length - 1)];
       return response(200, deploys.map((deploy) => ({ deploy, cursor: "next" })));
     }
     if (url.pathname === "/deploy/srv-dbm8a6e1egvs73bl8d90") return response(hookStatus, hookDeployId ? { id: hookDeployId } : {});
@@ -58,6 +60,8 @@ describe("deployAndVerify", () => {
     const fake = harness({ afterHook: [[previous, current("build_in_progress")], [previous, current("live")]] });
     const result = await deployAndVerify({ ...fake, env });
     expect(result).toEqual({ commit });
+    expect(fake.calls.filter((call) => call.url.includes("/deploys"))).toHaveLength(3);
+    expect(fake.now()).toBeGreaterThanOrEqual(10_000);
     expect(fake.calls[0].url).toContain("/v1/services/srv-dbm8a6e1egvs73bl8d90/deploys?limit=100");
     expect(fake.calls.some((call) => call.method === "POST" && call.url.includes("ref=" + commit))).toBe(true);
     expect(fake.logs.at(-1)).toContain("health and readiness checks passed");

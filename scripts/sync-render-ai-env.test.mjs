@@ -49,7 +49,8 @@ function harness(initial = {}) {
 describe("syncRenderAiEnv", () => {
   it("fails preflight before any Render request if one GitHub setting is missing", async () => {
     const fake = harness();
-    const { AGENT_SHELF_AI_PROVIDER_API_KEY: _, ...missingKey } = desired;
+    const missingKey = { ...desired };
+    delete missingKey.AGENT_SHELF_AI_PROVIDER_API_KEY;
     await expect(syncRenderAiEnv({ env: missingKey, apiKey, fetchImpl: fake.fetchImpl, logger: fake.logger }))
       .rejects.toThrow("AGENT_SHELF_AI_PROVIDER_API_KEY");
     expect(fake.calls).toHaveLength(0);
