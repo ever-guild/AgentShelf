@@ -20,7 +20,7 @@ export default defineConfig({
     },
   },
   test: {
-    include: ["src/**/*.test.ts"],
+    include: ["src/**/*.test.ts", "scripts/*.test.mjs"],
     env: { APP_SIGNING_SECRET: randomBytes(32).toString("hex") },
   },
 });
