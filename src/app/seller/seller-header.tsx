@@ -27,9 +27,20 @@ export function SellerHeader({ shopName }: { shopName: string }) {
   return (
     // On a phone the links fill their own row, with the shop name and sign out above them.
     <header className="grid min-h-14 grid-cols-[minmax(0,1fr)_auto] items-center gap-x-4 border-b border-zinc-200 px-4 py-2 text-sm sm:flex sm:px-6 dark:border-zinc-800">
-      <Link href="/seller/imports" className="min-w-0 font-medium break-words sm:mr-auto">
-        {shopName}
-      </Link>
+      <p className="flex min-w-0 items-baseline gap-2 sm:mr-auto">
+        <Link
+          href="/"
+          className={`flex-none transition-colors hover:text-foreground ${SECONDARY_TEXT}`}
+        >
+          AgentShelf
+        </Link>
+        <span aria-hidden="true" className="text-zinc-400 dark:text-zinc-600">
+          /
+        </span>
+        <Link href="/seller/imports" className="min-w-0 font-medium break-words">
+          {shopName}
+        </Link>
+      </p>
       <nav aria-label="Seller" className="col-span-2 row-start-2 -mx-2 flex flex-wrap sm:mx-0">
         {LINKS.map(({ href, label }) => {
           const current = pathname === href || pathname.startsWith(`${href}/`);
@@ -45,6 +56,8 @@ export function SellerHeader({ shopName }: { shopName: string }) {
           );
         })}
       </nav>
+      {/* Every payment here is a PayPal Sandbox one, and the header says so on every screen. */}
+      <span className={`hidden text-xs sm:inline ${SECONDARY_TEXT}`}>PayPal Sandbox</span>
       <button
         type="button"
         onClick={signOut}

@@ -4,6 +4,8 @@ This project has no tagged releases yet, entries describe code present in the cu
 
 ## Unreleased
 
+- Polish the seller price list screens: the product name and PayPal Sandbox in the header, a larger drop zone, a how-it-works empty state and Read, Check and Publish steps driven by each import's status
+
 - Render Log in with PayPal as a custom button built to PayPal's Button design guide, so it stays sharp on high-density screens
 
 - Add explicit stock policy and versioned quantity controls to the seller catalog, with reconfirmation after conflicts

@@ -6,6 +6,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 
 import type { ImportRowPatch, ImportRowView, ImportView } from "@/server/contracts/imports";
 
+import { ImportProgress, stepStates } from "../../import-steps";
 import { RequestFailed, request } from "./request";
 import { RowEditor } from "./row-editor";
 
@@ -306,6 +307,11 @@ export function ImportReview({
           <span aria-hidden="true"> / </span>
           {view.sourceName}
         </p>
+        {view.status !== "failed" ? (
+          <div className="py-2">
+            <ImportProgress states={stepStates(view.status, view.publishedCount, publishable)} />
+          </div>
+        ) : null}
         <div aria-live="polite" className="flex flex-col gap-2">
           <h1 className="text-3xl font-medium text-balance">
             {title(view, publishable)}

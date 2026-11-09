@@ -86,12 +86,28 @@ export function UploadForm() {
         }}
         onDragLeave={() => setDragging(false)}
         onDrop={drop}
-        className={`group flex cursor-pointer flex-col items-start gap-3 rounded-lg border border-dashed p-6 transition-colors has-[:focus-visible]:outline-2 has-[:focus-visible]:outline-offset-2 has-[:focus-visible]:outline-ink ${
+        className={`group flex min-h-56 cursor-pointer flex-col items-center justify-center gap-4 rounded-xl border border-dashed p-8 text-center transition-colors has-[:focus-visible]:outline-2 has-[:focus-visible]:outline-offset-2 has-[:focus-visible]:outline-ink sm:min-h-64 ${
           dragging
             ? "border-ink bg-zinc-100 dark:bg-zinc-900"
             : "border-zinc-300 hover:bg-zinc-50 dark:border-zinc-700 dark:hover:bg-zinc-900"
         } ${busy ? "cursor-progress" : ""}`}
       >
+        {/* Lucide's image-up icon (ISC licence), in the secondary text color. */}
+        <svg
+          aria-hidden="true"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="1.5"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          className="size-10 text-zinc-500 dark:text-zinc-400"
+        >
+          <path d="M10.3 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2v10l-3.1-3.1a2 2 0 0 0-2.814.014L6 21" />
+          <path d="m14 19.5 3-3 3 3" />
+          <path d="M17 22v-5.5" />
+          <circle cx="9" cy="9" r="2" />
+        </svg>
         <span
           className={`inline-flex min-h-11 items-center rounded-lg bg-ink px-4 py-2 font-medium text-background transition-[background-color,transform] ${
             busy ? "opacity-60" : "group-hover:bg-ink/90 group-active:scale-[0.98]"
@@ -100,7 +116,7 @@ export function UploadForm() {
           {busy ? "Uploading your file" : dragging ? "Drop your file here" : "Choose a photo or a CSV file"}
         </span>
         {/* A phone has nothing to drag a file from, so only a mouse or trackpad is offered the drop. */}
-        <span className="text-sm text-zinc-600 dark:text-zinc-400">
+        <span className="max-w-sm text-sm text-zinc-600 dark:text-zinc-400">
           <span className="hidden pointer-fine:inline">Or drop it here. </span>
           Photos as JPEG, PNG or WebP. CSV needs name and price columns.
         </span>

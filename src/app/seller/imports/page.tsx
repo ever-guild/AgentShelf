@@ -7,6 +7,7 @@ import type { ImportStatus, ImportSummaryView } from "@/server/contracts/imports
 import { getDb } from "@/server/db";
 import { listImports } from "@/server/services/imports";
 
+import { HowItWorks } from "../import-steps";
 import { SellerHeader } from "../seller-header";
 import { UploadForm } from "./upload-form";
 
@@ -71,7 +72,13 @@ async function ImportList() {
         <section className="flex flex-col gap-3">
           <h2 className="text-lg font-medium">Your uploads</h2>
           {imports.length === 0 ? (
-            <p className={SECONDARY_TEXT}>Nothing yet. Your first upload appears here.</p>
+            <div className="flex flex-col gap-6">
+              <p className={SECONDARY_TEXT}>Nothing yet. Your first upload appears here.</p>
+              <div className="flex flex-col gap-5 rounded-xl border border-zinc-200 p-6 dark:border-zinc-800">
+                <h3 className={`text-sm font-medium ${SECONDARY_TEXT}`}>How it works</h3>
+                <HowItWorks />
+              </div>
+            </div>
           ) : (
             <ul className="divide-y divide-zinc-200 border-y border-zinc-200 dark:divide-zinc-800 dark:border-zinc-800">
               {imports.map((entry) => {
