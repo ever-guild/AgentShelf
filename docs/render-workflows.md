@@ -31,7 +31,7 @@ Until the last two rows change, photo reading runs inside the web service, and t
 
 | Setting | Where | Purpose |
 | --- | --- | --- |
-| `RENDER_WORKFLOW_ID` | GitHub Environment `agentshelf-e5bk.onrender.com`, variable (not a secret) | When set, the deploy job syncs AI settings to the workflow and releases the workflow at the CI-checked commit. When unset, the job behaves as before |
+| `RENDER_WORKFLOW_ID` | GitHub Environment `agentshelf-e5bk.onrender.com`, variable (not a secret) | When set, the deploy job syncs AI settings and requests a workflow release with the CI commit. It verifies a newly-created version for that workflow becomes ready and registers the task. When unset, the job behaves as before |
 | `AGENT_SHELF_AI_PROVIDER`, `AGENT_SHELF_AI_PROVIDER_BASE_URL`, `AGENT_SHELF_AI_PROVIDER_API_KEY` | GitHub Environment; synced to the web service and, when `RENDER_WORKFLOW_ID` is set, to the workflow | The model used to read photos. `AG_STUDIO` is never sent to the workflow |
 | `DATABASE_URL`, `NODE_VERSION` | Workflow, from the Blueprint | The same database as the web service, by its internal URL |
 | `RENDER_WORKFLOW_SLUG` | Web service runtime | Turns on dispatch. Set it last, after the task is verified |
@@ -52,7 +52,7 @@ This changes billing. Do it only after the cost plan in [#56](https://github.com
 
 1. Create the workflow from the Blueprint, or in the Dashboard with **New > Workflow**: name `agentshelf-import`, repository `ever-guild/AgentShelf`, branch `main`, Node, Frankfurt, build `npm ci --include=dev`, start `npx tsx workflows/main.ts`, auto-deploy off. Do not set a plan. Task compute is chosen in code, and the default is `flex`.
 2. Set `NODE_VERSION=24` and `DATABASE_URL` to the database's internal URL on the workflow.
-3. Set the GitHub Environment variable `RENDER_WORKFLOW_ID` to the new workflow's ID, then run the CI workflow on `main`. The deploy job syncs the three AI settings to the workflow, releases the workflow at the same commit as the web service, waits for the version to be `ready` and checks that `extractPriceList` is registered. Record the workflow ID, slug, version ID and commit.
+3. Set the GitHub Environment variable `RENDER_WORKFLOW_ID` to the new workflow's ID, then run the CI workflow on `main`. The deploy job syncs the three AI settings to the workflow, requests release with the same commit as the web service, waits for one newly-created version to be `ready` and checks that `extractPriceList` is registered for that version. Record the workflow ID, slug, version ID and commit, and verify the commit in the Dashboard before enabling runtime dispatch.
 4. Create the runtime key as above, then set `RENDER_API_KEY` and `RENDER_WORKFLOW_SLUG` on the web service. Apply them with the next CI deploy, or a manual run of the CI workflow, so that the web revision is recorded.
 5. Verify, and record each result:
    - The web service log shows no `not reachable` warning.
@@ -61,7 +61,7 @@ This changes billing. Do it only after the cost plan in [#56](https://github.com
    - Retrying the upload's start, or a second sweep pass, does not create a second run or duplicate rows.
    - Optional failure check, on a test shop only: remove `RENDER_WORKFLOW_SLUG`, then confirm the warning and the `web-process` log line. Alternatively, with an invalid runtime key, confirm the logged start failure, the job left `queued` and its recovery after the key is restored.
 
-Known limits of the release check, verified only against a stubbed API: Render answers the release request without a version ID, so the script follows the newest version created after the request. A version started at the same moment from the Dashboard could be picked instead. The task list is filtered on the client and only the first 100 tasks are read. Check the recorded version in the Dashboard on first activation.
+Known limit of the release check: Render's documented workflow-version API accepts the commit on release but does not return a version ID or expose the commit on version records. The script snapshots existing version IDs, then accepts only one newly-created version belonging to the configured workflow; if multiple appear, it fails and asks the operator to check the Dashboard and retry without another release in progress. This narrows version selection but cannot independently prove the selected version's source SHA. Verify the recorded version's commit in the Dashboard before enabling runtime dispatch. Task registration is queried by the selected workflow version ID.
 
 ### Rollback
 

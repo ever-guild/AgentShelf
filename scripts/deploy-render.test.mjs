@@ -128,11 +128,12 @@ describe("deployAndVerify workflow release", () => {
   const version = (status, extra = {}) => ({ id: "wfv-new", workflowId: "wfl-test123", name: "v", createdAt: fresh(), status, ...extra });
   const task = { id: "tsk-1", name: "extractPriceList", workflowVersionId: "wfv-new" };
 
-  function wfHarness({ statuses = ["building", "ready"], tasks = [{ task, cursor: "c" }], postStatus = 202, webOk = true, wrapped = true } = {}) {
+  function wfHarness({ statuses = ["building", "ready"], tasks = [{ task }], postStatus = 202, webOk = true, wrapped = true, concurrentVersion = false } = {}) {
     const base = harness({ afterHook: [[previous, current(webOk ? "live" : "build_failed")]] });
     const wfCalls = [];
     let polls = 0;
     const inner = base.fetchImpl;
+    let releaseRequested = false;
     const fetchImpl = async (input, options = {}) => {
       const url = new URL(input);
       const method = options.method ?? "GET";
@@ -140,16 +141,24 @@ describe("deployAndVerify workflow release", () => {
         (url.pathname.startsWith("/v1/workflow") || url.pathname.startsWith("/v1/tasks"));
       if (!isWf) return inner(input, options);
       wfCalls.push({ method, url: url.href, body: options.body });
-      if (url.pathname === "/v1/workflowversions" && method === "POST") return new Response(null, { status: postStatus });
+      if (url.pathname === "/v1/workflowversions" && method === "POST") {
+        releaseRequested = true;
+        return new Response(null, { status: postStatus });
+      }
       if (url.pathname === "/v1/workflowversions") {
         const old = version("ready", { id: "wfv-old", createdAt: "2020-01-01T00:00:00Z" });
         const mine = version(statuses[0]);
-        return response(200, [mine, old].map((v) => (wrapped ? { workflowVersion: v, cursor: "c" } : v)));
+        const concurrent = version("ready", { id: "wfv-concurrent", name: "dashboard" });
+        const found = releaseRequested ? [mine, ...(concurrentVersion ? [concurrent] : []), old] : [old];
+        return response(200, found.map((v) => (wrapped ? { workflowVersion: v } : v)));
       }
       if (url.pathname === "/v1/workflowversions/wfv-new") {
         return response(200, version(statuses[Math.min(++polls, statuses.length - 1)]));
       }
-      if (url.pathname === "/v1/tasks") return response(200, tasks);
+      if (url.pathname === "/v1/tasks") {
+        if (url.searchParams.get("workflowVersionId") !== "wfv-new") throw new Error("Task lookup was not scoped to the selected version");
+        return response(200, tasks);
+      }
       if (url.pathname === "/v1/workflows/wfl-test123") return response(200, { id: "wfl-test123", slug: "agentshelf-import-x" });
       throw new Error("Unexpected request " + url.href);
     };
@@ -164,12 +173,14 @@ describe("deployAndVerify workflow release", () => {
     expect(fake.calls.filter((c) => c.url.includes("/deploy/") && c.method === "POST")).toHaveLength(1);
   });
 
-  it("releases the exact commit and waits until the task is registered", async () => {
+  it("releases the requested commit and verifies task registration for the selected new version", async () => {
     const fake = wfHarness();
     const result = await deployAndVerify({ ...fake, env: wfEnv });
     expect(result.workflow).toEqual({ versionId: "wfv-new", status: "ready", slug: "agentshelf-import-x", taskId: "tsk-1" });
     const post = fake.wfCalls.find((c) => c.method === "POST");
     expect(JSON.parse(post.body)).toEqual({ workflowId: "wfl-test123", commit });
+    expect(fake.wfCalls.some((c) => c.url.includes("workflowID=wfl-test123"))).toBe(true);
+    expect(fake.wfCalls.some((c) => c.url.includes("workflowVersionId=wfv-new"))).toBe(true);
     expect(fake.calls.filter((c) => c.url.includes("/deploy/") && c.method === "POST")).toHaveLength(1);
     expect(fake.logs.at(-1)).toContain("tsk-1");
     const output = fake.logs.join(" ");
@@ -184,6 +195,18 @@ describe("deployAndVerify workflow release", () => {
   it("fails when registration fails", async () => {
     const fake = wfHarness({ statuses: ["registering", "registration_failed"] });
     await expect(deployAndVerify({ ...fake, env: wfEnv })).rejects.toThrow("registration_failed");
+  });
+
+  it("does not select a preexisting version for the new release", async () => {
+    const fake = wfHarness();
+    // The old version is present in the pre-release baseline; only newly-created IDs are eligible.
+    await expect(deployAndVerify({ ...fake, env: wfEnv })).resolves.toMatchObject({ workflow: { versionId: "wfv-new" } });
+    expect(fake.wfCalls.filter((c) => c.url.includes("/workflowversions/wfv-old"))).toHaveLength(0);
+  });
+
+  it("fails closed if more than one new version appears during the CI release", async () => {
+    const fake = wfHarness({ concurrentVersion: true });
+    await expect(deployAndVerify({ ...fake, env: wfEnv })).rejects.toThrow("Multiple Render Workflow versions appeared during release");
   });
 
   it("fails when the task is missing from the ready version", async () => {

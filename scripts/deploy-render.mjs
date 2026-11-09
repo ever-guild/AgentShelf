@@ -7,7 +7,6 @@ const PUBLIC_HOST = "agentshelf-e5bk.onrender.com";
 const WORKFLOW_ID_PATTERN = /^[A-Za-z0-9-]{3,64}$/;
 const WORKFLOW_TASK_NAME = "extractPriceList";
 const WORKFLOW_TIMEOUT_MS = 15 * 60_000;
-const WORKFLOW_CLOCK_SKEW_MS = 60_000;
 const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
 function validate(env) {
@@ -161,14 +160,25 @@ function parseVersion(entry) {
 }
 
 async function listWorkflowVersions(fetchImpl, apiKey, workflowId) {
-  const payload = await workflowRequest(fetchImpl, apiKey,
-    `/v1/workflowversions?workflowID=${encodeURIComponent(workflowId)}&limit=20`);
-  if (!Array.isArray(payload)) throw new Error("Render returned an invalid workflow version list.");
-  return payload.map(parseVersion).filter(Boolean);
+  const versions = [];
+  let cursor;
+  do {
+    const query = new URLSearchParams({ workflowID: workflowId, limit: "100" });
+    if (cursor) query.set("cursor", cursor);
+    const payload = await workflowRequest(fetchImpl, apiKey, `/v1/workflowversions?${query}`);
+    if (!Array.isArray(payload)) throw new Error("Render returned an invalid workflow version list.");
+    for (const entry of payload) {
+      const version = parseVersion(entry);
+      if (version) versions.push(version);
+    }
+    cursor = payload.at(-1)?.cursor;
+  } while (typeof cursor === "string" && cursor !== "");
+  return versions;
 }
 
 async function findTask(fetchImpl, apiKey, versionId) {
-  const payload = await workflowRequest(fetchImpl, apiKey, "/v1/tasks?limit=100");
+  const query = new URLSearchParams({ workflowVersionId: versionId, limit: "100" });
+  const payload = await workflowRequest(fetchImpl, apiKey, `/v1/tasks?${query}`);
   if (!Array.isArray(payload)) throw new Error("Render returned an invalid task list.");
   return payload
     .map((entry) => unwrap(entry, "task"))
@@ -176,8 +186,9 @@ async function findTask(fetchImpl, apiKey, versionId) {
 }
 
 async function releaseWorkflow({ fetchImpl, apiKey, workflowId, commit, sleepImpl, now, logger }) {
+  const baselineVersions = await listWorkflowVersions(fetchImpl, apiKey, workflowId);
+  const baselineIds = new Set(baselineVersions.map((version) => version.id));
   const requestedAt = now();
-  const requestedWallClock = Date.now();
   await workflowRequest(fetchImpl, apiKey, "/v1/workflowversions", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -185,7 +196,6 @@ async function releaseWorkflow({ fetchImpl, apiKey, workflowId, commit, sleepImp
   }, [202]);
   logger.log(`Render Workflow release requested for commit ${commit}.`);
 
-  const notBefore = requestedWallClock - WORKFLOW_CLOCK_SKEW_MS;
   const deadline = requestedAt + WORKFLOW_TIMEOUT_MS;
   let versionId;
   let lastStatus;
@@ -193,12 +203,13 @@ async function releaseWorkflow({ fetchImpl, apiKey, workflowId, commit, sleepImp
     let version;
     if (versionId === undefined) {
       const versions = await listWorkflowVersions(fetchImpl, apiKey, workflowId);
-      version = versions
-        .filter((candidate) => {
-          const created = Date.parse(candidate.createdAt);
-          return Number.isFinite(created) && created >= notBefore;
-        })
-        .sort((a, b) => Date.parse(b.createdAt) - Date.parse(a.createdAt))[0];
+      const createdVersions = versions.filter((candidate) =>
+        candidate.workflowId === workflowId && !baselineIds.has(candidate.id),
+      );
+      if (createdVersions.length > 1) {
+        throw new Error("Multiple Render Workflow versions appeared during release; cannot identify the CI-requested version. Check the workflow versions in the Dashboard and retry when no other release is running.");
+      }
+      version = createdVersions[0];
       if (version) versionId = version.id;
     } else {
       version = parseVersion(await workflowRequest(fetchImpl, apiKey, `/v1/workflowversions/${encodeURIComponent(versionId)}`));
