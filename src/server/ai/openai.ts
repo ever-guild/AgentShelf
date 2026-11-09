@@ -37,17 +37,20 @@ import {
 // that knows this provider. Like claude.ts it has no `server-only` guard, because a workflow task
 // loads it outside Next.js, and the key never reaches a client.
 
-export const OPENAI_MODEL = "gpt-6.1-terra";
+// OpenAI's most capable model, at more effort than the Claude adapter uses: the owner chose quality
+// over cost for the demo, and the per-shop limits on photos and notes still bound the spend.
+export const OPENAI_MODEL = "gpt-6-astra";
 export const OPENAI_BASE_URL = "https://api.openai.com/v1";
 
-// The same limits as the Claude adapter, so either provider fits a workflow task's five minutes and
-// keeps a seller waiting no longer.
+// Below a workflow task's five-minute limit, so a run that times out can still record the failure.
 const REQUEST_TIMEOUT_MS = 4 * 60 * 1000;
 const MAX_OUTPUT_TOKENS = 64_000;
-const EFFORT = "medium";
-const DEMAND_TIMEOUT_MS = 60 * 1000;
-const DEMAND_MAX_OUTPUT_TOKENS = 8_000;
-const DEMAND_EFFORT = "low";
+const EFFORT = "high";
+// A seller is waiting on these two. The page gives a turn 90 seconds, so the request ends first, and
+// the room covers the extra reasoning a higher effort spends before the short answer.
+const DEMAND_TIMEOUT_MS = 80 * 1000;
+const DEMAND_MAX_OUTPUT_TOKENS = 16_000;
+const DEMAND_EFFORT = "medium";
 
 // Strict structured output. The helper turns optional and nullable fields into what strict mode
 // accepts. The reply is still validated like any input in `readJson`.
@@ -112,7 +115,7 @@ async function ask(
     input: InputItem[];
     format?: ReturnType<typeof textFormat>;
     tools?: typeof ASSISTANT_API_TOOLS;
-    effort?: "low" | "medium";
+    effort?: "medium" | "high";
     maxTokens?: number;
     timeoutMs?: number;
   },

@@ -254,10 +254,10 @@ Every AI feature goes through the contracts in [`ai/types.ts`](../src/server/ai/
 | Adapter | [`claude.ts`](../src/server/ai/claude.ts) | [`openai.ts`](../src/server/ai/openai.ts) |
 | `AGENT_SHELF_AI_PROVIDER` | `anthropic` | `openai` |
 | Default base URL | `https://api.anthropic.com` | `https://api.openai.com/v1` |
-| Model | `claude-opus-5-5`, with the API's default fallbacks | `gpt-6.1-terra`, which OpenAI prices at a tenth of its flagship and describes for visual reasoning |
+| Model | `claude-opus-5-5`, with the API's default fallbacks | `gpt-6-astra`, OpenAI's most capable model, chosen by the owner for quality over cost |
 | API | Messages, streamed | Responses, with `store: false` |
 | Output | Structured output from the Zod contract | Strict structured output from the same contract |
-| Effort | `medium` for photos and catalog text, `low` for demand | the same |
+| Effort | `medium` for photos and catalog text, `low` for demand | `high` for photos and catalog text, `medium` for demand, with 16,000 output tokens and 80 seconds for demand so the page's 90 seconds end last |
 
 The operator configures one provider with three settings, and [`ai/index.ts`](../src/server/ai/index.ts) passes the key and base URL to the SDK explicitly, so neither SDK reads its own environment variables such as `OPENAI_API_KEY`, `OPENAI_BASE_URL` or `ANTHROPIC_BASE_URL`:
 
@@ -272,6 +272,8 @@ AGENT_SHELF_AI_PROVIDER_API_KEY=""
 - With no provider named, `ANTHROPIC_API_KEY` alone still selects Claude, as deployments had before these settings.
 
 Both adapters send the same instructions, from [`ai/prompts.ts`](../src/server/ai/prompts.ts), and record the same prompt versions, so readings stay comparable and each import job and note says which model wrote it. Both turn a refusal into `REFUSED`, a reply cut off by the limit into `TOO_LONG`, a reply that breaks the schema into `MALFORMED_OUTPUT`, and provider errors into the same codes, and neither retries on its own, because each caller already has a bounded retry. A provider's message is never logged, only its status and request ID.
+
+**Provider rate limits** are far above what AgentShelf can send. On the OpenAI organization's Launch tier, `gpt-6-astra` allows 4,000,000 tokens and 10,000 requests a minute, as its limits page showed on 9 November. AgentShelf's own limits stop well before that: 30 photos a day and 3 waiting per shop, 60 demand calls an hour per shop, and at most 5 search-term requests per 30-second sweep across all shops. A `429` becomes `PROVIDER_UNAVAILABLE`, which each caller's bounded retry or the search sweep's backoff handles. AgentShelf does not use the Batch API, so batch queue limits do not apply.
 
 The demand assistant's tools are offered to OpenAI as non-strict functions, because all their arguments are optional. The service checks every argument against the contract before a tool runs, as it does for Claude.
 

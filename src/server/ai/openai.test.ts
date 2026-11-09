@@ -108,7 +108,7 @@ describe("reading a price list", () => {
     expect(body.model).toBe(OPENAI_MODEL);
     expect(body.instructions).toBe(PRICE_LIST_SYSTEM);
     expect(body.store).toBe(false);
-    expect(body.reasoning.effort).toBe("medium");
+    expect(body.reasoning.effort).toBe("high");
     expect(body.text?.format).toMatchObject({ type: "json_schema", name: "price_list", strict: true });
     const content = (body.input[0] as { content: Record<string, unknown>[] }).content;
     expect(content[0]).toMatchObject({
@@ -134,13 +134,13 @@ describe("reading a price list", () => {
 
   it("returns the reading with the model that answered, its prompt version and usage", async () => {
     const { fake, ai } = setup();
-    fake.replyJson({ items: [item] }, { model: "gpt-6.1-terra-answering" });
+    fake.replyJson({ items: [item] }, { model: "gpt-6-astra-answering" });
 
     const reading = await ai.readPriceList(IMAGE);
 
     expect(reading).toEqual({
       items: [item],
-      model: "gpt-6.1-terra-answering",
+      model: "gpt-6-astra-answering",
       promptVersion: PRICE_LIST_PROMPT_VERSION,
       usage: { inputTokens: 120, outputTokens: 80 },
     });
@@ -291,7 +291,7 @@ describe("demand", () => {
     ],
   };
 
-  it("explains demand at low effort with a short limit", async () => {
+  it("explains demand at a lighter effort and a smaller limit than a photo", async () => {
     const { fake, ai } = setup();
     const items = [{ groupId: "magsafe", explanation: "Buyers may want a charger.", suggestedAction: "Check stock." }];
     fake.replyJson({ items });
@@ -300,8 +300,8 @@ describe("demand", () => {
 
     expect(reading).toMatchObject({ items, promptVersion: DEMAND_EXPLANATION_PROMPT_VERSION });
     const body = bodyOf(fake);
-    expect(body.reasoning.effort).toBe("low");
-    expect(body.max_output_tokens).toBe(8_000);
+    expect(body.reasoning.effort).toBe("medium");
+    expect(body.max_output_tokens).toBe(16_000);
     expect(body.text?.format.name).toBe("demand_notes");
     expect(JSON.stringify(body.input)).toContain("<demand>");
   });
