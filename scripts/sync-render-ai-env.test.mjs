@@ -6,13 +6,13 @@ const desired = {
   AGENT_SHELF_AI_PROVIDER: "openai",
   AGENT_SHELF_AI_PROVIDER_BASE_URL: "https://api.openai.com/v1",
   AGENT_SHELF_AI_PROVIDER_API_KEY: secret,
-  AGENT_SHELF_AG_STUDIO_LICENCE: "studio-test-secret-never-log",
+  AG_STUDIO: "studio-test-secret-never-log",
 };
 const renderDesired = {
   AGENT_SHELF_AI_PROVIDER: desired.AGENT_SHELF_AI_PROVIDER,
   AGENT_SHELF_AI_PROVIDER_BASE_URL: desired.AGENT_SHELF_AI_PROVIDER_BASE_URL,
   AGENT_SHELF_AI_PROVIDER_API_KEY: desired.AGENT_SHELF_AI_PROVIDER_API_KEY,
-  AG_STUDIO: desired.AGENT_SHELF_AG_STUDIO_LICENCE,
+  AG_STUDIO: desired.AG_STUDIO,
 };
 const apiKey = "render-api-test-token";
 
@@ -66,9 +66,9 @@ describe("syncRenderAiEnv", () => {
   it("requires the AG Studio source secret before making any Render request", async () => {
     const fake = harness();
     const missingLicense = { ...desired };
-    delete missingLicense.AGENT_SHELF_AG_STUDIO_LICENCE;
+    delete missingLicense.AG_STUDIO;
     await expect(syncRenderAiEnv({ env: missingLicense, apiKey, fetchImpl: fake.fetchImpl, logger: fake.logger }))
-      .rejects.toThrow("AGENT_SHELF_AG_STUDIO_LICENCE");
+      .rejects.toThrow("AG_STUDIO");
     expect(fake.calls).toHaveLength(0);
   });
 
@@ -95,13 +95,12 @@ describe("syncRenderAiEnv", () => {
     expect(fake.calls.every((call) => call.options.redirect === "error")).toBe(true);
   });
 
-  it("maps the canonical GitHub licence secret only to Render AG_STUDIO", async () => {
+  it("syncs the canonical AG_STUDIO secret only to Render AG_STUDIO", async () => {
     const fake = harness({ ...renderDesired, AG_STUDIO: "old-studio-key" });
     await syncRenderAiEnv({ env: desired, apiKey, fetchImpl: fake.fetchImpl, logger: fake.logger });
-    expect(fake.values.get("AG_STUDIO")).toBe(desired.AGENT_SHELF_AG_STUDIO_LICENCE);
-    expect(fake.values.has("AGENT_SHELF_AG_STUDIO_LICENCE")).toBe(false);
+    expect(fake.values.get("AG_STUDIO")).toBe(desired.AG_STUDIO);
     expect(fake.calls.filter((call) => call.method === "PUT").map((call) => call.key)).toEqual(["AG_STUDIO"]);
-    expect(fake.logs.join(" ")).not.toContain(desired.AGENT_SHELF_AG_STUDIO_LICENCE);
+    expect(fake.logs.join(" ")).not.toContain(desired.AG_STUDIO);
   });
 
   it("does not write when already synchronized", async () => {

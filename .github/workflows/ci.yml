@@ -74,7 +74,7 @@ jobs:
           AGENT_SHELF_AI_PROVIDER: ${{ vars.AGENT_SHELF_AI_PROVIDER }}
           AGENT_SHELF_AI_PROVIDER_BASE_URL: ${{ vars.AGENT_SHELF_AI_PROVIDER_BASE_URL }}
           AGENT_SHELF_AI_PROVIDER_API_KEY: ${{ secrets.AGENT_SHELF_AI_PROVIDER_API_KEY }}
-          AGENT_SHELF_AG_STUDIO_LICENCE: ${{ secrets.AGENT_SHELF_AG_STUDIO_LICENCE }}
+          AG_STUDIO: ${{ secrets.AG_STUDIO }}
         run: node scripts/sync-render-ai-env.mjs
       - name: Trigger and verify Render deploy
         env:

@@ -6,7 +6,7 @@ const MAPPINGS = [
   { source: "AGENT_SHELF_AI_PROVIDER", target: "AGENT_SHELF_AI_PROVIDER" },
   { source: "AGENT_SHELF_AI_PROVIDER_BASE_URL", target: "AGENT_SHELF_AI_PROVIDER_BASE_URL" },
   { source: "AGENT_SHELF_AI_PROVIDER_API_KEY", target: "AGENT_SHELF_AI_PROVIDER_API_KEY" },
-  { source: "AGENT_SHELF_AG_STUDIO_LICENCE", target: "AG_STUDIO" },
+  { source: "AG_STUDIO", target: "AG_STUDIO" },
 ];
 const KEYS = MAPPINGS.map(({ target }) => target);
 
