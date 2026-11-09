@@ -1,25 +1,50 @@
 import { describe, expect, it } from "vitest";
 
-import { chooseAiProvider, createDemandAi, createImportAi, isAiConfigured } from ".";
+import { aiConfiguration, chooseAiProvider, createDemandAi, createImportAi, isAiConfigured } from ".";
 
-const BOTH = { ANTHROPIC_API_KEY: "anthropic-key", OPENAI_API_KEY: "openai-key" };
+const OPENAI = {
+  AGENT_SHELF_AI_PROVIDER: "openai",
+  AGENT_SHELF_AI_PROVIDER_BASE_URL: "https://api.openai.com/v1",
+  AGENT_SHELF_AI_PROVIDER_API_KEY: "openai-key",
+};
 
-describe("choosing the AI provider", () => {
+describe("the AI configuration", () => {
   it.each([
-    ["no key", {}, undefined],
-    ["only Claude's key", { ANTHROPIC_API_KEY: "anthropic-key" }, "anthropic"],
-    ["only OpenAI's key", { OPENAI_API_KEY: "openai-key" }, "openai"],
-    ["both keys and no choice", BOTH, "anthropic"],
-    ["both keys and OpenAI chosen", { ...BOTH, AI_PROVIDER: "openai" }, "openai"],
-    ["both keys and Claude chosen", { ...BOTH, AI_PROVIDER: " Anthropic " }, "anthropic"],
-    ["OpenAI chosen without its key", { ANTHROPIC_API_KEY: "anthropic-key", AI_PROVIDER: "openai" }, undefined],
-    ["Claude chosen without its key", { OPENAI_API_KEY: "openai-key", AI_PROVIDER: "anthropic" }, undefined],
-    ["a name that is not a provider", { ...BOTH, AI_PROVIDER: "gemini" }, undefined],
-    ["an empty choice", { ...BOTH, AI_PROVIDER: "" }, "anthropic"],
-  ])("with %s", (_case, env: Record<string, string>, provider) => {
-    expect(chooseAiProvider(env)).toBe(provider);
-    expect(isAiConfigured(env)).toBe(provider !== undefined);
-    expect(createImportAi(env) === undefined).toBe(provider === undefined);
-    expect(createDemandAi(env) === undefined).toBe(provider === undefined);
+    ["nothing set", {}, undefined],
+    ["the agreed OpenAI settings", OPENAI, { provider: "openai", apiKey: "openai-key", baseURL: "https://api.openai.com/v1" }],
+    [
+      "OpenAI with a blank base URL, which takes its default",
+      { ...OPENAI, AGENT_SHELF_AI_PROVIDER_BASE_URL: " " },
+      { provider: "openai", apiKey: "openai-key", baseURL: "https://api.openai.com/v1" },
+    ],
+    [
+      "a base URL with a trailing slash and spaces",
+      { ...OPENAI, AGENT_SHELF_AI_PROVIDER: " OpenAI ", AGENT_SHELF_AI_PROVIDER_BASE_URL: " https://gateway.example/openai/v1/ " },
+      { provider: "openai", apiKey: "openai-key", baseURL: "https://gateway.example/openai/v1" },
+    ],
+    [
+      "Claude named the same way",
+      { AGENT_SHELF_AI_PROVIDER: "anthropic", AGENT_SHELF_AI_PROVIDER_API_KEY: "anthropic-key" },
+      { provider: "anthropic", apiKey: "anthropic-key", baseURL: "https://api.anthropic.com" },
+    ],
+    [
+      "only the older Claude key, as deployments had before these names",
+      { ANTHROPIC_API_KEY: "anthropic-key" },
+      { provider: "anthropic", apiKey: "anthropic-key", baseURL: "https://api.anthropic.com" },
+    ],
+    ["OpenAI named with no key, even with a Claude key present", { ...OPENAI, AGENT_SHELF_AI_PROVIDER_API_KEY: "", ANTHROPIC_API_KEY: "anthropic-key" }, undefined],
+    ["a provider that is not one of the two", { ...OPENAI, AGENT_SHELF_AI_PROVIDER: "gemini" }, undefined],
+    ["a key with no provider named", { AGENT_SHELF_AI_PROVIDER_API_KEY: "openai-key" }, undefined],
+    ["an http base URL", { ...OPENAI, AGENT_SHELF_AI_PROVIDER_BASE_URL: "http://api.openai.com/v1" }, undefined],
+    ["a base URL with credentials", { ...OPENAI, AGENT_SHELF_AI_PROVIDER_BASE_URL: "https://user:pass@api.openai.com/v1" }, undefined],
+    ["a base URL with a query", { ...OPENAI, AGENT_SHELF_AI_PROVIDER_BASE_URL: "https://api.openai.com/v1?key=x" }, undefined],
+    ["a base URL that is not one", { ...OPENAI, AGENT_SHELF_AI_PROVIDER_BASE_URL: "api.openai.com" }, undefined],
+    ["the superseded names", { AI_PROVIDER: "openai", OPENAI_API_KEY: "openai-key" }, undefined],
+  ])("with %s", (_case, env: Record<string, string>, expected) => {
+    expect(aiConfiguration(env)).toEqual(expected);
+    expect(chooseAiProvider(env)).toBe(expected?.provider);
+    expect(isAiConfigured(env)).toBe(expected !== undefined);
+    expect(createImportAi(env) === undefined).toBe(expected === undefined);
+    expect(createDemandAi(env) === undefined).toBe(expected === undefined);
   });
 });

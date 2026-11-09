@@ -118,7 +118,7 @@ async function main() {
   });
   const body = (await upload.json()) as ImportView & { error?: { code: string; message: string } };
   if (upload.status === 503) {
-    return blocked(`${body.error?.code}: set ANTHROPIC_API_KEY or OPENAI_API_KEY on the service.`);
+    return blocked(`${body.error?.code}: configure AGENT_SHELF_AI_PROVIDER and its key on the service.`);
   }
   if (!upload.ok) {
     return failed(`Upload answered ${upload.status}: ${body.error?.code}`);

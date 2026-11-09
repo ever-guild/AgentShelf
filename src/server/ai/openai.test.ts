@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { createFakeOpenAi } from "../../../test/openai-fake";
-import { OPENAI_MODEL, createOpenAiAi } from "./openai";
+import { OPENAI_BASE_URL, OPENAI_MODEL, connectOpenAi } from "./openai";
 import {
   DEMAND_ASSISTANT_PROMPT_VERSION,
   DEMAND_EXPLANATION_PROMPT_VERSION,
@@ -28,11 +28,12 @@ const item = {
 
 type Fake = ReturnType<typeof createFakeOpenAi>;
 
-function setup() {
+function setup(baseURL = OPENAI_BASE_URL) {
   const fake = createFakeOpenAi();
-  const ai = createOpenAiAi({ OPENAI_API_KEY: "test-openai-key" }, { fetch: fake.fetch }) as ImportAi &
-    SearchAi &
-    DemandAi;
+  const ai: ImportAi & SearchAi & DemandAi = connectOpenAi(
+    { apiKey: "test-openai-key", baseURL },
+    { fetch: fake.fetch },
+  );
   return { fake, ai };
 }
 
@@ -70,10 +71,26 @@ afterEach(() => {
   errorLog.mockRestore();
 });
 
-describe("with no key", () => {
-  it("is not configured", () => {
-    expect(createOpenAiAi({})).toBeUndefined();
-    expect(createOpenAiAi({ OPENAI_API_KEY: "" })).toBeUndefined();
+describe("the connection", () => {
+  afterEach(() => {
+    vi.unstubAllEnvs();
+  });
+
+  it("uses only the configured key and endpoint, never the SDK's own environment variables", async () => {
+    vi.stubEnv("OPENAI_API_KEY", "key-from-the-environment");
+    vi.stubEnv("OPENAI_BASE_URL", "https://wrong.example/v1");
+    vi.stubEnv("OPENAI_ORG_ID", "org-from-the-environment");
+    vi.stubEnv("OPENAI_PROJECT_ID", "proj-from-the-environment");
+    const { fake, ai } = setup("https://gateway.example/openai/v1");
+    fake.replyJson({ items: [item] });
+
+    await ai.readPriceList(IMAGE);
+
+    const [request] = fake.requests;
+    expect(request.url).toBe("https://gateway.example/openai/v1/responses");
+    expect(request.headers.get("authorization")).toBe("Bearer test-openai-key");
+    expect(request.headers.get("openai-organization")).toBeNull();
+    expect(request.headers.get("openai-project")).toBeNull();
   });
 });
 

@@ -4,7 +4,7 @@ This project has no tagged releases yet, entries describe code present in the cu
 
 ## Unreleased
 
-- Add an OpenAI adapter next to Claude for photo import, descriptions, search terms and demand insights, chosen with `AI_PROVIDER` or by which key is set, with the shared prompts in one module
+- Add an OpenAI adapter next to Claude for photo import, descriptions, search terms and demand insights, configured with `AGENT_SHELF_AI_PROVIDER`, `AGENT_SHELF_AI_PROVIDER_BASE_URL` and `AGENT_SHELF_AI_PROVIDER_API_KEY`, with the shared prompts in one module. A deployment with only `ANTHROPIC_API_KEY` keeps running on Claude
 
 - Let a workshop owner set up technicians and their weekly working hours on `/seller/schedule`, so a newly registered workshop offers repair slots without database edits
 

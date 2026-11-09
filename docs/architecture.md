@@ -35,8 +35,8 @@ Migrating and seeding are safe to repeat. The seed updates its own fixed rows an
 | `PAYPAL_WEBHOOK_ID_<REF>` | app | The webhook subscription on that seller's app. [paypal-sandbox-setup.md](paypal-sandbox-setup.md#webhooks) explains how to register it. Until it is set, that shop's webhook deliveries get `503` and PayPal repeats them |
 | `PAYPAL_PLATFORM_WEBHOOK_ID` | app | The Platform REST app's seller-consent revocation subscription at `/api/seller/paypal/connection/webhook` |
 | `PAYPAL_PLATFORM_PAYMENT_WEBHOOK_ID` | app | A separate Platform REST app subscription for Orders/capture events at `/api/paypal/platform-webhooks`; its ID is verified before any receipt is written |
-| `ANTHROPIC_API_KEY`, `OPENAI_API_KEY` | app, workflow | The model keys for reading photos, suggesting descriptions and search terms, and explaining and answering about demand. With neither, photo upload says so, CSV upload still works, search reports `degraded`, and the dashboard shows its counts with no written notes and no assistant |
-| `AI_PROVIDER` | app, workflow | Optional, `anthropic` or `openai`. Blank means Claude when its key is set, then OpenAI. A named provider without its key, or another name, turns AI off rather than switching to the other. See [AI providers](#ai-providers) |
+| `AGENT_SHELF_AI_PROVIDER`, `AGENT_SHELF_AI_PROVIDER_BASE_URL`, `AGENT_SHELF_AI_PROVIDER_API_KEY` | app, workflow | The AI provider, `openai` or `anthropic`, its API root and its key, for reading photos, suggesting descriptions and search terms, and explaining and answering about demand. See [AI providers](#ai-providers). With no provider configured, photo upload says so, CSV upload still works, search reports `degraded`, and the dashboard shows its counts with no written notes and no assistant |
+| `ANTHROPIC_API_KEY` | app, workflow | The older Claude-only setting, read only while `AGENT_SHELF_AI_PROVIDER` is blank, so a deployment configured before it keeps working |
 | `RENDER_WORKFLOW_SLUG`, `RENDER_API_KEY` | app | Optional. With both, a photo is read by a Render Workflows task. Without them, it is read inside the web process. [deployment.md](deployment.md#render-workflows-for-photo-import) explains how to set this up |
 | `DEMO_PHONE_WORKSHOP_PAYPAL_MERCHANT_ID` | `db:seed` | Optional. The demo shop's sandbox merchant. Its checkout returns `PAYMENT_NOT_CONFIGURED` until this is set and the seed has run again, because checkout reads the merchant from the database |
 | `DEMO_PHONE_WORKSHOP_SELLER_CODE` | `db:seed` | Optional. The demo shop's seller access code, stored only as a hash. Nobody can sign in until this is set |
@@ -252,13 +252,24 @@ Every AI feature goes through the contracts in [`ai/types.ts`](../src/server/ai/
 | | Claude | OpenAI |
 | --- | --- | --- |
 | Adapter | [`claude.ts`](../src/server/ai/claude.ts) | [`openai.ts`](../src/server/ai/openai.ts) |
-| Key | `ANTHROPIC_API_KEY` | `OPENAI_API_KEY` |
+| `AGENT_SHELF_AI_PROVIDER` | `anthropic` | `openai` |
+| Default base URL | `https://api.anthropic.com` | `https://api.openai.com/v1` |
 | Model | `claude-opus-5-5`, with the API's default fallbacks | `gpt-6.1-terra`, which OpenAI prices at a tenth of its flagship and describes for visual reasoning |
 | API | Messages, streamed | Responses, with `store: false` |
 | Output | Structured output from the Zod contract | Strict structured output from the same contract |
 | Effort | `medium` for photos and catalog text, `low` for demand | the same |
 
-`AI_PROVIDER` chooses, `anthropic` or `openai`. Left blank, Claude is used when its key is set, then OpenAI. A named provider without its key, or a name that is neither, leaves AI off instead of quietly using the other, so a seller sees that AI is not configured.
+The operator configures one provider with three settings, and [`ai/index.ts`](../src/server/ai/index.ts) passes the key and base URL to the SDK explicitly, so neither SDK reads its own environment variables such as `OPENAI_API_KEY`, `OPENAI_BASE_URL` or `ANTHROPIC_BASE_URL`:
+
+```dotenv
+AGENT_SHELF_AI_PROVIDER="openai"
+AGENT_SHELF_AI_PROVIDER_BASE_URL="https://api.openai.com/v1"
+AGENT_SHELF_AI_PROVIDER_API_KEY=""
+```
+
+- The base URL comes from the operator, never from a request. It has to be `https`, with no credentials, query or fragment, and a blank one means the provider's default.
+- A named provider without a key, a name other than `openai` or `anthropic`, or an unusable base URL leaves AI off instead of falling back, so a seller sees that AI is not configured.
+- With no provider named, `ANTHROPIC_API_KEY` alone still selects Claude, as deployments had before these settings.
 
 Both adapters send the same instructions, from [`ai/prompts.ts`](../src/server/ai/prompts.ts), and record the same prompt versions, so readings stay comparable and each import job and note says which model wrote it. Both turn a refusal into `REFUSED`, a reply cut off by the limit into `TOO_LONG`, a reply that breaks the schema into `MALFORMED_OUTPUT`, and provider errors into the same codes, and neither retries on its own, because each caller already has a bounded retry. A provider's message is never logged, only its status and request ID.
 

@@ -8,7 +8,7 @@ Everything below that touches PayPal, a model, AG Studio or Bryntum with a key h
 
 - Any PayPal call: Orders create, approval, capture, webhooks, Catalog Products with caller-chosen record IDs, and the JS SDK v6 buttons with `payment_source.paypal.experience_context`.
 - Reading a real price list photo with the model, and the Render Workflows task on Render.
-- Search indexing on the deployed database, which needs `ANTHROPIC_API_KEY` or `OPENAI_API_KEY` on the web service. The migration that creates `unaccent` has run there.
+- Search indexing on the deployed database, which needs an AI provider configured on the web service. The migration that creates `unaccent` has run there.
 - Claude and ChatGPT connecting to `/mcp`.
 - AG Studio with a key, including the AI assistant, which needs a key for "AG Studio Pro with AI".
 - Bryntum on the deployed service and the screen reader and keyboard passes.
@@ -22,7 +22,7 @@ Everything below that touches PayPal, a model, AG Studio or Bryntum with a key h
 | Same for the second shop | PayPal owner | The same names with `DEMO_SECOND_SHOP`, plus `DEMO_SECOND_SHOP_SELLER_CODE` | The candle shop cannot take payment, and the seed cannot give the shops different merchants |
 | Sandbox personal buyer | PayPal owner | Nowhere. The login is typed at PayPal by a person | Nobody can approve a payment |
 | Webhook per seller app, with the eight events from [paypal-sandbox-setup.md](paypal-sandbox-setup.md#webhooks) | PayPal owner | `PAYPAL_WEBHOOK_ID_DEMO_PHONE_WORKSHOP`, `PAYPAL_WEBHOOK_ID_DEMO_SECOND_SHOP` | The webhook answers `503`. Payments still settle through the return page and the sweep, but slower |
-| Anthropic or OpenAI key with a low monthly spend limit | Captain | `ANTHROPIC_API_KEY` or `OPENAI_API_KEY`, and `AI_PROVIDER` to choose when both are set, on the web service and the workflow, and in `.env.local` | Photo import, descriptions, search indexing and dashboard notes stop. CSV import and exact-word search still work. Search reports `degraded` |
+| OpenAI or Anthropic key with a low monthly spend limit | Captain | `AGENT_SHELF_AI_PROVIDER`, `AGENT_SHELF_AI_PROVIDER_BASE_URL`, `AGENT_SHELF_AI_PROVIDER_API_KEY` on the web service and the workflow, and in `.env.local` | Photo import, descriptions, search indexing and dashboard notes stop. CSV import and exact-word search still work. Search reports `degraded` |
 | `APP_SIGNING_SECRET`, `APP_ORIGIN` | Render owner | Render environment | Seller sessions and order status tokens fail |
 | `DEMO_PHONE_WORKSHOP_SELLER_CODE` | Render owner | Render environment | Nobody can sign in to the seller area, and `smoke:import` cannot run |
 | `DEMO_ENVIRONMENT=true` | Render owner | Render environment | `npm run demo:reset` refuses to run |

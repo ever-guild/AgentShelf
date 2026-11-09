@@ -6,6 +6,9 @@ import type { ImageMediaType } from "../imports/file-type";
 
 export type AiUsage = { inputTokens: number; outputTokens: number };
 
+// Where a provider is reached and with which key, from the operator's configuration only.
+export type AiConnection = { apiKey: string; baseURL: string };
+
 export type PriceListReading = {
   items: ExtractedItem[];
   // The model that answered, which is not always the one asked: see the note in claude.ts.

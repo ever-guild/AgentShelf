@@ -44,9 +44,11 @@ services:
           property: connectionString
       - key: ANTHROPIC_API_KEY
         sync: false
-      - key: OPENAI_API_KEY
+      - key: AGENT_SHELF_AI_PROVIDER
         sync: false
-      - key: AI_PROVIDER
+      - key: AGENT_SHELF_AI_PROVIDER_BASE_URL
+        sync: false
+      - key: AGENT_SHELF_AI_PROVIDER_API_KEY
         sync: false
 
 databases:

@@ -22,6 +22,7 @@ import {
 } from "./prompts";
 import {
   AiFailure,
+  type AiConnection,
   type AiUsage,
   type AssistantMessage,
   type DemandAi,
@@ -37,6 +38,7 @@ import {
 // loads it outside Next.js, and the key never reaches a client.
 
 export const OPENAI_MODEL = "gpt-6.1-terra";
+export const OPENAI_BASE_URL = "https://api.openai.com/v1";
 
 // The same limits as the Claude adapter, so either provider fits a workflow task's five minutes and
 // keeps a seller waiting no longer.
@@ -242,18 +244,19 @@ function parseArguments(raw: string): unknown {
   }
 }
 
-// Undefined when no key is configured. The SDK's own retries are off because each caller already
-// has a bounded retry, and two layers would multiply into many paid requests.
-export function createOpenAiAi(
-  env: Record<string, string | undefined> = process.env,
+// The SDK's own retries are off because each caller already has a bounded retry, and two layers
+// would multiply into many paid requests. The key and endpoint are always passed, and the
+// organization and project are pinned to none, so the SDK never reads OPENAI_* variables itself.
+export function connectOpenAi(
+  connection: AiConnection,
   options: { fetch?: typeof fetch } = {},
-): (ImportAi & SearchAi & DemandAi) | undefined {
-  const apiKey = env.OPENAI_API_KEY;
-  if (!apiKey) {
-    return undefined;
-  }
+): ImportAi & SearchAi & DemandAi {
   const client = new OpenAI({
-    apiKey,
+    apiKey: connection.apiKey,
+    baseURL: connection.baseURL,
+    organization: null,
+    project: null,
+    webhookSecret: null,
     maxRetries: 0,
     timeout: REQUEST_TIMEOUT_MS,
     fetch: options.fetch,

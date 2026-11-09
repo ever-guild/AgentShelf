@@ -1,46 +1,86 @@
-import { createClaudeAi } from "./claude";
-import { createOpenAiAi } from "./openai";
-import type { DemandAi, ImportAi, SearchAi } from "./types";
+import { CLAUDE_BASE_URL, connectClaude } from "./claude";
+import { OPENAI_BASE_URL, connectOpenAi } from "./openai";
+import type { AiConnection, DemandAi, ImportAi, SearchAi } from "./types";
 
-// The one place that picks the provider. AI_PROVIDER names one, `anthropic` or `openai`. With no
-// choice, Claude when its key is set, then OpenAI. A named provider without its key, or a name that
-// is not one of these, leaves AI off rather than quietly using the other: CSV import keeps working,
-// and photo import, suggestions and insights say that AI is not configured.
+// The one place that picks the provider, from the operator's configuration:
+//
+//   AGENT_SHELF_AI_PROVIDER           openai or anthropic
+//   AGENT_SHELF_AI_PROVIDER_BASE_URL  the provider's API root, https only. Blank means its default
+//   AGENT_SHELF_AI_PROVIDER_API_KEY   the key for that provider
+//
+// A named provider without a key, an unknown name or an unusable base URL leaves AI off rather than
+// falling back to anything else: CSV import keeps working, and photo import, suggestions and
+// insights say that AI is not configured. With no provider named, a deployment that only has
+// ANTHROPIC_API_KEY keeps running on Claude, as before these names existed.
 
 export type AiProvider = "anthropic" | "openai";
 
-export function chooseAiProvider(env: Record<string, string | undefined>): AiProvider | undefined {
-  const choice = env.AI_PROVIDER?.trim().toLowerCase();
-  if (choice === "anthropic") {
-    return env.ANTHROPIC_API_KEY ? "anthropic" : undefined;
+export type AiConfiguration = AiConnection & { provider: AiProvider };
+
+const DEFAULT_BASE_URL: Record<AiProvider, string> = {
+  anthropic: CLAUDE_BASE_URL,
+  openai: OPENAI_BASE_URL,
+};
+
+function isProvider(name: string): name is AiProvider {
+  return name === "anthropic" || name === "openai";
+}
+
+// An https URL with no credentials, query or fragment, without a trailing slash.
+function trustedBaseUrl(raw: string | undefined, provider: AiProvider): string | undefined {
+  const value = raw?.trim();
+  if (!value) {
+    return DEFAULT_BASE_URL[provider];
   }
-  if (choice === "openai") {
-    return env.OPENAI_API_KEY ? "openai" : undefined;
-  }
-  if (choice) {
+  let url: URL;
+  try {
+    url = new URL(value);
+  } catch {
     return undefined;
   }
-  if (env.ANTHROPIC_API_KEY) {
-    return "anthropic";
+  if (url.protocol !== "https:" || url.username || url.password || url.search || url.hash) {
+    return undefined;
   }
-  return env.OPENAI_API_KEY ? "openai" : undefined;
+  return url.href.replace(/\/+$/, "");
+}
+
+export function aiConfiguration(
+  env: Record<string, string | undefined>,
+): AiConfiguration | undefined {
+  const named = env.AGENT_SHELF_AI_PROVIDER?.trim().toLowerCase();
+  if (named) {
+    if (!isProvider(named)) {
+      return undefined;
+    }
+    const apiKey = env.AGENT_SHELF_AI_PROVIDER_API_KEY?.trim();
+    const baseURL = trustedBaseUrl(env.AGENT_SHELF_AI_PROVIDER_BASE_URL, named);
+    return apiKey && baseURL ? { provider: named, apiKey, baseURL } : undefined;
+  }
+  const legacyKey = env.ANTHROPIC_API_KEY?.trim();
+  return legacyKey
+    ? { provider: "anthropic", apiKey: legacyKey, baseURL: CLAUDE_BASE_URL }
+    : undefined;
+}
+
+export function chooseAiProvider(env: Record<string, string | undefined>): AiProvider | undefined {
+  return aiConfiguration(env)?.provider;
 }
 
 export function isAiConfigured(env: Record<string, string | undefined>): boolean {
-  return chooseAiProvider(env) !== undefined;
+  return aiConfiguration(env) !== undefined;
 }
 
 function createAi(
   env: Record<string, string | undefined>,
 ): (ImportAi & SearchAi & DemandAi) | undefined {
-  switch (chooseAiProvider(env)) {
-    case "anthropic":
-      return createClaudeAi(env);
-    case "openai":
-      return createOpenAiAi(env);
-    default:
-      return undefined;
+  const configuration = aiConfiguration(env);
+  if (!configuration) {
+    return undefined;
   }
+  const { provider, apiKey, baseURL } = configuration;
+  return provider === "openai"
+    ? connectOpenAi({ apiKey, baseURL })
+    : connectClaude({ apiKey, baseURL });
 }
 
 export function createImportAi(env: Record<string, string | undefined>): ImportAi | undefined {

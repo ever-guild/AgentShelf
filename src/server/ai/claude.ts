@@ -22,6 +22,7 @@ import {
 } from "./prompts";
 import {
   AiFailure,
+  type AiConnection,
   type AiUsage,
   type AssistantMessage,
   type DemandAi,
@@ -39,6 +40,7 @@ import {
 // environment on the server, and no route or page hands it to a client.
 
 export const IMPORT_MODEL = "claude-opus-5-5";
+export const CLAUDE_BASE_URL = "https://api.anthropic.com";
 // Re-exported for the callers and tests that read them from here.
 export {
   DEMAND_ASSISTANT_PROMPT_VERSION,
@@ -235,8 +237,17 @@ export function createClaudeAi(
   if (!apiKey) {
     return undefined;
   }
+  return connectClaude({ apiKey, baseURL: CLAUDE_BASE_URL }, options);
+}
+
+// The key and endpoint are always passed, so the SDK never reads its own environment variables.
+export function connectClaude(
+  connection: AiConnection,
+  options: { fetch?: typeof fetch } = {},
+): ImportAi & SearchAi & DemandAi {
   const client = new Anthropic({
-    apiKey,
+    apiKey: connection.apiKey,
+    baseURL: connection.baseURL,
     maxRetries: 0,
     timeout: REQUEST_TIMEOUT_MS,
     fetch: options.fetch,

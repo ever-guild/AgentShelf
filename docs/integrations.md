@@ -166,8 +166,8 @@ task(
 | Name | Where | Purpose |
 | --- | --- | --- |
 | `AG_STUDIO` | Render web service, `.env.local` | AG Studio licence key, the boilerplate's name. Reaches the browser, never commit it |
-| `ANTHROPIC_API_KEY`, `OPENAI_API_KEY` | Render web service and workflow, `.env.local` | AI for photos, descriptions, search terms and demand. One is enough |
-| `AI_PROVIDER` | Render web service and workflow, `.env.local` | Optional, `anthropic` or `openai`. See [AI providers](architecture.md#ai-providers) |
+| `AGENT_SHELF_AI_PROVIDER`, `AGENT_SHELF_AI_PROVIDER_BASE_URL`, `AGENT_SHELF_AI_PROVIDER_API_KEY` | Render web service and workflow, `.env.local` | AI provider, its API root and key, for photos, descriptions, search terms and demand. See [AI providers](architecture.md#ai-providers) |
+| `ANTHROPIC_API_KEY` | Older deployments | Claude only, read while `AGENT_SHELF_AI_PROVIDER` is blank |
 | `RENDER_API_KEY` | Render web service | Starts and reads task runs. Secret, created under Account Settings |
 | `RENDER_WORKFLOW_SLUG` | Render web service | Prefix for task slugs |
 | `RENDER_USE_LOCAL_DEV`, `RENDER_LOCAL_DEV_URL` | `.env.local` only | Point the SDK at the local task server |
