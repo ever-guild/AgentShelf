@@ -35,7 +35,8 @@ Migrating and seeding are safe to repeat. The seed updates its own fixed rows an
 | `PAYPAL_WEBHOOK_ID_<REF>` | app | The webhook subscription on that seller's app. [paypal-sandbox-setup.md](paypal-sandbox-setup.md#webhooks) explains how to register it. Until it is set, that shop's webhook deliveries get `503` and PayPal repeats them |
 | `PAYPAL_PLATFORM_WEBHOOK_ID` | app | The Platform REST app's seller-consent revocation subscription at `/api/seller/paypal/connection/webhook` |
 | `PAYPAL_PLATFORM_PAYMENT_WEBHOOK_ID` | app | A separate Platform REST app subscription for Orders/capture events at `/api/paypal/platform-webhooks`; its ID is verified before any receipt is written |
-| `ANTHROPIC_API_KEY` | app, workflow | The model key for reading photos, suggesting descriptions and search terms, and explaining and answering about demand. Without it, photo upload says so, CSV upload still works, search reports `degraded`, and the dashboard shows its counts with no written notes and no assistant |
+| `ANTHROPIC_API_KEY`, `OPENAI_API_KEY` | app, workflow | The model keys for reading photos, suggesting descriptions and search terms, and explaining and answering about demand. With neither, photo upload says so, CSV upload still works, search reports `degraded`, and the dashboard shows its counts with no written notes and no assistant |
+| `AI_PROVIDER` | app, workflow | Optional, `anthropic` or `openai`. Blank means Claude when its key is set, then OpenAI. A named provider without its key, or another name, turns AI off rather than switching to the other. See [AI providers](#ai-providers) |
 | `RENDER_WORKFLOW_SLUG`, `RENDER_API_KEY` | app | Optional. With both, a photo is read by a Render Workflows task. Without them, it is read inside the web process. [deployment.md](deployment.md#render-workflows-for-photo-import) explains how to set this up |
 | `DEMO_PHONE_WORKSHOP_PAYPAL_MERCHANT_ID` | `db:seed` | Optional. The demo shop's sandbox merchant. Its checkout returns `PAYMENT_NOT_CONFIGURED` until this is set and the seed has run again, because checkout reads the merchant from the database |
 | `DEMO_PHONE_WORKSHOP_SELLER_CODE` | `db:seed` | Optional. The demo shop's seller access code, stored only as a hash. Nobody can sign in until this is set |
@@ -244,6 +245,27 @@ A view of what occupies the calendar filters on `blocksTime`. `depositCaptureId`
 
 **Known limits:** the counts are in the web process and are per address. All of one assistant provider's buyers can share an address, and a caller that forges its address on a route the edge does not overwrite escapes them, so they slow abuse and do not end it.
 
+## AI providers
+
+Every AI feature goes through the contracts in [`ai/types.ts`](../src/server/ai/types.ts): `ImportAi` reads price list photos and suggests descriptions, `SearchAi` writes search terms, and `DemandAi` explains unmet demand and answers the dashboard's assistant. Two adapters implement them, for [#51](https://github.com/ever-guild/AgentShelf/issues/51), and [`ai/index.ts`](../src/server/ai/index.ts) is the one place that picks one.
+
+| | Claude | OpenAI |
+| --- | --- | --- |
+| Adapter | [`claude.ts`](../src/server/ai/claude.ts) | [`openai.ts`](../src/server/ai/openai.ts) |
+| Key | `ANTHROPIC_API_KEY` | `OPENAI_API_KEY` |
+| Model | `claude-opus-5-5`, with the API's default fallbacks | `gpt-6-astra` |
+| API | Messages, streamed | Responses, with `store: false` |
+| Output | Structured output from the Zod contract | Strict structured output from the same contract |
+| Effort | `medium` for photos and catalog text, `low` for demand | the same |
+
+`AI_PROVIDER` chooses, `anthropic` or `openai`. Left blank, Claude is used when its key is set, then OpenAI. A named provider without its key, or a name that is neither, leaves AI off instead of quietly using the other, so a seller sees that AI is not configured.
+
+Both adapters send the same instructions, from [`ai/prompts.ts`](../src/server/ai/prompts.ts), and record the same prompt versions, so readings stay comparable and each import job and note says which model wrote it. Both turn a refusal into `REFUSED`, a reply cut off by the limit into `TOO_LONG`, a reply that breaks the schema into `MALFORMED_OUTPUT`, and provider errors into the same codes, and neither retries on its own, because each caller already has a bounded retry. A provider's message is never logged, only its status and request ID.
+
+The demand assistant's tools are offered to OpenAI as non-strict functions, because all their arguments are optional. The service checks every argument against the contract before a tool runs, as it does for Claude.
+
+**Status:** both adapters are tested against stand-ins of their APIs at the HTTP level, with the real SDKs. Real runs with each provider are recorded where each feature is described below, and the live check on Render is [#48](https://github.com/ever-guild/AgentShelf/issues/48).
+
 ## Schedule
 
 `/seller/schedule` shows one shop's day, for [#13](https://github.com/ever-guild/AgentShelf/issues/13): technicians as rows and bookings as bars in Bryntum Scheduler, with a plain list of the same bookings underneath. Bookings are only read here. [`seller-schedule.ts`](../src/server/services/seller-schedule.ts) turns the read model into a page's view, and `GET /api/seller/schedule?date=YYYY-MM-DD` serves it with `Cache-Control: private, no-store`. With no `date` it answers for today in shop time.
@@ -376,7 +398,7 @@ The dashboard's written notes on unmet demand and its read-only assistant, for [
 | `fresh` | The hash matches | The counts and the note |
 | `stale` | An event arrived or left, or the window moved | The current counts, the old note marked with the counts it was written for, and a button |
 | Model failure | The provider failed, refused, or the reply failed its check | Says what happened, and the counts stay. An earlier note stays marked stale |
-| No key | `ANTHROPIC_API_KEY` is unset | The counts, a sentence saying notes are not set up, and no assistant button |
+| No key | The chosen provider has no key | The counts, a sentence saying notes are not set up, and no assistant button |
 
 **The assistant** is one agent in Studio's Agent Framework, run by `directLlmRunner` in the browser with [a Claude adapter of our own](integrations.md#studio-agent-framework). **Ask about demand** opens Studio's chat panel, which exists only in edit mode, so it is offered on wider screens only, as arranging is. Conversations stay in memory and end with the page.
 
@@ -454,7 +476,7 @@ The seller's way in, for [#8](https://github.com/ever-guild/AgentShelf/issues/8)
 
 **Text in a source is data.** The system prompt says so, and a model has no tools, so the worst a hostile photo can do is produce wrong rows, which a person reads before accepting. A reply is judged by its stop reason and then validated against a strict schema, like any other input.
 
-**The model:** `claude-opus-5-5` at `medium` effort, with `fallbacks: "default"`, so a safety classifier declining a harmless list is retried on the model the API recommends. The job records the model that actually answered and the prompt version (`price-list-v1`). [`ai/types.ts`](../src/server/ai/types.ts) is all the import code knows, so another provider means another adapter.
+**The model:** `claude-opus-5-5` at `medium` effort, with `fallbacks: "default"`, so a safety classifier declining a harmless list is retried on the model the API recommends. The job records the model that actually answered and the prompt version (`price-list-v1`). [`ai/types.ts`](../src/server/ai/types.ts) is all the import code knows. The same contracts run on OpenAI, see [AI providers](#ai-providers).
 
 **A row and the gate:**
 

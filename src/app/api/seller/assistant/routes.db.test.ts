@@ -33,6 +33,7 @@ vi.mock("@/server/ai", async () => {
   return {
     createDemandAi: () =>
       provider.configured ? createClaudeAi({ ANTHROPIC_API_KEY: "test-model-key" }, { fetch: provider.fetch }) : undefined,
+    isAiConfigured: () => provider.configured,
   };
 });
 

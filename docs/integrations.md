@@ -50,7 +50,7 @@ A 45-day trial started on Nov 5 ends Dec 20, on Nov 6 ends Dec 21, on Nov 7 ends
 - Register with `<AgStudioProvider modules={[AgStudioAiModule]}>`, then pass `ai={setup}` to `<AgStudio>`.
 - The documented `({ api }) => createAiHarness(api, { adapter })` fails `next build` on 3.1.0: the callback's `api` is `AgCoreStudioApi` and the function wants `AgStudioApi`. Cast it with `api as AgStudioApi` (ran). 3.0.0 types differ.
 - AG Studio ships no adapters. Docs give one example for the OpenAI Responses API to copy, so another provider needs its own adapter (read).
-- **Decision, [#15](https://github.com/ever-guild/AgentShelf/issues/15):** the assistant uses Claude, with `ANTHROPIC_API_KEY` and `claude-opus-5-5` at low effort, through an `AgLlmAdapter` of our own in [`dashboard-assistant.ts`](../src/app/seller/dashboard/dashboard-assistant.ts). That is one vendor and one key with catalog import, and nothing is copied. `OPENAI_API_KEY` is not used.
+- **Decision, [#15](https://github.com/ever-guild/AgentShelf/issues/15):** the assistant uses Claude, with `ANTHROPIC_API_KEY` and `claude-opus-5-5` at low effort, through an `AgLlmAdapter` of our own in [`dashboard-assistant.ts`](../src/app/seller/dashboard/dashboard-assistant.ts). That is one vendor and one key with catalog import, and nothing is copied. Since [#51](https://github.com/ever-guild/AgentShelf/issues/51) the route answers through whichever provider the server is configured with, Claude or OpenAI, see [AI providers](architecture.md#ai-providers). The browser side does not change.
 - The adapter runs in the browser, so it talks to a seller-authenticated route that holds the key. The boilerplate's `/api/ai/responses` passes whatever the browser sends, and its README warns it has no auth or rate limiting. Ours takes only the conversation: instructions and tools are the server's, the adapter drops the ones Studio offers, and each shop has an hourly limit (ran).
 - What the installed 3.1.0 has (ran): `directLlmRunner` builds an agent from an adapter, and a builder passed to `createAiHarness` returns `agents`, `primary` and `promptStarters`. A tool can be a plain `AgAiTool` object with `schema()` and `execute()`. The chat panel `"ai"` exists only in `edit` panels, and `AgPanelConfig.view` has no such type. Without a key `AgStudioAiModule` logs a licence error and says its features are unlocked for trial.
 - Opus 5.5 returns 400 for a forced tool choice, so the adapter leaves that to the model. A tool round trip works with no thinking block replayed (ran).
@@ -166,7 +166,8 @@ task(
 | Name | Where | Purpose |
 | --- | --- | --- |
 | `AG_STUDIO` | Render web service, `.env.local` | AG Studio licence key, the boilerplate's name. Reaches the browser, never commit it |
-| `ANTHROPIC_API_KEY` | Render web service and workflow, `.env.local` | Reads price list photos and suggests descriptions |
+| `ANTHROPIC_API_KEY`, `OPENAI_API_KEY` | Render web service and workflow, `.env.local` | AI for photos, descriptions, search terms and demand. One is enough |
+| `AI_PROVIDER` | Render web service and workflow, `.env.local` | Optional, `anthropic` or `openai`. See [AI providers](architecture.md#ai-providers) |
 | `RENDER_API_KEY` | Render web service | Starts and reads task runs. Secret, created under Account Settings |
 | `RENDER_WORKFLOW_SLUG` | Render web service | Prefix for task slugs |
 | `RENDER_USE_LOCAL_DEV`, `RENDER_LOCAL_DEV_URL` | `.env.local` only | Point the SDK at the local task server |

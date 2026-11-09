@@ -4,6 +4,8 @@ This project has no tagged releases yet, entries describe code present in the cu
 
 ## Unreleased
 
+- Add an OpenAI adapter next to Claude for photo import, descriptions, search terms and demand insights, chosen with `AI_PROVIDER` or by which key is set, with the shared prompts in one module
+
 - Let a workshop owner set up technicians and their weekly working hours on `/seller/schedule`, so a newly registered workshop offers repair slots without database edits
 
 - Polish the seller price list screens: the product name and PayPal Sandbox in the header, a larger drop zone, a how-it-works empty state and Read, Check and Publish steps driven by each import's status

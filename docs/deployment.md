@@ -106,7 +106,8 @@ After seeding, run the [MCP smoke check](#smoke-check) so that it finds the prod
 | `APP_ORIGIN` | Optional, by hand | Overrides the public origin, for a custom domain or local use; `.env.example` sets the local default |
 | `MCP_ALLOWED_ORIGINS` | Optional, by hand | Extra browser origins for the MCP endpoint, comma separated. See [mcp.md](mcp.md#origin-handling) |
 | `NODE_VERSION`, `NEXT_TELEMETRY_DISABLED` | Service settings mirrored in the Blueprint | Runtime settings |
-| `ANTHROPIC_API_KEY` | Secret, by hand | Reads price list photos and suggests descriptions. Until it is set, photo upload explains that and CSV upload still works |
+| `ANTHROPIC_API_KEY`, `OPENAI_API_KEY` | Secret, by hand | Read price list photos, suggest descriptions and search terms, and write demand notes. One is enough. Until one is set, photo upload explains that and CSV upload still works |
+| `AI_PROVIDER` | Optional, by hand | `anthropic` or `openai`. Blank means Claude when its key is set, then OpenAI. See [AI providers](architecture.md#ai-providers) |
 | `RENDER_WORKFLOW_SLUG`, `RENDER_API_KEY` | By hand, optional | Run photo reading as a workflow. See [Render Workflows for photo import](#render-workflows-for-photo-import) |
 | `RENDER_USE_LOCAL_DEV`, `RENDER_LOCAL_DEV_URL` | Local workflow development only | Point the Render SDK at the CLI task server; see [Render's local workflow guide](https://render.com/docs/workflows-local-development) |
 | `PAYPAL_PLATFORM_CLIENT_ID`, `PAYPAL_PLATFORM_CLIENT_SECRET`, `PAYPAL_PLATFORM_MERCHANT_ID`, `PAYPAL_PARTNER_ATTRIBUTION_ID` | Platform app secrets and settings | Primary seller-consent and payment path; use [Sandbox platform setup](paypal-platform-setup.md) |
@@ -126,18 +127,18 @@ Photo reading works without this, inside the web service. A workflow service mov
 
 1. In the Dashboard choose **New > Workflow** and link this repository.
 2. Name it `agentshelf-import`. Set **Language** to Node, **Region** to Frankfurt, **Build Command** to `npm ci --include=dev` and **Start Command** to `npx tsx workflows/main.ts`.
-3. On the workflow, set `NODE_VERSION` to `24`, `DATABASE_URL` to the database's internal URL and `ANTHROPIC_API_KEY`.
+3. On the workflow, set `NODE_VERSION` to `24`, `DATABASE_URL` to the database's internal URL and the same AI settings as the web service: `ANTHROPIC_API_KEY` or `OPENAI_API_KEY`, and `AI_PROVIDER` if it is set there.
 4. On the web service, set `RENDER_WORKFLOW_SLUG` to the workflow's slug and `RENDER_API_KEY`.
 5. Set the workflow's auto-deploy to run after checks pass, as `render.yaml` says. The CI deploy job only requests the web service, so a freeze has to turn this off too.
 6. Run the check below. The run should appear under the workflow in the Dashboard.
 
-Keep `ANTHROPIC_API_KEY` in a workspace with a low monthly spend limit, because the demo's seller code is shared with judges. The per-shop limits on photos bound the rest.
+Keep each AI key in a workspace or project with a low monthly spend limit, because the demo's seller code is shared with judges. The per-shop limits on photos bound the rest.
 
 ```bash
 npm run smoke:import -- https://agentshelf-e5bk.onrender.com
 ```
 
-It needs `DEMO_PHONE_WORKSHOP_SELLER_CODE`, the demo shop seeded with that code, and `ANTHROPIC_API_KEY` on the service. The second sample photo holds unclear prices and a note telling a model to change them:
+It needs `DEMO_PHONE_WORKSHOP_SELLER_CODE`, the demo shop seeded with that code, and an AI key on the service. The second sample photo holds unclear prices and a note telling a model to change them:
 
 ```bash
 npm run smoke:import -- https://agentshelf-e5bk.onrender.com test/fixtures/price-lists/ambiguous.png

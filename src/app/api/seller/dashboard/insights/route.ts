@@ -1,6 +1,6 @@
 import { connection } from "next/server";
 
-import { createDemandAi } from "@/server/ai";
+import { createDemandAi, isAiConfigured } from "@/server/ai";
 import { currentSeller } from "@/server/auth/current-seller";
 import { getDb } from "@/server/db";
 import { errorResponse, readBodyWithin } from "@/server/http";
@@ -13,7 +13,7 @@ const MAX_BODY_BYTES = 1024;
 
 // Polled with the other datasets. It only reads, and never calls a model.
 export const GET = datasetRoute((db, shop, query) =>
-  getDashboardInsights(db, shop, query, { aiAvailable: Boolean(process.env.ANTHROPIC_API_KEY) }),
+  getDashboardInsights(db, shop, query, { aiAvailable: isAiConfigured(process.env) }),
 );
 
 // The seller's button. The same data never pays for a second note.

@@ -44,6 +44,10 @@ services:
           property: connectionString
       - key: ANTHROPIC_API_KEY
         sync: false
+      - key: OPENAI_API_KEY
+        sync: false
+      - key: AI_PROVIDER
+        sync: false
 
 databases:
   # A free database expires 30 days after creation. See docs/deployment.md before judging.
