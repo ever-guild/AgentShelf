@@ -4,6 +4,8 @@ This project has no tagged releases yet, entries describe code present in the cu
 
 ## Unreleased
 
+- Render Log in with PayPal as a custom button built to PayPal's Button design guide, so it stays sharp on high-density screens
+
 - Add explicit stock policy and versioned quantity controls to the seller catalog, with reconfirmation after conflicts
 
 - Reflect explicit stock policy and available quantities in buyer search and storefront availability without hiding listings
@@ -19,7 +21,7 @@ This project has no tagged releases yet, entries describe code present in the cu
 - Added bounded PayPal sign-in failure diagnostics without logging credentials, authorization codes or profile values
 - Fixed PayPal profile requests to use the OpenID schema and made PayPal the primary owner sign-in path, with legacy access under other options
 - Set the shared ink accent to PayPal blue and match the homepage demo action to the hosted Login button radius
-- Use PayPal's official hosted login button across seller entry points and document rejected Login troubleshooting
+- Use the Log in with PayPal button across seller entry points and document rejected Login troubleshooting
 - Clarified that the privacy policy covers AI service providers and connected assistants
 - Added public Privacy policy and User agreement pages for Sandbox PayPal login consent
 - Clarified platform PayPal API paths, required permissions and the remaining Sandbox proof steps

@@ -28,7 +28,7 @@ Password owners can still use [owner sign-in](https://agentshelf-e5bk.onrender.c
 On the owner sign-in page, open **Other sign-in options** for the AgentShelf password, registration or existing shop access
 Without Login configuration, the page explains that PayPal sign-in is unavailable and offers the existing access paths
 
-The button uses [PayPal's hosted image](https://developer.paypal.com/log-in/build-button/) without alteration or local hosting; it links to the server start route, which creates the one-time state and browser cookie
+The button is a custom one built to PayPal's [Button design guide](https://developer.paypal.com/log-in/designer-guide/): the white label and PayPal's own white monogram on `#0070BA`, in a pill with the guide's padding. PayPal's [hosted image](https://developer.paypal.com/log-in/build-button/) is only 211 × 48 pixels and may not be self-hosted, so it blurred on high-density screens. The button links to the server start route, which creates the one-time state and browser cookie
 
 ## If PayPal rejects the login
 
