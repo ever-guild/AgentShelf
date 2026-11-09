@@ -17,15 +17,19 @@ This is a verified snapshot, later commits have their own checks and deployment 
 ## Automatic demo updates
 
 - Pushes to `main` run lint, the full test suite with a disposable PostgreSQL 17 service, and the production build on Node.js 24
-- After validation passes, the GitHub Actions deploy job sends a POST request to Render's Deploy Hook using repository secret `RENDER_DEPLOY_HOOK_URL`, following [Render's Deploy Hook documentation](https://render.com/docs/deploy-hooks)
-- The deploy script waits for the Render deploy matching `GITHUB_SHA`, then checks public `/api/health` for that SHA and `/api/health/ready` for database readiness
-- Repository Actions secret `RENDER_DEPLOY_HOOK_URL` is present, keep its value out of chat, documentation and Git, the deploy job verifies that it belongs to the expected service before use
+- The GitHub Environment [`agentshelf-e5bk.onrender.com`](https://github.com/ever-guild/AgentShelf/settings/environments/26743899833/edit) is the source of truth for the three AI provider settings; after validation, Actions reads its two variables and API-key secret and synchronizes only those named keys to the existing Render service through individual-key API requests
+- The sync reads all three current Render values before writing, changes only values that differ, verifies the readback in memory and never logs values; unrelated service settings remain untouched, and a missing GitHub setting or failed read/write prevents the deploy step
+- After the sync passes, Actions sends a POST request to Render's Deploy Hook using repository secret `RENDER_DEPLOY_HOOK_URL`, following [Render's Deploy Hook documentation](https://render.com/docs/deploy-hooks)
+- The deploy script records the latest Render deploy IDs before the hook, then waits for a new `deploy_hook` deployment for `GITHUB_SHA` to become `live`; only then it checks public `/api/health` for that SHA, `/api/health/ready`, and the home page
+- A manual **Run workflow** from `main` runs validation, re-syncs the same three settings and requests a same-SHA redeploy, even if values already match; use it to retry a failed rollout or apply a configuration-only change
+- Deploy workflows share a non-canceling concurrency group, so a newer push or manual run cannot cancel the active Render sync/deploy and verification sequence; GitHub keeps at most one pending run per group
+- Repository Actions secret `RENDER_DEPLOY_HOOK_URL` and Environment secret `RENDER_API_KEY` are required, keep their values out of chat, documentation and Git, and the scripts validate the hook and target a fixed Render service
 - Render's native auto-deploy is configured as `autoDeployTrigger: off`, automated delivery is controlled by the GitHub Actions deploy job
 - A Git tag records a demo version, it neither deploys nor freezes this service
 - Record the live commit from `/api/health` and compare it with the successful GitHub Actions commit and Render deploy, do not treat a successful build as proof that a version is live
 - Before freezing the judging version, disable or gate the GitHub Actions deploy job and record the chosen commit, Render's native auto-deploy is already off and a tag alone does not stop Deploy Hook requests
 
-The validation job needs no Render credentials and uses only an isolated test database, never the demo database, only the post-validation deploy job receives the hook URL
+The validation job needs no Render credentials and uses only an isolated test database, never the demo database; only the post-validation job receives Render credentials and AI provider settings
 
 ## Plan decision needed before judging
 
@@ -106,9 +110,12 @@ After seeding, run the [MCP smoke check](#smoke-check) so that it finds the prod
 | `APP_ORIGIN` | Optional, by hand | Overrides the public origin, for a custom domain or local use; `.env.example` sets the local default |
 | `MCP_ALLOWED_ORIGINS` | Optional, by hand | Extra browser origins for the MCP endpoint, comma separated. See [mcp.md](mcp.md#origin-handling) |
 | `NODE_VERSION`, `NEXT_TELEMETRY_DISABLED` | Service settings mirrored in the Blueprint | Runtime settings |
-| `AGENT_SHELF_AI_PROVIDER`, `AGENT_SHELF_AI_PROVIDER_BASE_URL`, `AGENT_SHELF_AI_PROVIDER_API_KEY` | By hand, the key is a secret | The AI provider, `openai` or `anthropic`, its https API root and its key. They read price list photos, suggest descriptions and search terms, and write demand notes. Until a provider is configured, photo upload explains that and CSV upload still works. See [AI providers](architecture.md#ai-providers) |
+| `AGENT_SHELF_AI_PROVIDER`, `AGENT_SHELF_AI_PROVIDER_BASE_URL` | GitHub Environment `agentshelf-e5bk.onrender.com`; synced to Render after CI validation | AI provider and HTTPS API root. The environment is authoritative; the workflow currently validates `openai` and `https://api.openai.com/v1` |
+| `AGENT_SHELF_AI_PROVIDER_API_KEY` | GitHub Environment secret `agentshelf-e5bk.onrender.com`; synced to Render after CI validation | OpenAI key, never printed or stored in Git; used to read price list photos, suggest descriptions and search terms, and write demand notes. Until configured, photo upload explains that and CSV upload still works. See [AI providers](architecture.md#ai-providers) |
+| `RENDER_API_KEY` | GitHub Environment secret `agentshelf-e5bk.onrender.com` for Actions | Render API credential used by the deployment job to sync the three AI keys and check the deploy; it is not copied into the application |
+| `RENDER_DEPLOY_HOOK_URL` | GitHub Actions repository secret | Triggers the exact-SHA deploy after the environment sync; keep the URL private |
 | `ANTHROPIC_API_KEY` | Secret, by hand, older | Claude only, read while `AGENT_SHELF_AI_PROVIDER` is blank |
-| `RENDER_WORKFLOW_SLUG`, `RENDER_API_KEY` | By hand, optional | Run photo reading as a workflow. See [Render Workflows for photo import](#render-workflows-for-photo-import) |
+| `RENDER_WORKFLOW_SLUG`, `RENDER_API_KEY` | Optional web-service settings, configured separately | Run photo reading as a Render Workflow; this runtime `RENDER_API_KEY` is independent of the GitHub Environment credential used by Actions. See [Render Workflows for photo import](#render-workflows-for-photo-import) |
 | `RENDER_USE_LOCAL_DEV`, `RENDER_LOCAL_DEV_URL` | Local workflow development only | Point the Render SDK at the CLI task server; see [Render's local workflow guide](https://render.com/docs/workflows-local-development) |
 | `PAYPAL_PLATFORM_CLIENT_ID`, `PAYPAL_PLATFORM_CLIENT_SECRET`, `PAYPAL_PLATFORM_MERCHANT_ID`, `PAYPAL_PARTNER_ATTRIBUTION_ID` | Platform app secrets and settings | Primary seller-consent and payment path; use [Sandbox platform setup](paypal-platform-setup.md) |
 | `PAYPAL_PLATFORM_WEBHOOK_ID`, `PAYPAL_PLATFORM_PAYMENT_WEBHOOK_ID` | Platform app webhook subscriptions | Separate consent-revocation and payment subscriptions, see [PayPal Sandbox setup](paypal-sandbox-setup.md#webhooks) |

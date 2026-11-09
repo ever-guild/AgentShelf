@@ -12,7 +12,7 @@ permissions:
 
 concurrency:
   group: ci-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: false
 
 jobs:
   validate:
@@ -52,9 +52,15 @@ jobs:
   deploy:
     name: deploy-render
     needs: validate
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    if: github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
     runs-on: ubuntu-latest
     timeout-minutes: 20
+    concurrency:
+      group: deploy-render-agentshelf-e5bk
+      cancel-in-progress: false
+    environment:
+      name: agentshelf-e5bk.onrender.com
+      url: https://agentshelf-e5bk.onrender.com
     steps:
       - uses: actions/checkout@v7
         with:
@@ -62,9 +68,17 @@ jobs:
       - uses: actions/setup-node@v7
         with:
           node-version: "24"
+      - name: Sync AI settings from GitHub Environment to Render
+        env:
+          RENDER_API_KEY: ${{ secrets.RENDER_API_KEY }}
+          AGENT_SHELF_AI_PROVIDER: ${{ vars.AGENT_SHELF_AI_PROVIDER }}
+          AGENT_SHELF_AI_PROVIDER_BASE_URL: ${{ vars.AGENT_SHELF_AI_PROVIDER_BASE_URL }}
+          AGENT_SHELF_AI_PROVIDER_API_KEY: ${{ secrets.AGENT_SHELF_AI_PROVIDER_API_KEY }}
+        run: node scripts/sync-render-ai-env.mjs
       - name: Trigger and verify Render deploy
         env:
           RENDER_DEPLOY_HOOK_URL: ${{ secrets.RENDER_DEPLOY_HOOK_URL }}
+          RENDER_API_KEY: ${{ secrets.RENDER_API_KEY }}
           GITHUB_SHA: ${{ github.sha }}
           PUBLIC_BASE_URL: https://agentshelf-e5bk.onrender.com
         run: node scripts/deploy-render.mjs
