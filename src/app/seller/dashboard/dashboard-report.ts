@@ -11,7 +11,7 @@ export const UNMET_DEMAND_WIDGET = "agentshelf-unmet-demand";
 export const DEMAND_INSIGHT_WIDGET = "agentshelf-demand-insight";
 
 // Raise this when a widget, field or table changes, so nobody restores a report Studio would refuse.
-const REPORT_VERSION = 3;
+const REPORT_VERSION = 5;
 const PAGE_ID = "counter";
 
 const at = (xTrack: number, yTrack: number, xSpan: number, ySpan: number): AgWidgetLayoutState => ({
@@ -22,8 +22,6 @@ const at = (xTrack: number, yTrack: number, xSpan: number, ySpan: number): AgWid
 });
 const title = (text: string) => ({ title: { enabled: true, text } });
 const fields = (table: string, ids: string[]) => ids.map((id) => ({ id: `${table}.${id}` }));
-// A filter's label is its field's name, so it needs no title of its own.
-const FILTER_FORMAT = { title: { enabled: false }, style: { selection: { type: "multiple" }, dimensions: { height: 32, minWidth: 48 } } };
 // A hairline in the widget's own color keeps the two parts of a stacked column apart.
 const STACKED_WITH_LEGEND = {
   style: {
@@ -32,16 +30,20 @@ const STACKED_WITH_LEGEND = {
   },
 };
 const sum = (id: string) => ({ id, aggregation: "sum" as const });
-// Tall enough for the ledger's two-row lines on a page narrower than a laptop's.
-const PAYMENT_ROWS = 17;
+// Tall enough for the four totals in one row and the line under them.
+const PAYMENT_ROWS = 14;
+// The height of a filter a seller adds while arranging. The first dashboard has none.
 const FILTER_ROWS = 6;
 
-// A deliberate order for a counter: money first, then who is coming in and what people could not
-// find, then the charts, and the full list of orders at the bottom.
+// A short page for a counter: money first, then who is coming in and what people could not find,
+// then what those searches may mean, the one chart, and the full list of orders at the bottom. A
+// seller who wants filters or more charts adds them while arranging.
 export function defaultReport(): AgReportState {
   const report = {
     selectedPageId: PAGE_ID,
-    panels: { filters: { collapsed: true } },
+    // Arranging opens on the dashboard itself: Studio's three side panels start as closed rails,
+    // and the seller opens the one they need.
+    panels: { data: { collapsed: true }, edit: { collapsed: true }, filters: { collapsed: true } },
     pages: [
       {
         id: PAGE_ID,
@@ -54,21 +56,6 @@ export function defaultReport(): AgReportState {
               orderGroup: [{ id: "orders.groupLabel" }],
             },
             format: title("Payment status"),
-          },
-          "booking-state": {
-            type: "button-filter",
-            dataMapping: { value: [{ id: "bookings.statusLabel" }] },
-            format: FILTER_FORMAT,
-          },
-          "booking-technician": {
-            type: "button-filter",
-            dataMapping: { value: [{ id: "bookings.technicianName" }] },
-            format: FILTER_FORMAT,
-          },
-          "demand-source": {
-            type: "button-filter",
-            dataMapping: { value: [{ id: "demand.originLabel" }] },
-            format: FILTER_FORMAT,
           },
           "upcoming-bookings": {
             type: UPCOMING_BOOKINGS_WIDGET,
@@ -129,39 +116,14 @@ export function defaultReport(): AgReportState {
             },
             format: { ...title("Captured by the day the order was made"), ...STACKED_WITH_LEGEND },
           },
-          "paid-by-item": {
-            type: "bar-chart-grouped",
-            dataMapping: {
-              categoryKey: [{ id: "orderLines.title" }],
-              valueKey: [sum("orderLines.paidAmount")],
-            },
-            format: title("Paid by item"),
-          },
-          "order-kind": {
-            type: "button-filter",
-            dataMapping: { value: [{ id: "orders.kindLabel" }] },
-            format: FILTER_FORMAT,
-          },
-          "order-state": {
-            type: "button-filter",
-            dataMapping: { value: [{ id: "orders.statusLabel" }] },
-            format: FILTER_FORMAT,
-          },
           orders: {
             type: "grid",
             dataMapping: {
-              // The money columns come before the items, so a long list of items is what runs off the
-              // edge of a narrow window, and never an amount.
-              cols: fields("orders", [
-                "reference",
-                "createdLabel",
-                "kindLabel",
-                "statusLabel",
-                "groupLabel",
-                "totalMinor",
-                "currency",
-                "items",
-              ]),
+              // The amount comes before the items, so a long list of items is what runs off the edge
+              // of a narrow window, and never an amount.
+              // What an order counts as is in the payment totals above, which filter this list, and
+              // every amount carries its currency, so neither has a column of its own.
+              cols: fields("orders", ["reference", "createdLabel", "kindLabel", "statusLabel", "totalMinor", "items"]),
             },
             format: {
               ...title("Orders"),
@@ -171,21 +133,14 @@ export function defaultReport(): AgReportState {
           },
         },
         widgetLayout: {
-          // Two columns under the money, each filter over the list it narrows: the bookings with
-          // their state and technician, and the list of what people could not find, given more of
-          // the page than the bookings beside it.
+          // Two columns under the money: the bookings, and the list of what people could not find,
+          // given more of the page than the bookings beside it.
           "payment-status": at(0, 0, 24, PAYMENT_ROWS),
-          "booking-state": at(0, 17, 9, FILTER_ROWS),
-          "booking-technician": at(0, 23, 9, FILTER_ROWS),
-          "demand-source": at(9, 17, 15, FILTER_ROWS),
-          "upcoming-bookings": at(0, 29, 9, 24),
-          "unmet-demand": at(9, 23, 15, 30),
-          "demand-insight": at(0, 53, 24, 30),
-          "captured-by-day": at(0, 83, 15, 20),
-          "paid-by-item": at(15, 83, 9, 20),
-          "order-kind": at(0, 103, 6, FILTER_ROWS),
-          "order-state": at(6, 103, 18, FILTER_ROWS),
-          orders: at(0, 109, 24, 32),
+          "upcoming-bookings": at(0, 14, 9, 24),
+          "unmet-demand": at(9, 14, 15, 24),
+          "demand-insight": at(0, 38, 24, 22),
+          "captured-by-day": at(0, 60, 24, 20),
+          orders: at(0, 80, 24, 28),
         },
       },
     ],
@@ -193,15 +148,15 @@ export function defaultReport(): AgReportState {
   return report as unknown as AgReportState;
 }
 
-// What a widget needs in a phone's one narrow column. A filter's buttons wrap and the payment lines
-// stack, so those two grow to a fixed height. Anything else wraps more the wider it was, so it grows
+// What a widget needs in a phone's one narrow column. A filter's buttons wrap and the payment totals
+// sit two by two, so those two grow to a fixed height. Anything else wraps more the wider it was, so it grows
 // with its width, up to about one screen of a phone.
 function phoneRows(ySpan: number, xSpan: number): number {
   if (ySpan <= FILTER_ROWS) {
     return 12;
   }
   if (ySpan <= PAYMENT_ROWS) {
-    return 36;
+    return 26;
   }
   return Math.min(Math.ceil(ySpan * (1 + xSpan / 40)), 44);
 }

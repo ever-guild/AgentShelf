@@ -2,7 +2,7 @@
 // the whole service rather than for one shop.
 export function SandboxNotice() {
   return (
-    <div className="border-b border-zinc-200 bg-zinc-100 dark:border-zinc-800 dark:bg-zinc-900">
+    <div className="border-b border-zinc-200">
       <p className="mx-auto w-full max-w-3xl px-4 py-2 text-sm text-pretty sm:px-6">
         <span className="font-medium text-doubt">PayPal sandbox.</span> Every payment here is a test
         payment, and no real money moves.

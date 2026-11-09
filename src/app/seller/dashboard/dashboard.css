@@ -3,7 +3,7 @@
    one accent, and every other series is a step of the ramp, with its words in the legend. */
 :root {
   --studio-canvas-padding: 16px;
-  --studio-canvas: #fafafa;
+  --studio-canvas: #ffffff;
   --studio-surface: #ffffff;
   --studio-text: #18181b;
   --studio-muted: #52525b;
@@ -18,26 +18,19 @@
   --studio-series-6: #52525b;
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --studio-canvas: #09090b;
-    --studio-surface: #18181b;
-    --studio-text: #f4f4f5;
-    --studio-muted: #a1a1aa;
-    --studio-line: #3f3f46;
-    --studio-hover: #27272a;
-    --studio-series-3: #a1a1aa;
-    --studio-series-4: #d4d4d8;
-    --studio-series-5: #52525b;
-    --studio-series-6: #e4e4e7;
-  }
-}
-
 /* A phone's gutter is 16 pixels, the same as the page around the canvas. */
 @media (max-width: 639px) {
   :root {
     --studio-canvas-padding: 8px;
   }
+}
+
+/* Each widget is a sheet of its own: one hairline, a soft corner and room around its words. */
+.ag-studio-root .ag-studio-layout-widget-container {
+  box-sizing: border-box;
+  border: 1px solid var(--studio-line);
+  border-radius: 12px;
+  padding: 12px 12px 8px;
 }
 
 /* Amounts line up, in the grid and a chart's tooltip as much as in the widgets. */

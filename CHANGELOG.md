@@ -4,6 +4,8 @@ This project has no tagged releases yet, entries describe code present in the cu
 
 ## Unreleased
 
+- Redesign toward one light theme: a single-column homepage that shows the demo workshop's price list, the catalog it becomes and an order through a buyer's assistant, the current seller page underlined in the header, and a default dashboard of six widgets drawn as sheets on a white canvas, with payment status as four totals in a row and an orders grid of six columns. Arranging opens with Studio's side panels closed. A saved dashboard arrangement resets once
+
 - Sync the AG Studio licence from the demo GitHub Environment secret to the Render web-service `AG_STUDIO` runtime setting
 
 - Rewrite search terms written under an older prompt version, and ask for a brand's spelling in each language's alphabet (`search-terms-v2`), so Cyrillic `айфон` finds iPhone listings

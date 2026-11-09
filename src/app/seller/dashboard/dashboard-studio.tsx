@@ -43,9 +43,11 @@ import { DemandInsightWidget, PaymentStatusWidget, UnmetDemandWidget, UpcomingBo
 
 const STUDIO_MODULES: AgStudioModule[] = [AgStudioAiModule];
 
+// An opened data panel lists its seven tables by name, and a table shows its fields when asked.
 const PANELS: AgPanelConfig = {
   view: {},
   edit: { left: ["data"], right: ["edit", "filters"] },
+  options: { data: { tables: { collapsed: true } } },
 };
 
 // Studio offers its chat panel only in edit mode, so asking opens that mode with this panel alone.
@@ -202,6 +204,24 @@ export default function DashboardStudio({
   }, [shopId]);
 
   useEffect(() => () => clearTimeout(saveTimer.current), []);
+
+  // Studio builds a mode's panels open, and follows the report's panel state only when that state
+  // changes. Handing the same state back once the panels exist closes the ones the report keeps
+  // closed, so arranging opens on the dashboard itself, with the panels as the seller left them.
+  useEffect(() => {
+    if (mode !== "edit" || asking) {
+      return;
+    }
+    const timer = setTimeout(() => {
+      const api = apiRef.current;
+      if (api) {
+        const state = api.getState();
+        api.setState({ ...state, panels: { ...state.panels } });
+        api.clearHistory();
+      }
+    });
+    return () => clearTimeout(timer);
+  }, [mode, asking]);
 
   return (
     <AgStudioProvider licenseKey={licenseKey} modules={STUDIO_MODULES}>

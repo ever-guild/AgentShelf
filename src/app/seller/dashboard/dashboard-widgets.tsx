@@ -158,9 +158,10 @@ const GROUP_NOTE: Record<PaymentGroup, string> = {
   closed: "Cancelled, failed or never had a link.",
 };
 
-// The money that came in leads, and the rest reads as lines of a ledger beside it: one row each on
-// a wide page, and two where the page is narrower, the count sharing a row with what it means. A
-// state with no orders has nothing to warn about, so its mark stays quiet.
+// Four totals in a row, two by two where the page is narrow. The money that came in leads, in the
+// largest figure. A state with no orders has nothing to warn about, so its mark and its figure stay
+// quiet. What a state means is one line under the totals, and a state that needs a person says so
+// in its own box.
 export function PaymentStatusWidget(params: WidgetParams) {
   const { rows, failed } = useWidgetRows(params);
   const state = useDashboardState();
@@ -192,47 +193,14 @@ export function PaymentStatusWidget(params: WidgetParams) {
         }
       >
         {shown.map((currency) => (
-          <ul
-            key={currency}
-            className="mb-3 grid gap-2 @3xl:grid-cols-[18rem_minmax(0,1fr)] @3xl:gap-x-6 @3xl:gap-y-0"
-          >
+          <ul key={currency} className="mb-3 grid grid-cols-2 gap-x-6 gap-y-4 @xl:grid-cols-[minmax(0,7fr)_repeat(3,minmax(0,5fr))]">
             {GROUP_ORDER.map((group) => {
               const total = totals.find((entry) => entry.group === group && entry.currency === currency);
               const label = PAYMENT_GROUP_LABELS[group];
               const pressed = selected.includes(JSON.stringify(label));
               const orders = total?.orderCount ?? 0;
               const amount = money(total?.amountMinor ?? 0, currency);
-              const toggle = () =>
-                orderGroupField &&
-                params.widgetApi.toggleCrossFilter({
-                  type: "value",
-                  group: 0,
-                  field: orderGroupField,
-                  value: label,
-                });
-              const surface = `state-mark h-full w-full text-left transition-colors hover:bg-zinc-100 dark:hover:bg-zinc-800 ${pressed ? "bg-zinc-100 inset-ring inset-ring-zinc-400 dark:bg-zinc-800 dark:inset-ring-zinc-500" : ""}`;
-              if (group === "paid") {
-                return (
-                  <li key={group} className="@3xl:row-span-3">
-                    <button
-                      type="button"
-                      aria-pressed={pressed}
-                      disabled={!orderGroupField}
-                      data-state={orders > 0 ? group : "none"}
-                      onClick={toggle}
-                      className={`${surface} block py-1 pr-3`}
-                    >
-                      <span className="block font-medium">{label}</span>
-                      <span className="block text-3xl leading-10 font-medium tabular-nums">{amount}</span>
-                      <span className={`block ${NOTE} tabular-nums`}>
-                        {count(orders, "order")}
-                        {total?.depositsMinor ? `, of which ${money(total.depositsMinor, currency)} is deposits` : ""}
-                      </span>
-                      <span className={`block ${NOTE}`}>{GROUP_NOTE[group]}</span>
-                    </button>
-                  </li>
-                );
-              }
+              const lead = group === "paid";
               return (
                 <li key={group}>
                   <button
@@ -240,13 +208,31 @@ export function PaymentStatusWidget(params: WidgetParams) {
                     aria-pressed={pressed}
                     disabled={!orderGroupField}
                     data-state={orders > 0 ? group : "none"}
-                    onClick={toggle}
-                    className={`${surface} grid grid-cols-[minmax(0,1fr)_auto] items-baseline gap-x-4 py-1.5 pr-3 @3xl:grid-cols-[4.5rem_minmax(0,1fr)_auto] @5xl:grid-cols-[10rem_7rem_5rem_minmax(0,1fr)]`}
+                    title={GROUP_NOTE[group]}
+                    onClick={() =>
+                      orderGroupField &&
+                      params.widgetApi.toggleCrossFilter({
+                        type: "value",
+                        group: 0,
+                        field: orderGroupField,
+                        value: label,
+                      })
+                    }
+                    className={`state-mark block h-full w-full rounded-r-lg py-1 pr-3 text-left transition-colors hover:bg-zinc-100 ${pressed ? "bg-zinc-100 inset-ring inset-ring-zinc-400" : ""}`}
                   >
-                    <span className="font-medium @3xl:col-span-2 @5xl:col-span-1">{label}</span>
-                    <span className="text-right font-medium tabular-nums">{amount}</span>
-                    <span className={`${NOTE} col-span-2 tabular-nums @3xl:col-span-1`}>{count(orders, "order")}</span>
-                    <span className={`${NOTE} col-span-2 @5xl:col-span-1`}>{GROUP_NOTE[group]}</span>
+                    <span className={`block ${NOTE}`}>{label}</span>
+                    <span
+                      className={`block leading-10 font-medium break-words tabular-nums ${lead ? "text-3xl" : "text-2xl"} ${orders > 0 ? "" : SECONDARY}`}
+                    >
+                      {amount}
+                    </span>
+                    <span className={`block ${NOTE} tabular-nums`}>
+                      {count(orders, "order")}
+                      {lead && total?.depositsMinor ? `, ${money(total.depositsMinor, currency)} in deposits` : ""}
+                    </span>
+                    {group === "review" && orders > 0 ? (
+                      <span className={`block ${NOTE}`}>{GROUP_NOTE[group]}</span>
+                    ) : null}
                   </button>
                 </li>
               );
@@ -254,8 +240,8 @@ export function PaymentStatusWidget(params: WidgetParams) {
           </ul>
         ))}
         <p className={NOTE}>
-          Orders made in the last {period} days, in {shown.join(", ")}. A deposit is part of a service&apos;s price: the
-          rest is paid at the shop and is not in these totals. Select a line to filter the orders below.
+          Orders made in the last {period} days, in {shown.join(", ")}. Only paid is revenue. A deposit is part of a
+          service&apos;s price, and the rest is paid at the shop. Select a total to filter the orders.
         </p>
       </DatasetState>
     </WidgetFrame>

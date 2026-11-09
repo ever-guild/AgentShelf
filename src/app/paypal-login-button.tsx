@@ -3,7 +3,7 @@
 // monogram on #0070BA, a pill, 24 px side padding, an 18 px mark and a 9 px gap. PayPal's hosted
 // button image is only 211 × 48 pixels and may not be self-hosted, so it blurs on high-density
 // screens. The guide forbids changing the background of the coloured version, so the blue stays
-// in dark mode too.
+// as it is.
 
 // PayPal's white monogram, unmodified, from
 // https://www.paypalobjects.com/paypal-ui/logos/svg/paypal-mark-monotone.svg, with the view box

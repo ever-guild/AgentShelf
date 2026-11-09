@@ -366,7 +366,7 @@ Totals are summed by the database by group, type and currency over every order c
 
 - The tables are `paymentTotals`, `orders`, `orderLines`, `captures`, `bookings`, `demand` and `demandGroups`, with order lines related to orders, and go in through `data` as plain rows. A refresh replaces them.
 - Payment status, upcoming bookings and unmet demand are custom widgets in plain React, as the licence asks, reading through `widgetApi.getData`. Studio's filters reach them like any built-in widget, and a payment status box cross-filters the orders grid.
-- The theme reads CSS variables from [`dashboard.css`](../src/app/seller/dashboard/dashboard.css), so dark mode follows without a second theme.
+- The theme reads CSS variables from [`dashboard.css`](../src/app/seller/dashboard/dashboard.css), so Studio follows the page's one light theme.
 - The first grid column opens an order's lines, capture and what its amount means. Bookings and demand open in place.
 - Below 760 pixels the canvas becomes one column. Arranging is offered on wider screens only.
 

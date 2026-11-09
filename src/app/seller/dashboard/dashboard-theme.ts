@@ -1,8 +1,7 @@
 import { studioTheme } from "ag-studio";
 
 // The AgentShelf look for AG Studio. Every value points at a token in dashboard.css, so widgets,
-// the grid and charts follow the same zinc ramp and carbon-blue accent as the other seller pages,
-// and dark mode comes along without a second theme.
+// the grid and charts follow the same zinc ramp and carbon-blue accent as the other seller pages.
 
 const FONT = "var(--font-geist-sans), Arial, Helvetica, sans-serif";
 
@@ -53,12 +52,13 @@ export const agentShelfTheme = studioTheme.withParams({
   studioCanvasRowHeight: 16,
   studioCanvasFontFamily: FONT,
 
-  // Widgets read like sheets from a receipt book: flat, one hairline, small radius.
+  // Widgets read like sheets from a receipt book: flat, with one hairline. The hairline is drawn in
+  // dashboard.css, because Studio leaves this border at no width on a widget nobody has selected.
   studioWidgetBackgroundColor: token("surface"),
   studioWidgetBorder: line("line"),
-  studioWidgetBorderRadius: 6,
+  studioWidgetBorderRadius: 12,
   studioWidgetPadding: 8,
-  studioWidgetTitleFontSize: 15,
+  studioWidgetTitleFontSize: 16,
   studioWidgetTitleFontWeight: 500,
   studioWidgetTitleTextColor: token("text"),
   studioWidgetSubtitleFontSize: 13,

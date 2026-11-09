@@ -1,7 +1,11 @@
 @import "tailwindcss";
 
+/* One light theme. The `dark:` utilities left in the markup answer only to a `.dark` class, which
+   nothing sets, so the page is the same white sheet whatever the system prefers. */
+@custom-variant dark (&:where(.dark, .dark *));
+
 :root {
-  color-scheme: light dark;
+  color-scheme: light;
   --background: #ffffff;
   --foreground: #18181b;
   /* PayPal blue marks the main action and source values; the other colors describe row states. */
@@ -29,17 +33,6 @@
   --font-mono: var(--font-geist-mono);
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #09090b;
-    --foreground: #f4f4f5;
-    --ink: #a9b8ff;
-    --blocked: #ff9c8f;
-    --doubt: #eebb6a;
-    --accepted: #66d6a6;
-  }
-}
-
 body {
   background: var(--background);
   color: var(--foreground);
@@ -58,12 +51,6 @@ body {
   /* The browser's default placeholder falls short of 4.5 to 1. */
   ::placeholder {
     color: var(--color-zinc-500);
-  }
-
-  @media (prefers-color-scheme: dark) {
-    ::placeholder {
-      color: var(--color-zinc-400);
-    }
   }
 }
 

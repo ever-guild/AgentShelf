@@ -5,14 +5,6 @@
   --booking-secondary: #52525b;
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --booking-surface: #18181b;
-    --booking-rule: #27272a;
-    --booking-secondary: #a1a1aa;
-  }
-}
-
 /* The shape of a booking's state, the same in the timeline and the list. The border's line tells
    the states apart as well as their color, and a state always comes with its words. Only a booking
    still in play takes a tint, so what fell through recedes. */

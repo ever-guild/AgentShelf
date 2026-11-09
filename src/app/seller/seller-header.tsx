@@ -49,7 +49,12 @@ export function SellerHeader({ shopName }: { shopName: string }) {
               key={href}
               href={href}
               aria-current={current ? "page" : undefined}
-              className={`${ITEM} ${current ? "bg-zinc-100 font-medium text-foreground dark:bg-zinc-800" : SECONDARY_TEXT}`}
+              className={`${ITEM} ${
+                // The page you are on is the one word in the header underlined in ink.
+                current
+                  ? "font-medium text-foreground underline decoration-ink decoration-2 underline-offset-8"
+                  : SECONDARY_TEXT
+              }`}
             >
               {label}
             </Link>

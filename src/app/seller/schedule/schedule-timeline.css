@@ -1,15 +1,14 @@
 @import "@bryntum/core-community/fontawesome/css/fontawesome.css";
 @import "@bryntum/core-community/fontawesome/css/solid.css";
 @import "@bryntum/scheduler-community/scheduler.css";
-/* The light and dark files, not svalbard.css: Next's CSS targets rewrite light-dark(), and the
-   combined theme then renders unstyled. */
+/* The light file, not svalbard.css: Next's CSS targets rewrite light-dark(), and the combined theme
+   then renders unstyled. The app has one light theme, so the dark file is not loaded. */
 @import "@bryntum/scheduler-community/svalbard-light.css";
-@import "@bryntum/scheduler-community/svalbard-dark.css" (prefers-color-scheme: dark);
 
 /* Bryntum's chrome follows the page through its own variables. It resolves them on the root, so
    this uses the selector its theme files use and wins by coming after them. The values are the
-   page's tokens, which already change with the theme, so one block covers light and dark. Nothing
-   in the grid can be acted on, so hovering and selecting leave it as it is. */
+   page's tokens. Nothing in the grid can be acted on, so hovering and selecting leave it as it
+   is. */
 :root:not(.b-nothing) {
   --b-primary: var(--ink);
   --b-neutral-100: var(--background);
