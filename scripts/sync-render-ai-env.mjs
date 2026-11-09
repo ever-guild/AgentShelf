@@ -99,7 +99,7 @@ export async function syncRenderAiEnv({ env, apiKey, fetchImpl = fetch, logger =
     throw new Error("Missing required configuration: RENDER_API_KEY.");
   }
 
-  // Read all three values before writing so a read failure never leaves a partial sync.
+  // Read all managed values before writing so a read failure never leaves a partial sync.
   const current = {};
   for (const key of KEYS) current[key] = await getCurrentValue(fetchImpl, apiKey, key);
 
