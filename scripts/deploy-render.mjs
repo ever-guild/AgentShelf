@@ -6,6 +6,7 @@ const HOOK_PATH = `/deploy/${SERVICE_ID}`;
 const PUBLIC_HOST = "agentshelf-e5bk.onrender.com";
 const WORKFLOW_ID_PATTERN = /^[A-Za-z0-9-]{3,64}$/;
 const WORKFLOW_TASK_NAME = "extractPriceList";
+const WORKFLOW_REVISION_TASK_PREFIX = "revision_";
 const WORKFLOW_TIMEOUT_MS = 15 * 60_000;
 const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -162,6 +163,7 @@ function parseVersion(entry) {
 async function listWorkflowVersions(fetchImpl, apiKey, workflowId) {
   const versions = [];
   let cursor;
+  const seenCursors = new Set();
   do {
     const query = new URLSearchParams({ workflowID: workflowId, limit: "100" });
     if (cursor) query.set("cursor", cursor);
@@ -171,18 +173,34 @@ async function listWorkflowVersions(fetchImpl, apiKey, workflowId) {
       const version = parseVersion(entry);
       if (version) versions.push(version);
     }
-    cursor = payload.at(-1)?.cursor;
+    const nextCursor = payload.at(-1)?.cursor;
+    if (typeof nextCursor === "string" && nextCursor !== "" && seenCursors.has(nextCursor)) {
+      throw new Error("Render repeated a workflow version pagination cursor.");
+    }
+    if (typeof nextCursor === "string" && nextCursor !== "") seenCursors.add(nextCursor);
+    cursor = nextCursor;
   } while (typeof cursor === "string" && cursor !== "");
   return versions;
 }
 
-async function findTask(fetchImpl, apiKey, versionId) {
-  const query = new URLSearchParams({ workflowVersionId: versionId, limit: "100" });
-  const payload = await workflowRequest(fetchImpl, apiKey, `/v1/tasks?${query}`);
-  if (!Array.isArray(payload)) throw new Error("Render returned an invalid task list.");
-  return payload
-    .map((entry) => unwrap(entry, "task"))
-    .find((task) => task && task.name === WORKFLOW_TASK_NAME && task.workflowVersionId === versionId);
+async function listTasksForVersion(fetchImpl, apiKey, versionId) {
+  const tasks = [];
+  let cursor;
+  const seenCursors = new Set();
+  do {
+    const query = new URLSearchParams({ workflowVersionId: versionId, limit: "100" });
+    if (cursor) query.set("cursor", cursor);
+    const payload = await workflowRequest(fetchImpl, apiKey, `/v1/tasks?${query}`);
+    if (!Array.isArray(payload)) throw new Error("Render returned an invalid task list.");
+    tasks.push(...payload.map((entry) => unwrap(entry, "task")).filter(Boolean));
+    const nextCursor = payload.at(-1)?.cursor;
+    if (typeof nextCursor === "string" && nextCursor !== "" && seenCursors.has(nextCursor)) {
+      throw new Error("Render repeated a workflow task pagination cursor.");
+    }
+    if (typeof nextCursor === "string" && nextCursor !== "") seenCursors.add(nextCursor);
+    cursor = nextCursor;
+  } while (typeof cursor === "string" && cursor !== "");
+  return tasks;
 }
 
 async function releaseWorkflow({ fetchImpl, apiKey, workflowId, commit, sleepImpl, now, logger }) {
@@ -221,14 +239,24 @@ async function releaseWorkflow({ fetchImpl, apiKey, workflowId, commit, sleepImp
         throw new Error(`Render Workflow version ${version.id} failed (${version.status}) for commit ${commit}.`);
       }
       if (version.status === "ready") {
-        const task = await findTask(fetchImpl, apiKey, version.id);
-        if (!task) {
-          throw new Error(`Render Workflow version ${version.id} is ready but task ${WORKFLOW_TASK_NAME} is not registered.`);
+        if (version.workflowId !== workflowId) {
+          throw new Error(`Render Workflow version ${version.id} belongs to a different workflow.`);
+        }
+        const tasks = await listTasksForVersion(fetchImpl, apiKey, version.id);
+        const task = tasks.find((candidate) =>
+          candidate.name === WORKFLOW_TASK_NAME && candidate.workflowVersionId === version.id,
+        );
+        const revisionTaskName = `${WORKFLOW_REVISION_TASK_PREFIX}${commit.toLowerCase()}`;
+        const revisionTask = tasks.find((candidate) =>
+          candidate.name === revisionTaskName && candidate.workflowVersionId === version.id,
+        );
+        if (!task || !revisionTask) {
+          throw new Error(`Render Workflow version ${version.id} is ready but does not register both ${WORKFLOW_TASK_NAME} and ${revisionTaskName}.`);
         }
         const meta = await workflowRequest(fetchImpl, apiKey, `/v1/workflows/${encodeURIComponent(workflowId)}`);
         const slug = typeof meta?.slug === "string" ? meta.slug : "unknown";
-        logger.log(`Render Workflow version ${version.id} is ready (slug ${slug}); task ${WORKFLOW_TASK_NAME} registered as ${task.id}.`);
-        return { versionId: version.id, status: version.status, slug, taskId: task.id };
+        logger.log(`Render Workflow version ${version.id} is ready (slug ${slug}); task ${WORKFLOW_TASK_NAME} and revision marker ${revisionTaskName} are registered.`);
+        return { versionId: version.id, status: version.status, slug, taskId: task.id, revisionTaskId: revisionTask.id };
       }
       if (version.status !== lastStatus) {
         lastStatus = version.status;

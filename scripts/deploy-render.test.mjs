@@ -127,8 +127,9 @@ describe("deployAndVerify workflow release", () => {
   const fresh = () => new Date().toISOString();
   const version = (status, extra = {}) => ({ id: "wfv-new", workflowId: "wfl-test123", name: "v", createdAt: fresh(), status, ...extra });
   const task = { id: "tsk-1", name: "extractPriceList", workflowVersionId: "wfv-new" };
+  const revisionTask = { id: "tsk-revision", name: `revision_${commit}`, workflowVersionId: "wfv-new" };
 
-  function wfHarness({ statuses = ["building", "ready"], tasks = [{ task }], postStatus = 202, webOk = true, wrapped = true, concurrentVersion = false } = {}) {
+  function wfHarness({ statuses = ["building", "ready"], tasks = [{ task }, { task: revisionTask }], postStatus = 202, webOk = true, wrapped = true, concurrentVersion = false } = {}) {
     const base = harness({ afterHook: [[previous, current(webOk ? "live" : "build_failed")]] });
     const wfCalls = [];
     let polls = 0;
@@ -157,6 +158,13 @@ describe("deployAndVerify workflow release", () => {
       }
       if (url.pathname === "/v1/tasks") {
         if (url.searchParams.get("workflowVersionId") !== "wfv-new") throw new Error("Task lookup was not scoped to the selected version");
+        const cursor = url.searchParams.get("cursor");
+        if (tasks.length > 100) {
+          const page = cursor === "next" ? tasks.slice(100) : tasks.slice(0, 100);
+          const wrappedPage = page.map((entry) => ({ ...entry }));
+          if (cursor !== "next" && wrappedPage.length) wrappedPage.at(-1).cursor = "next";
+          return response(200, wrappedPage);
+        }
         return response(200, tasks);
       }
       if (url.pathname === "/v1/workflows/wfl-test123") return response(200, { id: "wfl-test123", slug: "agentshelf-import-x" });
@@ -176,20 +184,20 @@ describe("deployAndVerify workflow release", () => {
   it("releases the requested commit and verifies task registration for the selected new version", async () => {
     const fake = wfHarness();
     const result = await deployAndVerify({ ...fake, env: wfEnv });
-    expect(result.workflow).toEqual({ versionId: "wfv-new", status: "ready", slug: "agentshelf-import-x", taskId: "tsk-1" });
+    expect(result.workflow).toEqual({ versionId: "wfv-new", status: "ready", slug: "agentshelf-import-x", taskId: "tsk-1", revisionTaskId: "tsk-revision" });
     const post = fake.wfCalls.find((c) => c.method === "POST");
     expect(JSON.parse(post.body)).toEqual({ workflowId: "wfl-test123", commit });
     expect(fake.wfCalls.some((c) => c.url.includes("workflowID=wfl-test123"))).toBe(true);
     expect(fake.wfCalls.some((c) => c.url.includes("workflowVersionId=wfv-new"))).toBe(true);
     expect(fake.calls.filter((c) => c.url.includes("/deploy/") && c.method === "POST")).toHaveLength(1);
-    expect(fake.logs.at(-1)).toContain("tsk-1");
+    expect(fake.logs.at(-1)).toContain(`revision marker revision_${commit} are registered`);
     const output = fake.logs.join(" ");
     for (const value of ["render-secret", "hook-secret"]) expect(output).not.toContain(value);
   });
 
   it("accepts unwrapped version and task objects", async () => {
-    const fake = wfHarness({ wrapped: false, tasks: [task] });
-    await expect(deployAndVerify({ ...fake, env: wfEnv })).resolves.toMatchObject({ workflow: { taskId: "tsk-1" } });
+    const fake = wfHarness({ wrapped: false, tasks: [task, revisionTask] });
+    await expect(deployAndVerify({ ...fake, env: wfEnv })).resolves.toMatchObject({ workflow: { taskId: "tsk-1", revisionTaskId: "tsk-revision" } });
   });
 
   it("fails when registration fails", async () => {
@@ -211,8 +219,30 @@ describe("deployAndVerify workflow release", () => {
 
   it("fails when the task is missing from the ready version", async () => {
     const other = { ...task, name: "other" };
-    const fake = wfHarness({ statuses: ["ready"], tasks: [{ task: other }, { task: { ...task, workflowVersionId: "wfv-old" } }] });
-    await expect(deployAndVerify({ ...fake, env: wfEnv })).rejects.toThrow("extractPriceList is not registered");
+    const fake = wfHarness({ statuses: ["ready"], tasks: [{ task: other }, { task: revisionTask }] });
+    await expect(deployAndVerify({ ...fake, env: wfEnv })).rejects.toThrow("does not register both extractPriceList");
+  });
+
+  it("fails if the revision marker for the requested SHA is missing", async () => {
+    const fake = wfHarness({ statuses: ["ready"], tasks: [{ task }, { task: { ...revisionTask, name: `revision_${"b".repeat(40)}` } }] });
+    await expect(deployAndVerify({ ...fake, env: wfEnv })).rejects.toThrow(`does not register both extractPriceList and revision_${commit}`);
+  });
+
+  it("does not accept a requested-SHA marker registered only for an older version", async () => {
+    const fake = wfHarness({ statuses: ["ready"], tasks: [{ task }, { task: { ...revisionTask, workflowVersionId: "wfv-old" } }] });
+    await expect(deployAndVerify({ ...fake, env: wfEnv })).rejects.toThrow(`does not register both extractPriceList and revision_${commit}`);
+  });
+
+  it("paginates the selected version's task registrations", async () => {
+    const noise = Array.from({ length: 101 }, (_, index) => ({ task: {
+      id: `tsk-noise-${index}`, name: `noise-${index}`, workflowVersionId: "wfv-new",
+    } }));
+    const fake = wfHarness({ statuses: ["ready"], tasks: [...noise, { task }, { task: revisionTask }] });
+    await expect(deployAndVerify({ ...fake, env: wfEnv })).resolves.toMatchObject({
+      workflow: { taskId: "tsk-1", revisionTaskId: "tsk-revision" },
+    });
+    expect(fake.wfCalls.filter((call) => call.url.includes("/v1/tasks?")).map((call) => new URL(call.url).searchParams.get("cursor")))
+      .toEqual([null, "next"]);
   });
 
   it("fails on timeout", async () => {
