@@ -27,24 +27,26 @@ Open source service that makes any small shop buyable by AI agents in 5 minutes,
 
 ## Stack
 
-- Next.js and TypeScript (App Router, `src/`), Tailwind CSS
+- Next.js 16 and TypeScript (App Router, `src/`), Tailwind CSS
 - Postgres on Render, through Drizzle ORM (see [docs/architecture.md](docs/architecture.md))
-- MCP TypeScript SDK over Streamable HTTP
-- `@paypal/paypal-server-sdk` for Orders v2, `@paypal/agent-toolkit`, PayPal JS SDK v6
-- Claude API (`@anthropic-ai/sdk`) for catalog import, behind one adapter. The Studio Agent Framework's provider is not chosen yet
-- AG Grid / AG Studio, starting from https://github.com/paypaldev/hackathon-paypal-ag-grid-boilerplate
-- Bryntum Scheduler
-- Render: web service, MCP server, Postgres, and Render Workflows for background price list processing
+- MCP TypeScript SDK over Streamable HTTP (`/mcp` and `/mcp/seller/`)
+- `@paypal/paypal-server-sdk` for Orders v2 (with APIMatic Context Plugin skills), PayPal JS SDK v6
+- Claude API (`@anthropic-ai/sdk`) for catalog photo import and description suggestions
+- SQL full-text search with `unaccent` for product listings and demand tracking
+- AG Grid / AG Studio for seller dashboard metrics and unmet demand
+- Bryntum Scheduler (8.0 Community, MIT) for technician appointment management
+- Render: Web Service, PostgreSQL database, and background Workflows task (`agentshelf-import`)
 
 ## How the flows use PayPal and AI
 
-| Flow | PayPal | AI |
+| Flow | PayPal | AI / Data Processing |
 | --- | --- | --- |
-| Seller onboarding | Catalog Products (`create_product`) | Vision model extracts products, prices and variants from a photo or CSV |
-| Agent search and order | Orders v2 with the seller as `payee` and an approval link | Semantic search across all shops |
-| After payment | Webhooks, Shipment Tracking | Seller sends a tracking number by Telegram, AI records it (optional) |
-| Seller dashboard | Agent Toolkit: `list_transactions`, `create_refund`, `get_merchant_insights` | Insights on unmet agent searches, seller copilot |
-| Storefront for humans | JS SDK v6, PayPal buttons | Product descriptions in English and Latvian |
+| Seller onboarding | Platform Partner Referrals & merchant consent | Vision model extracts products from photo; CSV import parses deterministically |
+| Catalog & inventory | PayPal Platform app payee routing | Explicit tracked/untracked stock policy; versioned conflict detection |
+| Agent search & order | Orders v2 with seller as `payee` & approval link | SQL full-text matching with AI-suggested search terms; demand logging |
+| After payment | Webhooks signature verification & capture | Automatic order reconciliation, hold commitment, and inventory decrement |
+| Seller assistant | Dashboard demand summary and unmet search review | Claude-powered demand insights behind rate-limited server endpoints |
+| Storefront for humans | JS SDK v6, PayPal buttons | Multi-lingual descriptions (English and Latvian) |
 
 MCP tools: `search_products`, `get_slots`, `book_slot`, `create_checkout`, `get_order_status`.
 
@@ -60,7 +62,7 @@ MCP tools: `search_products`, `get_slots`, `book_slot`, `create_checkout`, `get_
 6. Simple storefront with PayPal buttons (JS SDK v6).
 7. Deployed on Render, with 2 demo shops and a sandbox test buyer.
 
-The scope clarified on 6 November also includes self-service owner/shop registration [#34](https://github.com/ever-guild/AgentShelf/issues/34), sandbox merchant connection [#35](https://github.com/ever-guild/AgentShelf/issues/35), quantity inventory [#36](https://github.com/ever-guild/AgentShelf/issues/36) and an authorized external seller agent [#37](https://github.com/ever-guild/AgentShelf/issues/37), these are delivery targets and do not claim that the flows are already wired or verified
+The scope delivered across milestones 1 and 2 includes self-service owner/shop registration ([#34](https://github.com/ever-guild/AgentShelf/issues/34)), sandbox merchant connection ([#35](https://github.com/ever-guild/AgentShelf/issues/35)), quantity inventory with conflict protection ([#36](https://github.com/ever-guild/AgentShelf/issues/36)), and an authorized external seller agent via MCP ([#37](https://github.com/ever-guild/AgentShelf/issues/37)). Final release rehearsals and evidence consolidation are tracked in [#18](https://github.com/ever-guild/AgentShelf/issues/18). See [docs/capabilities.md](docs/capabilities.md) for the active capability and proof matrix.
 
 **Optional, in this order.** Start only once everything required works.
 

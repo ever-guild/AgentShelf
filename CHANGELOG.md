@@ -4,6 +4,8 @@ This project has no tagged releases yet, entries describe code present in the cu
 
 ## Unreleased
 
+- Update user and operator documentation for final milestone handoff: structure README around owner walkthrough and agent surfaces, add capability matrix ([docs/capabilities.md](docs/capabilities.md)), align AGENTS.md stack and proof boundaries, and harmonize partner integrations (#19).
+
 - Let a workshop owner set up technicians and their weekly working hours on `/seller/schedule`, so a newly registered workshop offers repair slots without database edits
 
 - Polish the seller price list screens: the product name and PayPal Sandbox in the header, a larger drop zone, a how-it-works empty state and Read, Check and Publish steps driven by each import's status
