@@ -1,9 +1,6 @@
 import {
   type AmbiguousCandidate,
-  type CatalogEnrichmentResult,
   type CatalogEnrichmentSuggestion,
-  type EnrichmentAttribute,
-  type EnrichmentMatchStatus,
   type ReferencePriceComparison,
   catalogEnrichmentResult,
 } from "@/server/contracts/catalog-enrichment";

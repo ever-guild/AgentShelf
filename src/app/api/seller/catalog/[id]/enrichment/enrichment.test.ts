@@ -60,7 +60,9 @@ describe("GET /api/seller/catalog/[id]/enrichment", () => {
   });
 
   it("returns 404 when product id is not a valid UUID", async () => {
-    vi.mocked(currentSeller).mockResolvedValue(mockShop as any);
+    vi.mocked(currentSeller).mockResolvedValue(
+      mockShop as unknown as Awaited<ReturnType<typeof currentSeller>>,
+    );
 
     const req = new Request("https://agentshelf.test/api/seller/catalog/not-a-uuid/enrichment");
     const res = await GET(req, { params: Promise.resolve({ id: "not-a-uuid" }) });
@@ -71,8 +73,10 @@ describe("GET /api/seller/catalog/[id]/enrichment", () => {
   });
 
   it("returns 404 when product is not found in shop catalog", async () => {
-    vi.mocked(currentSeller).mockResolvedValue(mockShop as any);
-    vi.mocked(getDb).mockReturnValue(mockDb([]) as any);
+    vi.mocked(currentSeller).mockResolvedValue(
+      mockShop as unknown as Awaited<ReturnType<typeof currentSeller>>,
+    );
+    vi.mocked(getDb).mockReturnValue(mockDb([]) as unknown as ReturnType<typeof getDb>);
 
     const req = new Request(`https://agentshelf.test/api/seller/catalog/${PRODUCT_ID}/enrichment`);
     const res = await GET(req, { params: Promise.resolve({ id: PRODUCT_ID }) });
@@ -83,9 +87,13 @@ describe("GET /api/seller/catalog/[id]/enrichment", () => {
   });
 
   it("returns 200 with enrichment result on valid product", async () => {
-    vi.mocked(currentSeller).mockResolvedValue(mockShop as any);
+    vi.mocked(currentSeller).mockResolvedValue(
+      mockShop as unknown as Awaited<ReturnType<typeof currentSeller>>,
+    );
     vi.mocked(getDb).mockReturnValue(
-      mockDb([{ id: PRODUCT_ID, title: "iPhone 15 Pro Case", shopId: SHOP_ID }]) as any,
+      mockDb([{ id: PRODUCT_ID, title: "iPhone 15 Pro Case", shopId: SHOP_ID }]) as unknown as ReturnType<
+        typeof getDb
+      >,
     );
     vi.mocked(enrichCatalogProduct).mockResolvedValue({
       productId: PRODUCT_ID,
@@ -127,9 +135,13 @@ describe("GET /api/seller/catalog/[id]/enrichment", () => {
   });
 
   it("passes query parameter from URL search params", async () => {
-    vi.mocked(currentSeller).mockResolvedValue(mockShop as any);
+    vi.mocked(currentSeller).mockResolvedValue(
+      mockShop as unknown as Awaited<ReturnType<typeof currentSeller>>,
+    );
     vi.mocked(getDb).mockReturnValue(
-      mockDb([{ id: PRODUCT_ID, title: "iPhone Case", shopId: SHOP_ID }]) as any,
+      mockDb([{ id: PRODUCT_ID, title: "iPhone Case", shopId: SHOP_ID }]) as unknown as ReturnType<
+        typeof getDb
+      >,
     );
     vi.mocked(enrichCatalogProduct).mockResolvedValue({
       productId: PRODUCT_ID,
@@ -158,9 +170,13 @@ describe("POST /api/seller/catalog/[id]/enrichment", () => {
   });
 
   it("passes query from request body override", async () => {
-    vi.mocked(currentSeller).mockResolvedValue(mockShop as any);
+    vi.mocked(currentSeller).mockResolvedValue(
+      mockShop as unknown as Awaited<ReturnType<typeof currentSeller>>,
+    );
     vi.mocked(getDb).mockReturnValue(
-      mockDb([{ id: PRODUCT_ID, title: "iPhone Case", shopId: SHOP_ID }]) as any,
+      mockDb([{ id: PRODUCT_ID, title: "iPhone Case", shopId: SHOP_ID }]) as unknown as ReturnType<
+        typeof getDb
+      >,
     );
     vi.mocked(enrichCatalogProduct).mockResolvedValue({
       productId: PRODUCT_ID,
@@ -185,9 +201,13 @@ describe("POST /api/seller/catalog/[id]/enrichment", () => {
   });
 
   it("works with empty POST body", async () => {
-    vi.mocked(currentSeller).mockResolvedValue(mockShop as any);
+    vi.mocked(currentSeller).mockResolvedValue(
+      mockShop as unknown as Awaited<ReturnType<typeof currentSeller>>,
+    );
     vi.mocked(getDb).mockReturnValue(
-      mockDb([{ id: PRODUCT_ID, title: "iPhone 15 Pro Case", shopId: SHOP_ID }]) as any,
+      mockDb([{ id: PRODUCT_ID, title: "iPhone 15 Pro Case", shopId: SHOP_ID }]) as unknown as ReturnType<
+        typeof getDb
+      >,
     );
     vi.mocked(enrichCatalogProduct).mockResolvedValue({
       productId: PRODUCT_ID,

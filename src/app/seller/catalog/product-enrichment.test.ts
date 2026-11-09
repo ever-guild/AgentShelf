@@ -2,10 +2,7 @@ import * as React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it, vi } from "vitest";
 
-import type {
-  CatalogEnrichmentResult,
-  CatalogEnrichmentSuggestion,
-} from "@/server/contracts/catalog-enrichment";
+import type { CatalogEnrichmentSuggestion } from "@/server/contracts/catalog-enrichment";
 
 import {
   ENRICHMENT_MESSAGES,
