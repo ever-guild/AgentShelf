@@ -68,7 +68,7 @@ The scope delivered across milestones 1 and 2 includes self-service owner/shop r
 
 1. Seller copilot on Agent Toolkit ("refund order 12", "invoice Janis for the repair").
 2. Channel3: product photos and specs, market price comparison.
-3. "Try it" page with a chat agent, so judges can test without configuring an AI provider.
+3. "Try it" page with a chat agent, so judges can test without configuring an external assistant connector.
 4. Seller notifications through Zapier, tracking numbers through Shipment Tracking.
 5. WebMCP on the storefront, behind a browser support check.
 6. Catalog import from a website through KERNEL.
