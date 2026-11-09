@@ -4,6 +4,8 @@ This project has no tagged releases yet, entries describe code present in the cu
 
 ## Unreleased
 
+- Sync the AG Studio licence from the demo GitHub Environment secret to the Render web-service `AG_STUDIO` runtime setting
+
 - Rewrite search terms written under an older prompt version, and ask for a brand's spelling in each language's alphabet (`search-terms-v2`), so Cyrillic `айфон` finds iPhone listings
 
 - Sync the demo AI provider settings from the GitHub Environment to the existing Render service before exact-SHA deployments, verify the new deployment, and allow manual same-SHA redeploys from `main`

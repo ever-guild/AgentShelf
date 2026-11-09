@@ -2,15 +2,19 @@ import { pathToFileURL } from "node:url";
 
 const SERVICE_ID = "srv-dbm8a6e1egvs73bl8d90";
 const API_ORIGIN = "https://api.render.com";
-const KEYS = [
-  "AGENT_SHELF_AI_PROVIDER",
-  "AGENT_SHELF_AI_PROVIDER_BASE_URL",
-  "AGENT_SHELF_AI_PROVIDER_API_KEY",
+const MAPPINGS = [
+  { source: "AGENT_SHELF_AI_PROVIDER", target: "AGENT_SHELF_AI_PROVIDER" },
+  { source: "AGENT_SHELF_AI_PROVIDER_BASE_URL", target: "AGENT_SHELF_AI_PROVIDER_BASE_URL" },
+  { source: "AGENT_SHELF_AI_PROVIDER_API_KEY", target: "AGENT_SHELF_AI_PROVIDER_API_KEY" },
+  { source: "AGENT_SHELF_AG_STUDIO_LICENCE", target: "AG_STUDIO" },
 ];
+const KEYS = MAPPINGS.map(({ target }) => target);
 
 function readAndValidateConfig(env) {
-  const config = Object.fromEntries(KEYS.map((key) => [key, env[key]]));
-  const missing = KEYS.filter((key) => typeof config[key] !== "string" || config[key].trim() === "");
+  const config = Object.fromEntries(MAPPINGS.map(({ source, target }) => [target, env[source]]));
+  const missing = MAPPINGS
+    .filter(({ target }) => typeof config[target] !== "string" || config[target].trim() === "")
+    .map(({ source }) => source);
   if (missing.length) throw new Error(`Missing required configuration: ${missing.join(", ")}.`);
   if (config.AGENT_SHELF_AI_PROVIDER !== "openai") {
     throw new Error("AGENT_SHELF_AI_PROVIDER must be openai.");

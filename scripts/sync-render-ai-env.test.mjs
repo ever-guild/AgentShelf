@@ -6,6 +6,13 @@ const desired = {
   AGENT_SHELF_AI_PROVIDER: "openai",
   AGENT_SHELF_AI_PROVIDER_BASE_URL: "https://api.openai.com/v1",
   AGENT_SHELF_AI_PROVIDER_API_KEY: secret,
+  AGENT_SHELF_AG_STUDIO_LICENCE: "studio-test-secret-never-log",
+};
+const renderDesired = {
+  AGENT_SHELF_AI_PROVIDER: desired.AGENT_SHELF_AI_PROVIDER,
+  AGENT_SHELF_AI_PROVIDER_BASE_URL: desired.AGENT_SHELF_AI_PROVIDER_BASE_URL,
+  AGENT_SHELF_AI_PROVIDER_API_KEY: desired.AGENT_SHELF_AI_PROVIDER_API_KEY,
+  AG_STUDIO: desired.AGENT_SHELF_AG_STUDIO_LICENCE,
 };
 const apiKey = "render-api-test-token";
 
@@ -56,6 +63,15 @@ describe("syncRenderAiEnv", () => {
     expect(fake.calls).toHaveLength(0);
   });
 
+  it("requires the AG Studio source secret before making any Render request", async () => {
+    const fake = harness();
+    const missingLicense = { ...desired };
+    delete missingLicense.AGENT_SHELF_AG_STUDIO_LICENCE;
+    await expect(syncRenderAiEnv({ env: missingLicense, apiKey, fetchImpl: fake.fetchImpl, logger: fake.logger }))
+      .rejects.toThrow("AGENT_SHELF_AG_STUDIO_LICENCE");
+    expect(fake.calls).toHaveLength(0);
+  });
+
   it("rejects credential-bearing or noncanonical provider URLs before Render requests", async () => {
     const fake = harness();
     const invalid = { ...desired, AGENT_SHELF_AI_PROVIDER_BASE_URL: "https://user:pass@api.openai.com/v1" };
@@ -64,13 +80,14 @@ describe("syncRenderAiEnv", () => {
     expect(fake.calls).toHaveLength(0);
   });
 
-  it("updates only the three owned keys and preserves unrelated service settings", async () => {
-    const fake = harness({ DATABASE_URL: "db-url", APP_SIGNING_SECRET: "signing", ...desired, AGENT_SHELF_AI_PROVIDER_API_KEY: "old-key" });
+  it("updates only owned keys and preserves unrelated service settings", async () => {
+    const fake = harness({ DATABASE_URL: "db-url", APP_SIGNING_SECRET: "signing", ...renderDesired, AGENT_SHELF_AI_PROVIDER_API_KEY: "old-key" });
     await syncRenderAiEnv({ env: desired, apiKey, fetchImpl: fake.fetchImpl, logger: fake.logger });
     expect([...fake.values.entries()]).toEqual(expect.arrayContaining([
       ["DATABASE_URL", "db-url"],
       ["APP_SIGNING_SECRET", "signing"],
-      ...Object.entries(desired),
+      ...Object.entries(renderDesired).filter(([key]) => key !== "AGENT_SHELF_AI_PROVIDER_API_KEY"),
+      ["AGENT_SHELF_AI_PROVIDER_API_KEY", secret],
     ]));
     expect(fake.calls.filter((call) => call.method === "PUT").map((call) => call.key))
       .toEqual(["AGENT_SHELF_AI_PROVIDER_API_KEY"]);
@@ -78,8 +95,17 @@ describe("syncRenderAiEnv", () => {
     expect(fake.calls.every((call) => call.options.redirect === "error")).toBe(true);
   });
 
+  it("maps the canonical GitHub licence secret only to Render AG_STUDIO", async () => {
+    const fake = harness({ ...renderDesired, AG_STUDIO: "old-studio-key" });
+    await syncRenderAiEnv({ env: desired, apiKey, fetchImpl: fake.fetchImpl, logger: fake.logger });
+    expect(fake.values.get("AG_STUDIO")).toBe(desired.AGENT_SHELF_AG_STUDIO_LICENCE);
+    expect(fake.values.has("AGENT_SHELF_AG_STUDIO_LICENCE")).toBe(false);
+    expect(fake.calls.filter((call) => call.method === "PUT").map((call) => call.key)).toEqual(["AG_STUDIO"]);
+    expect(fake.logs.join(" ")).not.toContain(desired.AGENT_SHELF_AG_STUDIO_LICENCE);
+  });
+
   it("does not write when already synchronized", async () => {
-    const fake = harness({ ...desired });
+    const fake = harness({ ...renderDesired });
     const result = await syncRenderAiEnv({ env: desired, apiKey, fetchImpl: fake.fetchImpl, logger: fake.logger });
     expect(result.changed).toEqual([]);
     expect(fake.calls.some((call) => call.method === "PUT")).toBe(false);
@@ -87,7 +113,7 @@ describe("syncRenderAiEnv", () => {
   });
 
   it("does not begin writes if any preflight read fails", async () => {
-    const fake = harness({ ...desired });
+    const fake = harness({ ...renderDesired });
     fake.setFailGetFor("AGENT_SHELF_AI_PROVIDER_BASE_URL");
     await expect(syncRenderAiEnv({ env: desired, apiKey, fetchImpl: fake.fetchImpl, logger: fake.logger }))
       .rejects.toThrow("AGENT_SHELF_AI_PROVIDER_BASE_URL");
@@ -95,7 +121,7 @@ describe("syncRenderAiEnv", () => {
   });
 
   it("stops on update failure and never reports success", async () => {
-    const fake = harness({ ...desired, AGENT_SHELF_AI_PROVIDER_API_KEY: "old-key" });
+    const fake = harness({ ...renderDesired, AGENT_SHELF_AI_PROVIDER_API_KEY: "old-key" });
     fake.setFailPutFor("AGENT_SHELF_AI_PROVIDER_API_KEY");
     await expect(syncRenderAiEnv({ env: desired, apiKey, fetchImpl: fake.fetchImpl, logger: fake.logger }))
       .rejects.toThrow("Render update failed for AGENT_SHELF_AI_PROVIDER_API_KEY (HTTP 500).");
@@ -104,7 +130,7 @@ describe("syncRenderAiEnv", () => {
   });
 
   it("fails readback on mismatch without printing secret values", async () => {
-    const fake = harness({ ...desired });
+    const fake = harness({ ...renderDesired });
     fake.setWrongReadbackFor("AGENT_SHELF_AI_PROVIDER_API_KEY");
     let error;
     try {
@@ -118,7 +144,7 @@ describe("syncRenderAiEnv", () => {
   });
 
   it("redacts upstream response bodies and fetch exception messages", async () => {
-    const fake = harness({ ...desired });
+    const fake = harness({ ...renderDesired });
     fake.setFailGetFor("AGENT_SHELF_AI_PROVIDER");
     let error;
     try {
