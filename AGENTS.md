@@ -31,11 +31,11 @@ Open source service that makes any small shop buyable by AI agents in 5 minutes,
 - Postgres on Render, through Drizzle ORM (see [docs/architecture.md](docs/architecture.md))
 - MCP TypeScript SDK over Streamable HTTP (`/mcp` and `/mcp/seller/`)
 - `@paypal/paypal-server-sdk` for Orders v2 (with APIMatic Context Plugin skills), PayPal JS SDK v6
-- Claude API (`@anthropic-ai/sdk`) for catalog photo import and description suggestions
+- Configurable AI provider (OpenAI-compatible or Anthropic) for catalog photo import, descriptions, search terms and demand insights
 - SQL full-text search with `unaccent` for product listings and demand tracking
 - AG Grid / AG Studio for seller dashboard metrics and unmet demand
 - Bryntum Scheduler (8.0 Community, MIT) for technician appointment management
-- Render: Web Service, PostgreSQL database, and background Workflows task (`agentshelf-import`)
+- Render: Web Service and PostgreSQL database. A background Workflows task is implemented in the codebase, but a hosted workflow service has not been enabled or verified.
 
 ## How the flows use PayPal and AI
 
@@ -45,7 +45,7 @@ Open source service that makes any small shop buyable by AI agents in 5 minutes,
 | Catalog & inventory | PayPal Platform app payee routing | Explicit tracked/untracked stock policy; versioned conflict detection |
 | Agent search & order | Orders v2 with seller as `payee` & approval link | SQL full-text matching with AI-suggested search terms; demand logging |
 | After payment | Webhooks signature verification & capture | Automatic order reconciliation, hold commitment, and inventory decrement |
-| Seller assistant | Dashboard demand summary and unmet search review | Claude-powered demand insights behind rate-limited server endpoints |
+| Seller assistant | Dashboard demand summary and unmet search review | Provider-configured demand insights behind rate-limited server endpoints |
 | Storefront for humans | JS SDK v6, PayPal buttons | Multi-lingual descriptions (English and Latvian) |
 
 MCP tools: `search_products`, `get_slots`, `book_slot`, `create_checkout`, `get_order_status`.
@@ -68,7 +68,7 @@ The scope delivered across milestones 1 and 2 includes self-service owner/shop r
 
 1. Seller copilot on Agent Toolkit ("refund order 12", "invoice Janis for the repair").
 2. Channel3: product photos and specs, market price comparison.
-3. "Try it" page with a chat agent, so judges can test without configuring Claude.
+3. "Try it" page with a chat agent, so judges can test without configuring an AI provider.
 4. Seller notifications through Zapier, tracking numbers through Shipment Tracking.
 5. WebMCP on the storefront, behind a browser support check.
 6. Catalog import from a website through KERNEL.
@@ -82,7 +82,7 @@ Use these for real, because partner judges will notice superficial use.
 - **AG Grid:** AG Studio with a custom theme, custom widgets and an agent in Studio Agent Framework. Plain tables are not enough.
 - **Bryntum:** the buyer's agent books a slot and pays a deposit, and the booking appears in the scheduler. This is the center of the workshop demo.
 - **APIMatic:** use the PayPal Context Plugin in the editor while writing PayPal code, and note this in the README.
-- **Render:** all hosting, plus Workflows for background jobs.
+- **Render:** Web Service and PostgreSQL host the app. Workflow task code exists, but hosted Workflows are not enabled or verified.
 
 ## Working in this repo
 

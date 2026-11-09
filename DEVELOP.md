@@ -4,9 +4,9 @@
 
 - Node.js 24, the npm bundled with it, and Git
 - PostgreSQL 17, either installed locally or in Docker
-- No PayPal, Anthropic, AG Studio or Render account is needed to run locally
+- No PayPal, AI provider, AG Studio or Render account is needed to run locally
 
-Run the commands from a shell that does not export provider secrets. Variables set in the shell override `.env.local`, so a stray `PAYPAL_*` or `ANTHROPIC_API_KEY` would turn a local run into a provider run. Leave `RENDER` unset. On Render it makes startup create and seed the demo database.
+Run the commands from a shell that does not export provider secrets. Variables set in the shell override `.env.local`, so a stray `PAYPAL_*`, `AGENT_SHELF_AI_PROVIDER_API_KEY` or legacy `ANTHROPIC_API_KEY` would turn a local run into a provider run. Leave `RENDER` unset. On Render it makes startup create and seed the demo database.
 
 ## Run locally
 
@@ -23,7 +23,8 @@ npm 12 reports blocked `esbuild` install scripts. Migrations, `tsx` scripts and 
 ```bash
 createdb agentshelf_dev
 # or, without a local PostgreSQL:
-docker run -d --name agentshelf-dev-db -e POSTGRES_PASSWORD=<choose-one> -p 127.0.0.1:5432:5432 postgres:17
+docker run -d --name agentshelf-dev-db -e POSTGRES_PASSWORD='choose-a-local-password' -p 127.0.0.1:5432:5432 postgres:17
+until docker exec agentshelf-dev-db pg_isready -U postgres; do sleep 1; done
 docker exec agentshelf-dev-db createdb -U postgres agentshelf_dev
 ```
 
@@ -64,7 +65,7 @@ Expect `{"status":"ready"}` and only `PASS` lines. On a local build, `/api/healt
 
 | Mode | How to get it | What you have | What it does not show |
 | --- | --- | --- | --- |
-| Fixtures | `npm run db:seed` on your own empty database | Two synthetic demo shops, 8 listings, 2 technicians and 8 demand samples. No owner accounts. The legacy access-code sign-in at `/seller/sign-in` works only after setting `DEMO_*_SELLER_CODE` before seeding | Payments. Without legacy PayPal settings, `create_checkout` and `book_slot` answer `PAYMENT_NOT_CONFIGURED` and create no order. Search reports `matching.mode: "degraded"` without an Anthropic key |
+| Fixtures | `npm run db:seed` on your own empty database | Two synthetic demo shops, 8 listings, 2 technicians and 8 demand samples. No owner accounts. The legacy access-code sign-in at `/seller/sign-in` works only after setting `DEMO_*_SELLER_CODE` before seeding | Payments. Without legacy PayPal settings, `create_checkout` and `book_slot` answer `PAYMENT_NOT_CONFIGURED` and create no order. Search reports `matching.mode: "degraded"` without a configured AI provider |
 | Owner | Skip the seed and register at `/seller/register` | The current product path: owner account, shops, imports, explicit stock policy, seller-agent grants | PayPal consent and payment, which need the [platform setup](docs/paypal-platform-setup.md) and human Sandbox actions |
 
 `npm run db:seed` and `npm run demo:reset` change demo rows. Run them only against your own disposable database. `demo:reset` also requires `DEMO_ENVIRONMENT=true` and refuses any database that holds an owner-created shop. Never run them against a shared or hosted database to "start clean". The [full run](docs/full-run.md) explains how a rehearsal reuses existing shops instead.

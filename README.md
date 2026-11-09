@@ -25,7 +25,7 @@ Buyer Checkout / MCP ◀── Configure Stock Policy ◀── Review & Publish
    - For architecture and verification status, see [PayPal platform setup](docs/paypal-platform-setup.md) and [Sandbox proof](docs/paypal-sandbox-proof.md).
 3. **Import your price list:**
    - Open `/seller/imports` to upload a CSV file or price-list image.
-   - CSV parsing is fully deterministic and requires no AI credentials. Photo recognition uses the server-configured Anthropic vision model.
+   - CSV parsing is fully deterministic and requires no AI credentials. Photo recognition uses the server-configured AI provider.
 4. **Review and publish:**
    - Review imported rows on `/seller/imports/[id]`, correct titles, prices, categories, or deposit amounts, and click **Publish**.
 5. **Set physical inventory stock policy:**
