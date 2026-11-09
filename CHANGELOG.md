@@ -10,6 +10,10 @@ This project has no tagged releases yet, entries describe code present in the cu
 
 - Add an OpenAI adapter next to Claude for photo import, descriptions, search terms and demand insights, configured with `AGENT_SHELF_AI_PROVIDER`, `AGENT_SHELF_AI_PROVIDER_BASE_URL` and `AGENT_SHELF_AI_PROVIDER_API_KEY`, with the shared prompts in one module. A deployment with only `ANTHROPIC_API_KEY` keeps running on Claude
 
+- Document reproducible local setup, seller MCP rehearsals and the verified integration boundaries for the final milestone run
+
+- Update user and operator documentation for final milestone handoff: structure README around owner walkthrough and agent surfaces, add capability matrix ([docs/capabilities.md](docs/capabilities.md)), align AGENTS.md stack and proof boundaries, and harmonize partner integrations (#19).
+
 - Let a workshop owner set up technicians and their weekly working hours on `/seller/schedule`, so a newly registered workshop offers repair slots without database edits
 
 - Polish the seller price list screens: the product name and PayPal Sandbox in the header, a larger drop zone, a how-it-works empty state and Read, Check and Publish steps driven by each import's status
