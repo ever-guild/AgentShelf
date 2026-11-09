@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { enrichCatalogProduct } from "./client";
-import { extractSpecs, formatAmount, matchChannel3Results } from "./matching";
+import { extractSpecs, formatAmount, isValidUrl as requireIsValidUrl, matchChannel3Results } from "./matching";
 import type { Channel3Product } from "./types";
 
 const TEST_PRODUCT_ID = "11111111-1111-4111-a111-111111111111";
@@ -137,6 +137,23 @@ describe("Channel3 Catalog Enrichment", () => {
         limit: 5,
       });
     });
+
+    it("rejects an oversized provider response without buffering it into JSON", async () => {
+      const mockFetch = vi.fn().mockResolvedValue(
+        new Response(`{"products":[]} ${" ".repeat(1024 * 1024)}`, {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        }),
+      );
+      const result = await enrichCatalogProduct({
+        productId: TEST_PRODUCT_ID,
+        productTitle: "iPhone 15 Pro Case",
+        shopCurrency: "USD",
+        apiKey: "test-api-key",
+        fetch: mockFetch,
+      });
+      expect(result.status).toBe("provider_error");
+    });
   });
 
   describe("Matching Logic & Specifications", () => {
@@ -203,7 +220,8 @@ describe("Channel3 Catalog Enrichment", () => {
                 offers: [
                   {
                     domain: "target.com",
-                    price: { amount: 39.99, currency: "USD" },
+                    price: { price: 39.99, currency: "USD" },
+                    availability: "InStock",
                     url: "https://target.com/p/iphone14",
                   },
                 ],
@@ -214,7 +232,8 @@ describe("Channel3 Catalog Enrichment", () => {
                 offers: [
                   {
                     domain: "bestbuy.com",
-                    price: { amount: 49.99, currency: "USD" },
+                    price: { price: 49.99, currency: "USD" },
+                    availability: "InStock",
                     url: "https://bestbuy.com/p/iphone15pro",
                   },
                 ],
@@ -256,7 +275,7 @@ describe("Channel3 Catalog Enrichment", () => {
         {
           id: "p1",
           title: "Apple iPhone 15 Pro Silicone Case",
-          offers: [{ domain: "apple.com", price: { amount: 49, currency: "USD" }, url: "https://apple.com" }],
+          offers: [{ domain: "apple.com", price: { price: 49, currency: "USD" }, url: "https://apple.com" }],
         },
       ];
 
@@ -284,13 +303,13 @@ describe("Channel3 Catalog Enrichment", () => {
                 offers: [
                   {
                     domain: "target.com",
-                    price: { amount: 49.0, currency: "USD" },
+                    price: { price: 49.0, currency: "USD" },
                     availability: "InStock",
                     url: "https://www.target.com/p/iphone-15-pro-case/-/A-123456",
                   },
                   {
                     domain: "bestbuy.com",
-                    price: { amount: "49.99", currency: "USD" },
+                    price: { price: 49.99, currency: "USD" },
                     availability: "InStock",
                     url: "https://www.bestbuy.com/site/apple-iphone-15-pro-case/654321.p",
                   },
@@ -322,13 +341,13 @@ describe("Channel3 Catalog Enrichment", () => {
         "Apple iPhone 15 Pro Silicone Case with MagSafe - Black",
       );
       expect(suggestion.description).toBe("Designed by Apple to complement iPhone 15 Pro.");
-      expect(suggestion.sourceDomain).toBe("target.com");
+      expect(suggestion.sourceDomain).toBe("www.target.com");
       expect(suggestion.sourceUrl).toBe("https://www.target.com/p/iphone-15-pro-case/-/A-123456");
 
       // Verify reference prices
       expect(suggestion.referencePrices).toHaveLength(2);
       expect(suggestion.referencePrices[0]).toEqual({
-        domain: "target.com",
+        domain: "www.target.com",
         amount: "49.00",
         currency: "USD",
         isComparableCurrency: true,
@@ -337,7 +356,7 @@ describe("Channel3 Catalog Enrichment", () => {
       });
 
       expect(suggestion.referencePrices[1]).toEqual({
-        domain: "bestbuy.com",
+        domain: "www.bestbuy.com",
         amount: "49.99",
         currency: "USD",
         isComparableCurrency: true,
@@ -363,12 +382,12 @@ describe("Channel3 Catalog Enrichment", () => {
           offers: [
             {
               domain: "amazon.com",
-              price: { amount: 49.0, currency: "USD" },
+              price: { price: 49.0, currency: "USD" },
               url: "https://amazon.com/dp/B012345",
             },
             {
               domain: "amazon.de",
-              price: { amount: 55.0, currency: "EUR" },
+              price: { price: 55.0, currency: "EUR" },
               url: "https://amazon.de/dp/B012345",
             },
           ],
@@ -397,6 +416,41 @@ describe("Channel3 Catalog Enrichment", () => {
       expect(eurOffer.isComparableCurrency).toBe(true);
       expect(eurOffer.amount).toBe("55.00");
     });
+
+    it("does not exact-match a different accessory brand or a missing requested tier", () => {
+      const differentBrand = matchChannel3Results({
+        productId: TEST_PRODUCT_ID,
+        productTitle: "Anker case for iPhone 15 Pro",
+        shopCurrency: "USD",
+        products: [{ id: "c3-1", title: "Spigen case for iPhone 15 Pro", offers: [] }],
+      });
+      expect(differentBrand.status).toBe("no_match");
+
+      const missingTier = matchChannel3Results({
+        productId: TEST_PRODUCT_ID,
+        productTitle: "iPhone 15 Pro case",
+        shopCurrency: "USD",
+        products: [{ id: "c3-2", title: "iPhone 15 case", offers: [] }],
+      });
+      expect(missingTier.status).toBe("ambiguous");
+      expect(missingTier.suggestion).toBeUndefined();
+    });
+
+    it("uses Channel3's nested offer price.price field", () => {
+      const result = matchChannel3Results({
+        productId: TEST_PRODUCT_ID,
+        productTitle: "Apple iPhone 15 Pro Silicone Case",
+        shopCurrency: "USD",
+        products: [{
+          id: "c3-3",
+          title: "Apple iPhone 15 Pro Silicone Case",
+          brands: [{ id: "apple", name: "Apple" }],
+          offers: [{ domain: "example.com", price: { price: 49.99, currency: "USD" }, url: "https://example.com/item" }],
+        }],
+      });
+      expect(result.status).toBe("exact_match");
+      expect(result.suggestion?.referencePrices[0].amount).toBe("49.99");
+    });
   });
 
   describe("Spec Extraction & Formatting Utilities", () => {
@@ -416,13 +470,23 @@ describe("Channel3 Catalog Enrichment", () => {
       expect(ru.category).toBe("Screen Protector");
     });
 
+    it("rejects external URLs with non-web schemes or embedded credentials", () => {
+      expect(extractSpecs).toBeDefined();
+      expect(matchChannel3Results).toBeDefined();
+      expect(requireIsValidUrl("javascript:alert(1)")).toBe(false);
+      expect(requireIsValidUrl("https://user:pass@example.com/item")).toBe(false);
+      expect(requireIsValidUrl("data:text/html,hello")).toBe(false);
+    });
+
     it("formats amounts cleanly without floating point precision artifacts", () => {
       expect(formatAmount(49)).toBe("49.00");
       expect(formatAmount(49.5)).toBe("49.50");
       expect(formatAmount(49.99)).toBe("49.99");
       expect(formatAmount("24.9")).toBe("24.90");
       expect(formatAmount("24.99")).toBe("24.99");
-      expect(formatAmount(null)).toBe("0.00");
+      expect(formatAmount(null)).toBe("");
+      expect(formatAmount("1,234.56")).toBe("");
+      expect(formatAmount("49.99")).toBe("49.99");
     });
   });
 });

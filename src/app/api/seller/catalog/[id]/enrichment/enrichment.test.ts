@@ -4,6 +4,7 @@ import { currentSeller } from "@/server/auth/current-seller";
 import { enrichCatalogProduct } from "@/server/channel3/client";
 import { getDb } from "@/server/db";
 import { ServiceError } from "@/server/errors";
+import { ownerIdentityRuntime } from "@/server/seller-identity/runtime";
 import { GET, POST } from "./route";
 
 vi.mock("server-only", () => ({}));
@@ -18,6 +19,10 @@ vi.mock("@/server/db", () => ({
 
 vi.mock("@/server/channel3/client", () => ({
   enrichCatalogProduct: vi.fn(),
+}));
+
+vi.mock("@/server/seller-identity/runtime", () => ({
+  ownerIdentityRuntime: vi.fn(() => ({ limiter: { consume: vi.fn().mockResolvedValue(true) } })),
 }));
 
 const SHOP_ID = "22222222-2222-4222-a222-222222222222";
@@ -44,6 +49,11 @@ function mockDb(rows: unknown[] = []) {
 describe("GET /api/seller/catalog/[id]/enrichment", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    vi.unstubAllEnvs();
+    vi.stubEnv("CHANNEL3_API_KEY", "");
+    vi.mocked(ownerIdentityRuntime).mockImplementation(() => ({
+      limiter: { consume: vi.fn().mockResolvedValue(true) },
+    }) as unknown as ReturnType<typeof ownerIdentityRuntime>);
   });
 
   it("returns 401 when seller is not authenticated", async () => {
@@ -162,11 +172,36 @@ describe("GET /api/seller/catalog/[id]/enrichment", () => {
       shopCurrency: "EUR",
     });
   });
+
+  it("rejects an oversized query override", async () => {
+    const req = new Request(`https://agentshelf.test/api/seller/catalog/${PRODUCT_ID}/enrichment?query=${"x".repeat(201)}`);
+    const res = await GET(req, { params: Promise.resolve({ id: PRODUCT_ID }) });
+    expect(res.status).toBe(400);
+  });
+
+  it("limits configured provider calls per shop", async () => {
+    vi.stubEnv("CHANNEL3_API_KEY", "test-key");
+    vi.mocked(currentSeller).mockResolvedValue(mockShop as unknown as Awaited<ReturnType<typeof currentSeller>>);
+    vi.mocked(getDb).mockReturnValue(mockDb([{ id: PRODUCT_ID, title: "iPhone 15 Pro Case", shopId: SHOP_ID }]) as unknown as ReturnType<typeof getDb>);
+    const consume = vi.fn().mockResolvedValue(false);
+    vi.mocked(ownerIdentityRuntime).mockReturnValue({ limiter: { consume } } as unknown as ReturnType<typeof ownerIdentityRuntime>);
+
+    const req = new Request(`https://agentshelf.test/api/seller/catalog/${PRODUCT_ID}/enrichment`);
+    const res = await GET(req, { params: Promise.resolve({ id: PRODUCT_ID }) });
+    expect(res.status).toBe(429);
+    expect(consume).toHaveBeenCalledWith(`channel3-enrichment:${SHOP_ID}`, 10, 60 * 60_000, expect.any(Date));
+    expect(enrichCatalogProduct).not.toHaveBeenCalled();
+  });
 });
 
 describe("POST /api/seller/catalog/[id]/enrichment", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    vi.unstubAllEnvs();
+    vi.stubEnv("CHANNEL3_API_KEY", "");
+    vi.mocked(ownerIdentityRuntime).mockImplementation(() => ({
+      limiter: { consume: vi.fn().mockResolvedValue(true) },
+    }) as unknown as ReturnType<typeof ownerIdentityRuntime>);
   });
 
   it("passes query from request body override", async () => {
@@ -227,5 +262,15 @@ describe("POST /api/seller/catalog/[id]/enrichment", () => {
       query: undefined,
       shopCurrency: "EUR",
     });
+  });
+
+  it("returns 400 for malformed or invalid JSON request bodies", async () => {
+    const req = new Request(`https://agentshelf.test/api/seller/catalog/${PRODUCT_ID}/enrichment`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: "{not json",
+    });
+    const res = await POST(req, { params: Promise.resolve({ id: PRODUCT_ID }) });
+    expect(res.status).toBe(400);
   });
 });

@@ -22,7 +22,7 @@ export interface Channel3SearchRequestBody {
 }
 
 export interface Channel3OfferPrice {
-  amount: number | string;
+  price: number;
   currency: string;
 }
 
@@ -34,20 +34,19 @@ export interface Channel3Offer {
 }
 
 export interface Channel3Product {
-  id?: string;
+  id: string;
   title: string;
-  description?: string;
-  brand?: string;
-  model?: string;
-  images?: string[];
-  attributes?: Record<string, string> | Array<{ name: string; value: string; confidence?: number }>;
+  description?: string | null;
+  brands?: Array<{ id: string; name: string }>;
+  images?: Array<{ url: string; cleaned_url?: string | null; alt_text?: string | null }>;
+  structured_attributes?: Record<string, string[]>;
+  variants?: { options: Array<{ name: string; values: Array<{ label: string }> }>; selected: Array<{ name: string; label: string }> } | null;
   offers?: Channel3Offer[];
 }
 
 export interface Channel3SearchResponse {
   products?: Channel3Product[];
-  error?: string;
-  message?: string;
+  next_page_token?: string | null;
 }
 
 export interface Channel3EnrichmentOptions {

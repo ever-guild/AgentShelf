@@ -37,6 +37,7 @@ This document outlines the architecture, API contract, matching rules, and opera
     "limit": 5
   }
   ```
+- **Response**: the raw HTTP response uses `products: Product[]` and optional `next_page_token`. The Channel3 TypeScript SDK wraps this in a `Page` whose `.data` property contains those products; that SDK wrapper is not the wire response schema.
 - **Response Format**:
   ```json
   {
@@ -49,15 +50,17 @@ This document outlines the architecture, API contract, matching rules, and opera
         "offers": [
           {
             "domain": "target.com",
-            "price": { "amount": 49.0, "currency": "USD" },
+              "price": { "price": 49.0, "currency": "USD" },
             "availability": "InStock",
-            "url": "https://www.buy.trychannel3.com/..."
+              "url": "https://www.target.com/..."
           }
         ]
       }
     ]
   }
   ```
+
+The Channel3 API reference defines `ProductOffer.price` as `{ price: number, currency: string }`; the response adapter validates this wire shape and caps response bodies at 1 MiB. Offer URLs are affiliate-tracked and short-lived, so they are used only as immediate source links and are never persisted by AgentShelf. See the [Channel3 API reference](https://raw.githubusercontent.com/channel3-ai/skills/main/skills/channel3-api/references/api-reference.md).
 
 ---
 

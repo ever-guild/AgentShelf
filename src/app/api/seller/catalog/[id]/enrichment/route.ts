@@ -10,6 +10,7 @@ import { getDb } from "@/server/db";
 import { products } from "@/server/db/schema";
 import { ServiceError } from "@/server/errors";
 import { errorResponse, readJsonWithin } from "@/server/http";
+import { ownerIdentityRuntime } from "@/server/seller-identity/runtime";
 
 interface RouteParams {
   params: Promise<{ id: string }>;
@@ -43,6 +44,18 @@ async function handleEnrichment(
     throw new ServiceError("PRODUCT_NOT_FOUND", "This product is not in your catalog.");
   }
 
+  if ((process.env.CHANNEL3_API_KEY ?? "").trim()) {
+    const allowed = await ownerIdentityRuntime().limiter.consume(
+      `channel3-enrichment:${shopId}`,
+      10,
+      60 * 60_000,
+      new Date(),
+    );
+    if (!allowed) {
+      throw new ServiceError("AI_LIMIT_REACHED", "Catalog enrichment request limit reached. Try again later.");
+    }
+  }
+
   const result = await enrichCatalogProduct({
     productId: product.id,
     productTitle: product.title,
@@ -57,6 +70,9 @@ export async function GET(request: Request, { params }: RouteParams) {
   try {
     const url = new URL(request.url);
     const query = url.searchParams.get("query") || undefined;
+    if (query && !catalogEnrichmentRequest.safeParse({ query }).success) {
+      throw new ServiceError("INVALID_INPUT", "The request is not valid.");
+    }
     return await handleEnrichment(request, params, query);
   } catch (error) {
     return errorResponse(error);
@@ -66,16 +82,13 @@ export async function GET(request: Request, { params }: RouteParams) {
 export async function POST(request: Request, { params }: RouteParams) {
   try {
     let query: string | undefined;
-    try {
+    if (request.body) {
       const body = await readJsonWithin(request);
-      if (body && typeof body === "object") {
-        const parsed = catalogEnrichmentRequest.safeParse(body);
-        if (parsed.success && parsed.data.query) {
-          query = parsed.data.query;
-        }
+      const parsed = catalogEnrichmentRequest.safeParse(body);
+      if (!parsed.success) {
+        throw new ServiceError("INVALID_INPUT", "The request is not valid.");
       }
-    } catch {
-      // Body is optional
+      query = parsed.data.query;
     }
 
     return await handleEnrichment(request, params, query);

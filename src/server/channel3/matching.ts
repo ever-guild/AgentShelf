@@ -22,38 +22,36 @@ export function isValidUrl(s?: string): boolean {
   if (!s || typeof s !== "string") return false;
   try {
     const url = new URL(s.trim());
-    return url.protocol === "http:" || url.protocol === "https:";
+    return (url.protocol === "http:" || url.protocol === "https:") &&
+      url.username.length === 0 && url.password.length === 0;
   } catch {
     return false;
   }
 }
 
 export function getDomain(offer: Channel3Offer): string {
-  if (offer.domain && offer.domain.trim().length > 0) {
-    return offer.domain.trim();
-  }
   if (offer.url && isValidUrl(offer.url)) {
     try {
-      return new URL(offer.url).hostname;
+      return new URL(offer.url).hostname.toLowerCase();
     } catch {
-      return "channel3.com";
+      return "";
     }
   }
-  return "channel3.com";
+  return "";
 }
 
 export function formatAmount(amount: unknown): string {
-  if (typeof amount === "number") {
+  if (typeof amount === "number" && Number.isFinite(amount) && amount >= 0) {
     return Number.isInteger(amount) ? `${amount}.00` : amount.toFixed(2);
   }
   if (typeof amount === "string" && amount.trim().length > 0) {
-    const parsed = parseFloat(amount.trim());
-    if (!isNaN(parsed)) {
-      return Number.isInteger(parsed) ? `${parsed}.00` : parsed.toFixed(2);
-    }
-    return amount.trim();
+    const value = amount.trim();
+    if (!/^\d+(?:\.\d{1,6})?$/.test(value)) return "";
+    const parsed = Number(value);
+    if (!Number.isFinite(parsed)) return "";
+    return Number.isInteger(parsed) ? `${parsed}.00` : parsed.toFixed(2);
   }
-  return "0.00";
+  return "";
 }
 
 export function extractSpecs(rawTitle: string): ProductSpecs {
@@ -80,13 +78,6 @@ export function extractSpecs(rawTitle: string): ProductSpecs {
   else if (/\bpixel\b/.test(t)) family = "Pixel";
   else if (/\bmacbook\b/.test(t)) family = "MacBook";
   else if (/\bwatch\b/.test(t) || /часы/.test(t)) family = "Watch";
-
-  // Infer device brand if accessory didn't specify distinct maker
-  if (!brand) {
-    if (family === "iPhone" || family === "iPad" || family === "MacBook") brand = "Apple";
-    else if (family === "Galaxy") brand = "Samsung";
-    else if (family === "Pixel") brand = "Google";
-  }
 
   // 3. Model generation detection
   let generation: string | undefined;
@@ -171,7 +162,13 @@ export function matchChannel3Results(options: MatchChannel3Options): CatalogEnri
 
   // Extract candidate specs and distinct variants
   const candidatesWithSpecs = products.map((p) => {
-    const specs = extractSpecs(p.title);
+    const candidateText = [
+      p.title,
+      ...(p.brands ?? []).map((brand) => brand.name),
+      ...Object.entries(p.structured_attributes ?? {}).flatMap(([name, values]) => [name, ...values]),
+      ...(p.variants?.selected ?? []).flatMap((option) => [option.name, option.label]),
+    ].join(" ");
+    const specs = extractSpecs(candidateText);
     return { product: p, specs };
   });
 
@@ -185,9 +182,10 @@ export function matchChannel3Results(options: MatchChannel3Options): CatalogEnri
   // Build ambiguous candidates list helper
   function buildAmbiguousCandidates(): AmbiguousCandidate[] {
     return products.slice(0, 5).map((p) => {
-      const pSpecs = extractSpecs(p.title);
+      const productInfo = candidatesWithSpecs.find((candidate) => candidate.product === p);
+      const pSpecs = productInfo?.specs ?? extractSpecs(p.title);
       const firstOffer = p.offers?.[0];
-      const domain = firstOffer ? getDomain(firstOffer) : undefined;
+      const domain = firstOffer ? getDomain(firstOffer) : "";
       return {
         title: p.title.trim().slice(0, 300),
         ...(domain ? { domain: domain.slice(0, 255) } : {}),
@@ -233,6 +231,10 @@ export function matchChannel3Results(options: MatchChannel3Options): CatalogEnri
       continue;
     }
 
+    if (querySpecs.brand && specs.brand && querySpecs.brand !== specs.brand) {
+      continue;
+    }
+
     compatibleCandidates.push(item);
   }
 
@@ -243,6 +245,27 @@ export function matchChannel3Results(options: MatchChannel3Options): CatalogEnri
       productTitle,
       status: "no_match",
       message: "No matching reference products found for the specified model",
+    });
+  }
+
+  // An exact suggestion requires evidence for every identity detail present in the seller query.
+  // A missing brand/model/tier/category is uncertainty, not a successful match.
+  const hasUnverifiedIdentity = compatibleCandidates.some(({ specs }) =>
+    (querySpecs.brand && !specs.brand) ||
+    (querySpecs.family && !specs.family) ||
+    (querySpecs.generation && !specs.generation) ||
+    (querySpecs.tier && !specs.tier) ||
+    (querySpecs.category && !specs.category) ||
+    (specs.generation && !querySpecs.generation) ||
+    (specs.tier && !querySpecs.tier),
+  );
+  if (hasUnverifiedIdentity) {
+    return catalogEnrichmentResult.parse({
+      productId,
+      productTitle,
+      status: "ambiguous",
+      message: "The reference result does not verify all product variant details",
+      ambiguousCandidates: buildAmbiguousCandidates(),
     });
   }
 
@@ -293,9 +316,9 @@ export function matchChannel3Results(options: MatchChannel3Options): CatalogEnri
     if (!rawUrl || !isValidUrl(rawUrl)) continue;
 
     const domain = getDomain(offer);
-    const amount = formatAmount(offer.price.amount);
+    const amount = formatAmount(offer.price.price);
     const currency = (offer.price.currency || "").trim().toUpperCase();
-    if (!currency) continue;
+    if (!currency || !amount) continue;
 
     const isComparableCurrency = currency === shopCurrency.trim().toUpperCase();
 
@@ -311,30 +334,9 @@ export function matchChannel3Results(options: MatchChannel3Options): CatalogEnri
 
   // Process attributes
   const attributes: EnrichmentAttribute[] = [];
-  if (Array.isArray(bestMatch.attributes)) {
-    for (const attr of bestMatch.attributes) {
-      if (attr && typeof attr.name === "string" && typeof attr.value === "string") {
-        const name = attr.name.trim();
-        const value = attr.value.trim();
-        if (name && value) {
-          attributes.push({
-            name: name.slice(0, 100),
-            value: value.slice(0, 500),
-            ...(typeof attr.confidence === "number"
-              ? { confidence: Math.min(1, Math.max(0, attr.confidence)) }
-              : {}),
-          });
-        }
-      }
-    }
-  } else if (bestMatch.attributes && typeof bestMatch.attributes === "object") {
-    for (const [key, val] of Object.entries(bestMatch.attributes)) {
-      if (key && typeof val === "string" && val.trim()) {
-        attributes.push({
-          name: key.trim().slice(0, 100),
-          value: val.trim().slice(0, 500),
-        });
-      }
+  for (const [key, values] of Object.entries(bestMatch.structured_attributes ?? {})) {
+    for (const value of values) {
+      if (value.trim()) attributes.push({ name: key.slice(0, 100), value: value.trim().slice(0, 500) });
     }
   }
 
