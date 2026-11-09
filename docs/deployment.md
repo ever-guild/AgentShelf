@@ -19,6 +19,7 @@ This is a verified snapshot, later commits have their own checks and deployment 
 - Pushes to `main` run lint, the full test suite with a disposable PostgreSQL 17 service, and the production build on Node.js 24
 - The GitHub Environment [`agentshelf-e5bk.onrender.com`](https://github.com/ever-guild/AgentShelf/settings/environments/26743899833/edit) is the source of truth for the three AI provider settings and the AG Studio licence secret; after validation, Actions synchronizes those four named keys to the existing Render service through individual-key API requests
 - The sync reads all four current Render values before writing, changes only values that differ, verifies the readback in memory and never logs values; unrelated service settings remain untouched, and a missing GitHub setting or failed read/write prevents the deploy step
+- Only when the Environment variable `RENDER_WORKFLOW_ID` is set, the same sync also manages the three AI provider settings on that workflow, never `AG_STUDIO`. After the web deploy is live and healthy, the deploy script releases the workflow at the same commit and waits until `extractPriceList` is registered. Without the variable, both steps log that the workflow is not configured. See [Render Workflows](render-workflows.md)
 - After the sync passes, Actions sends a POST request to Render's Deploy Hook using repository secret `RENDER_DEPLOY_HOOK_URL`, following [Render's Deploy Hook documentation](https://render.com/docs/deploy-hooks)
 - The deploy script records the latest Render deploy IDs before the hook, then waits for a new `deploy_hook` deployment for `GITHUB_SHA` to become `live`; only then it checks public `/api/health` for that SHA, `/api/health/ready`, and the home page
 - A manual **Run workflow** from `main` runs validation, re-syncs the same four settings and requests a same-SHA redeploy, even if values already match; use it to retry a failed rollout or apply a configuration-only change
@@ -115,7 +116,8 @@ After seeding, run the [MCP smoke check](#smoke-check) so that it finds the prod
 | `RENDER_API_KEY` | GitHub Environment secret `agentshelf-e5bk.onrender.com` for Actions | Render API credential used by the deployment job to sync managed settings and check the deploy; it is not copied into the application |
 | `RENDER_DEPLOY_HOOK_URL` | GitHub Actions repository secret | Triggers the exact-SHA deploy after the environment sync; keep the URL private |
 | `ANTHROPIC_API_KEY` | Secret, by hand, older | Claude only, read while `AGENT_SHELF_AI_PROVIDER` is blank |
-| `RENDER_WORKFLOW_SLUG`, `RENDER_API_KEY` | Optional web-service settings, configured separately | Run photo reading as a Render Workflow; this runtime `RENDER_API_KEY` is independent of the GitHub Environment credential used by Actions. See [Render Workflows for photo import](#render-workflows-for-photo-import) |
+| `RENDER_WORKFLOW_SLUG`, `RENDER_API_KEY` | Optional web-service settings, configured separately | Run photo reading as a Render Workflow; this runtime `RENDER_API_KEY` is a dedicated key, never the GitHub Environment credential used by Actions. See [Render Workflows](render-workflows.md#the-runtime-credential) |
+| `RENDER_WORKFLOW_ID` | Optional GitHub Environment variable | Lets the deploy job sync AI settings to the workflow and release it at the same commit, see [Render Workflows](render-workflows.md#configuration) |
 | `RENDER_USE_LOCAL_DEV`, `RENDER_LOCAL_DEV_URL` | Local workflow development only | Point the Render SDK at the CLI task server; see [Render's local workflow guide](https://render.com/docs/workflows-local-development) |
 | `PAYPAL_PLATFORM_CLIENT_ID`, `PAYPAL_PLATFORM_CLIENT_SECRET`, `PAYPAL_PLATFORM_MERCHANT_ID`, `PAYPAL_PARTNER_ATTRIBUTION_ID` | Platform app secrets and settings | Primary seller-consent and payment path; use [Sandbox platform setup](paypal-platform-setup.md) |
 | `PAYPAL_PLATFORM_WEBHOOK_ID`, `PAYPAL_PLATFORM_PAYMENT_WEBHOOK_ID` | Platform app webhook subscriptions | Separate consent-revocation and payment subscriptions, see [PayPal Sandbox setup](paypal-sandbox-setup.md#webhooks) |
@@ -130,16 +132,13 @@ The current schedule uses Bryntum Community and needs no license environment var
 
 ## Render Workflows for photo import
 
-Photo reading works without this, inside the web service. A workflow service moves it out, and it is what the [Render prize](https://paypalaihackathon.devpost.com/details/render) looks for. It has not been created: it needs the Render account owner, because its compute is billed by use, and no free allowance is listed. `render.yaml` describes it, and committing that file does not create it.
+Photo reading works without this, inside the web service. A Render Workflow moves it out, and it is what the [Render partner brief](https://paypalaihackathon.devpost.com/details/render) encourages. The workflow has not been created: its compute is billed by use, so it waits for the Render account owner and the cost plan in [#56](https://github.com/ever-guild/AgentShelf/issues/56). `render.yaml` describes it, and committing that file does not create it.
 
-1. In the Dashboard choose **New > Workflow** and link this repository.
-2. Name it `agentshelf-import`. Set **Language** to Node, **Region** to Frankfurt, **Build Command** to `npm ci --include=dev` and **Start Command** to `npx tsx workflows/main.ts`.
-3. On the workflow, set `NODE_VERSION` to `24`, `DATABASE_URL` to the database's internal URL and the same AI settings as the web service: `AGENT_SHELF_AI_PROVIDER`, `AGENT_SHELF_AI_PROVIDER_BASE_URL`, `AGENT_SHELF_AI_PROVIDER_API_KEY`.
-4. On the web service, set `RENDER_WORKFLOW_SLUG` to the workflow's slug and `RENDER_API_KEY`.
-5. Set the workflow's auto-deploy to run after checks pass, as `render.yaml` says. The CI deploy job only requests the web service, so a freeze has to turn this off too.
-6. Run the check below. The run should appear under the workflow in the Dashboard.
+[Render Workflows](render-workflows.md) covers the task contract, fallback behaviour, the separate runtime credential, activation, rollback and the freeze. The deploy job syncs the AI settings to the workflow and releases it at the CI-checked commit only when the GitHub Environment variable `RENDER_WORKFLOW_ID` is set.
 
 Keep each AI key in a workspace or project with a low monthly spend limit, because the demo's seller code is shared with judges. The per-shop limits on photos bound the rest.
+
+The legacy smoke check below signs in to the seeded demo shop, so it does not cover an owner-registered shop:
 
 ```bash
 npm run smoke:import -- https://agentshelf-e5bk.onrender.com
