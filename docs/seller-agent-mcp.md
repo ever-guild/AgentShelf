@@ -6,7 +6,7 @@
 
 The Zod contracts in `src/server/contracts/seller-agent.ts` reject unknown fields. Tool arguments never choose a shop, owner, inventory actor, PayPal recipient, or credential. A transport adapter must provide the verified opaque seller-grant token through `grantTokenFromRequest` and selected tenant through `shopIdFromRequest` from trusted server/route context. Tenant tools must resolve the grant against that exact shop and required persisted scope, then use the returned `{shopId, actorId}`. The shop ID never comes from MCP tool arguments. The token is not exposed as a business argument, and this server neither issues nor revokes grants. Seller outputs use explicit allowlisted schemas; provider product IDs, credentials and unmodeled fields are excluded.
 
-The Identity integration contract being implemented separately uses `create_shop` for one owner-authorized shop creation, and shop-bound `read_shop`, `manage_catalog`, `manage_inventory`, or `connect_paypal` scopes for subsequent tools. A newly created shop needs an owner-issued management grant before store operations are available. Revocation and expiry must take effect in the identity resolver, not in MCP-local state.
+The owner issues grants in `/seller/agent-access`: an owner-level `create_shop` grant authorizes one shop creation, and a shop-bound grant carries any of `read_shop`, `manage_catalog`, `manage_inventory` and `connect_paypal`. A newly created shop needs its own shop-bound grant before store operations are available. Grants are shown once, expire after 15 minutes and can be revoked; revocation and expiry take effect in the identity resolver, not in MCP-local state. See [seller identity](seller-identity.md).
 
 ## Seller tools
 
@@ -74,9 +74,18 @@ claude --mcp-config ./agentshelf-seller.json --strict-mcp-config
 
 A rejected grant shows as a failed `agentshelf-seller` server in `/mcp` with `AUTH_HEADER_REJECTED`; issue a new grant rather than retrying the old one.
 
-ChatGPT custom connectors require OAuth or no authentication in the documented setup, so this Bearer-header route is not offered as a ChatGPT connector.
+## Supported clients
 
-The pinned `@modelcontextprotocol/sdk` 1.32.2 contract tests and `npm run smoke:runtime` cover the same routes locally; they do not replace the external client evidence above.
+| Client | Status |
+| --- | --- |
+| Claude Code with an `http` server entry and an `Authorization` header | **Verified** on the deployed demo, see above |
+| Other MCP clients that send a static `Authorization: Bearer` header over Streamable HTTP | Should work by protocol, **not tested** |
+| ChatGPT | **Not offered.** Its documented custom connector setup uses OAuth or no authentication, and this route accepts only a Bearer grant. There is no OAuth flow for seller MCP |
+| Claude custom connector (claude.ai) | **Not offered** for the same reason |
+
+The buyer connector at `/mcp` is separate and needs no grant; never configure a seller grant there, see [MCP setup](mcp.md).
+
+The pinned `@modelcontextprotocol/sdk` 1.32.2 contract tests and `npm run smoke:runtime` cover the same routes locally, see [local setup](seller-agent-rehearsal.md#local-setup); they do not replace the external client evidence above.
 
 - [Claude Code MCP configuration](https://code.claude.com/docs/en/mcp)
 - [MCP TypeScript SDK v1 server guide](https://ts.sdk.modelcontextprotocol.io/server)

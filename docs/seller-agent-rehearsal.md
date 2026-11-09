@@ -6,11 +6,13 @@ The [runtime baseline](https://github.com/ever-guild/AgentShelf/commit/8b6e6d483
 
 Real Chrome verified owner registration, catalog access, mobile width, seller-header sign-out and legacy sign-in on the [identity candidate](https://github.com/ever-guild/AgentShelf/commit/e0e1004dad7be3465b94dce08486f5c953d17d5a), follow [PR #43](https://github.com/ever-guild/AgentShelf/pull/43) for subsequent review fixes
 
-Record the exact revision for every later run in [release rehearsal #18](https://github.com/ever-guild/AgentShelf/issues/18), these results do not establish real Sandbox payments, an external assistant session or deployment of the candidate
+Record the exact revision for every later run in [release rehearsal #18](https://github.com/ever-guild/AgentShelf/issues/18); these dated results alone do not establish real Sandbox payments or an external assistant session, which are recorded separately in the matrix below
+
+A clean local run on 9 November 2026 at `37fea91` repeated the setup below with Node.js 24 and PostgreSQL 17 in Docker and no provider settings: `smoke:runtime` passed every check, including `PAYMENT_NOT_CONFIGURED` for the unconnected shop
 
 ## Local setup
 
-Use Node.js 24 and PostgreSQL 17, create a new disposable database and leave `RENDER` unset, follow the [local README](../README.md#run-locally) and [architecture](architecture.md)
+Use Node.js 24 and PostgreSQL 17, create a new disposable database and leave `RENDER` unset, follow the [local setup](../DEVELOP.md#run-locally) and [architecture](architecture.md)
 
 ```bash
 npm ci
@@ -65,9 +67,9 @@ Use synthetic data only, API-based fixture creation must be identified separatel
 | Capture and booking | Timely capture, ambiguity, expiry, paid booking replay and late review | Provider-fixture and PostgreSQL suites PASS at the runtime baseline |
 | Per-shop consent UI | Switching shops and successful grant issuance reset acknowledgement | Chrome PASS at [a7c2f62](https://github.com/ever-guild/AgentShelf/commit/a7c2f62ad07136c39f7871b3c4432ceb3e66fccf), including reset after successful issuance |
 | Platform payment webhook | Signature-first verification, identifier agreement, deduplication and revoked-completed order | Run the platform webhook suite on the final revision, real delivery remains unverified |
-| Sandbox seller/payment flow | Two consents, approval, recipient, capture and both webhook subscriptions | BLOCKED on app configuration and human Sandbox actions |
+| Sandbox seller/payment flow | Two consents, approval, recipient, capture and both webhook subscriptions | Two owner shops ready with different merchants ([#35](https://github.com/ever-guild/AgentShelf/issues/35)); one human-approved EUR 1 checkout captured for the right seller with both platform webhooks verified ([#2](https://github.com/ever-guild/AgentShelf/issues/2)), 8 November 2026. A real Sandbox booking deposit is not yet verified |
 | External seller assistant | Real configured-client session performing seller tools | PASS with Claude Code 2.1.319 on the deployed demo at `0c8e262`, see [below](#external-claude-code-session) |
-| Public deployment | Exact Render live SHA plus health and functional checks | Pending main integration, a draft PR does not deploy |
+| Public deployment | Exact Render live SHA plus health and functional checks | Runtime integrated in main and deployed; record the live SHA from `/api/health` for each later run in [#18](https://github.com/ever-guild/AgentShelf/issues/18) |
 
 For an actual Sandbox rehearsal, follow [Sandbox setup](paypal-sandbox-setup.md), [merchant connection](paypal-merchant-connection.md) and [inventory behavior](inventory-contract.md), use separate subscription IDs for consent revocation and platform payment events
 
