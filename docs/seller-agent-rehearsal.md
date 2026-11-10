@@ -110,7 +110,7 @@ For the two `not recorded` rows. Each step needs the owner or a Sandbox buyer; n
 1. As the owner, register or sign in, select the shop and confirm `/seller/assistant` shows its address.
 2. On `/seller/agent-access` tick the permissions the task needs (including **Manage inventory**), press **Review and issue credential** and give the credential only to your agent, as in [seller MCP setup](seller-agent-mcp.md#connect-claude-code).
 3. For PayPal consent either press **Start sandbox connection** on `/seller/paypal-connection` or let the agent call `seller_connect_paypal` under a `connect_paypal` grant, then finish the PayPal Sandbox steps yourself. Pass only if the page reports the connection `ready`.
-4. Ask the agent to set stock for one product (`seller_manage_stock` `set_mode` tracked with a count), and note the count and `version`.
+4. Ask the agent to read stock for one product with `seller_manage_stock`. For a product without a policy, use `set_mode` tracked with a count; for an existing tracked product, use a versioned adjustment if needed. Do not switch an existing policy just for this check. Note the count and `version`.
 5. In a separate buyer assistant ([buyer quickstart](buyer-quickstart.md)) search that product, create one checkout, approve it in PayPal Sandbox as the buyer, and wait until `get_order_status` reports `paid`.
 6. Read the stock again through the agent or `/seller/catalog`. Pass only if it dropped by exactly one and the order is `paid`.
 7. Revoke each credential with **Revoke credential** and confirm the agent's next call fails with HTTP 401.
