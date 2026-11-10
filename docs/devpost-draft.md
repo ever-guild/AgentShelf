@@ -116,7 +116,7 @@ In full: TypeScript, Next.js 16, React, PostgreSQL (Drizzle migrations), MCP Typ
 The form asks which model or AI service was used and how.
 
 - **In the product:** the live service uses an OpenAI-compatible provider with model `gpt-6-astra` for price-list photo reading, listing descriptions, search terms, unmet-demand notes and the dashboard assistant. An Anthropic Claude adapter also exists and is used when only an Anthropic key is configured.
-- **As the buyer and the seller agent:** Claude Code acted as a buyer over the public MCP endpoint on 9 Nov and as a seller agent on 8 Nov, Claude, through the custom connector, bought a product and booked a repair on 10 Nov, and ChatGPT bought a product through a custom MCP server on 10 Nov (see the table).
+- **As the buyer and the seller agent:** Claude Code acted as a buyer over the public MCP endpoint on 9 Nov and as a seller agent on 8 Nov. On 10 Nov Claude, through the custom connector, bought a product and booked a repair, and ChatGPT, through a custom MCP server, bought a product (see the table).
 - **While building:** AI coding agents and the APIMatic Context Plugin skills for PayPal Server SDK code.
 
 ### Sponsor tools and their evidence
