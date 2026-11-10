@@ -4,6 +4,8 @@ This project has no tagged releases yet, entries describe code present in the cu
 
 ## Unreleased
 
+- Rewrite the paste-ready submission text around the judging criteria: problem and demonstrated result first, one paragraph per partner tool, open checks reduced to a "Verified scope" paragraph that links to the capability matrix. Record the public video link and length, the live check on `eb41627`, the unused `paypal-agent-toolkit` tag and the unfiled APIMatic claim. Refs: #22
+
 - Add interactive Claude and ChatGPT connection actions on the homepage, with copyable MCP connector address, accurate clipboard fallback states, safe search and Sandbox checkout prompts, human payment approval guidance, and a concise buyer quickstart ([docs/buyer-quickstart.md](docs/buyer-quickstart.md)). Refs: #19
 
 - Restore the six-column capability-matrix structure for Channel3 evidence and limits. Refs: #19
