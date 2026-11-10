@@ -87,7 +87,7 @@ On 8 November 2026 Claude Code 2.1.319 ran the seller scenario against the deplo
 | Shop grant | `read_shop`, `manage_catalog`, `manage_inventory` | 201, five shop tools listed |
 | Import | `seller_import_price_list`, two-row test CSV, called once | `needs_review` |
 | Review | `seller_review_import` `get`, `edit_row` for the missing price, `accept_clean`, `get`, `publish` | Blocker cleared, both rows accepted, `publishedCount: 2` |
-| Catalog | `seller_manage_catalog` `list` | Both products published. PayPal Catalog sync showed `not_configured`: an open item, not a pass. The cause is unconfirmed. In code, `not_configured` is written only when no PayPal sender is available at that moment, a PayPal error on send is `failed`, and Partner Referrals requests only `PAYMENT` / `EXPRESS_CHECKOUT`. Whether PayPal permits Catalog Products calls under that consent is unverified |
+| Catalog | `seller_manage_catalog` `list` | Both products published. PayPal Catalog sync showed `not_configured`, which is expected here: this test shop had no PayPal connection (`paymentStatus: "not_configured"` above). It is not a pass and says nothing about platform-connected shops. In code, `not_configured` is written only when no PayPal sender is available at that moment, a PayPal error on send is `failed`, |
 | Stock before policy | `seller_manage_stock` `read` | `NOT_FOUND`, the product had no inventory policy |
 | Stock | `set_mode` tracked 3, `read`, `adjust` -1 with version 0, `read` | 3 at version 0, then 2 at version 1 |
 | Stale version | `adjust` again with version 0 | `CONFLICT`, quantity unchanged |
