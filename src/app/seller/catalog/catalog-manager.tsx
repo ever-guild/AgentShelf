@@ -13,6 +13,7 @@ import type {
 
 import { AMOUNT_HINT } from "../amount-hint";
 import { RequestFailed, request } from "../imports/[id]/request";
+import { ProductEnrichment } from "./product-enrichment";
 import { ProductStockControl } from "./product-stock-control";
 import {
   type StockControlViewState,
@@ -303,6 +304,12 @@ function ProductRow({
           <ProductStockControl
             productId={product.id}
             onStateChange={setStockState}
+          />
+          <ProductEnrichment
+            productId={product.id}
+            productTitle={product.title}
+            shopCurrency={currency}
+            onApplyPrice={(price) => save({ price }, "Reference price applied")}
           />
         </div>
       ) : null}
