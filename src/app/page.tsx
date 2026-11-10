@@ -76,11 +76,18 @@ export default function Home() {
         </section>
 
         <section className={`${PAGE_WIDTH} mt-auto pb-8`}>
-          <div className="flex flex-wrap items-center justify-between gap-x-6 gap-y-2 border-t border-zinc-200 pt-6">
-            <h2 className="text-sm font-medium">One MCP connector covers every shop</h2>
-            <Suspense fallback={<ConnectorFallback />}>
-              <LiveConnectorAddress />
-            </Suspense>
+          <div className="border-t border-zinc-200 pt-6">
+            <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+              <div className="flex flex-col gap-0.5">
+                <h2 className="text-sm font-medium">One MCP connector covers every shop</h2>
+                <p className={`text-xs ${SECONDARY_TEXT}`}>
+                  Ask Claude or ChatGPT to find goods and book repair slots via PayPal Sandbox
+                </p>
+              </div>
+              <Suspense fallback={<ConnectorFallback />}>
+                <LiveConnectorAddress />
+              </Suspense>
+            </div>
           </div>
         </section>
       </main>
