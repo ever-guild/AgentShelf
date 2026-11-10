@@ -37,13 +37,11 @@ Shopping is moving into assistants, and the shops with the least time for techno
 
 **Demonstrated on the hosted service, in PayPal Sandbox**
 
-- In the Claude app, with AgentShelf added as a custom connector, Claude listed the tools, found a tempered glass for iPhone 14 and created a 10.90 EUR order. A person approved it in PayPal, and the order status read `paid`.
-- An assistant found a tempered glass for iPhone 13 and created a 9.90 EUR order. A person approved it in PayPal, the server captured it, and tracked stock went from 4 to 3.
-- In ChatGPT, with AgentShelf installed as a custom MCP server, the same three prompts bought a 14.00 EUR silicone case: tools listed, product found, one PayPal order created, approved by a person, status `paid`.
-- In a second chat, on claude.ai in the browser, Claude listed tomorrow's free repair slots, held 09:00 for an iPhone 13 screen replacement and returned a 20 EUR deposit link. After the person approved it, the status read payment `paid`, booking `confirmed`.
-- In the hosted rehearsals a paid booking appeared in the workshop's schedule as confirmed: "Deposit of 20.00 EUR paid, 69.00 EUR due at the shop".
-- Three rehearsals on one deployed commit, with no reset between them, produced six captures.
-- A person bought a 7.50 EUR cable with the PayPal button on the public storefront, without an assistant.
+- **Claude, product purchase.** With AgentShelf added as a custom connector, Claude listed the tools, found a tempered glass for iPhone 14 and created a 10.90 EUR order. A person approved it in PayPal, and the order status read `paid`.
+- **ChatGPT, product purchase.** With AgentShelf installed as a custom MCP server, the same three prompts bought a 14.00 EUR silicone case: tools listed, product found, one PayPal order created, approved by a person, status `paid`.
+- **Claude, repair booking.** On claude.ai, Claude listed tomorrow's free repair slots, held 09:00 for an iPhone 13 screen replacement and returned a 20 EUR deposit link. After the person approved it, the status read payment `paid`, booking `confirmed`.
+- **Storefront, no assistant.** A person bought a 7.50 EUR cable with the PayPal button on the public shop page.
+- **Three rehearsals on one deployed commit**, with no reset between them, produced six captures. Tracked stock went from 4 to 3 after a paid order, and a paid booking appeared in the workshop's schedule as confirmed: "Deposit of 20.00 EUR paid, 69.00 EUR due at the shop".
 
 ### How we built it
 
@@ -116,7 +114,7 @@ In full: TypeScript, Next.js 16, React, PostgreSQL (Drizzle migrations), MCP Typ
 The form asks which model or AI service was used and how.
 
 - **In the product:** the live service uses an OpenAI-compatible provider with model `gpt-6-astra` for price-list photo reading, listing descriptions, search terms, unmet-demand notes and the dashboard assistant. An Anthropic Claude adapter also exists and is used when only an Anthropic key is configured.
-- **As the buyer and the seller agent:** Claude Code acted as a buyer over the public MCP endpoint on 9 Nov and as a seller agent on 8 Nov. On 10 Nov Claude, through the custom connector, bought a product and booked a repair, and ChatGPT, through a custom MCP server, bought a product (see the table).
+- **As the buyer and the seller agent:** Claude Code acted as a buyer over the public MCP endpoint on 9 Nov and as a seller agent on 8 Nov. On 10 Nov Claude, through the custom connector, bought a product and booked a repair, and ChatGPT, through a custom MCP server, bought a product. Dates and details are in the [capability matrix](https://github.com/ever-guild/AgentShelf/blob/main/docs/capabilities.md).
 - **While building:** AI coding agents and the APIMatic Context Plugin skills for PayPal Server SDK code.
 
 ### Sponsor tools and their evidence
