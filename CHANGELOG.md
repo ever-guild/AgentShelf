@@ -4,6 +4,8 @@ This project has no tagged releases yet, entries describe code present in the cu
 
 ## Unreleased
 
+- Add seller-side Channel3 catalog enrichment with validated, bounded candidate searches and explicit selection of suggested product matches. Real-provider use remains gated on configuration and external proof. Refs: #24
+
 - Prepare Render Workflow releases with a revision marker generated from the workflow build's Git checkout; CI verifies the selected new version registers the marker for the requested SHA and the import task. Hosted activation and photo processing remain unverified. Refs: #55
 
 - Redesign toward one light theme: a single-column homepage that shows the demo workshop's price list, the catalog it becomes and an order through a buyer's assistant, the current seller page underlined in the header, and a default dashboard of six widgets drawn as sheets on a white canvas, with payment status as four totals in a row and an orders grid of six columns. Arranging opens with Studio's side panels closed. A saved dashboard arrangement resets once
