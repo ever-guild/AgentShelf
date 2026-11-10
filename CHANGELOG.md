@@ -4,7 +4,7 @@ This project has no tagged releases yet, entries describe code present in the cu
 
 ## Unreleased
 
-- Record the first paid buyer run in claude.ai through the custom connector (10 November, 10.90 EUR, order `paid`) in the capability matrix, MCP status, partner notes, full-run notes and submission draft, with what that run did not cover. Refs: #19
+- Record the first paid buyer run through the Claude custom connector, in the Claude desktop app on a Max plan (10 November, 10.90 EUR, order `paid`) in the capability matrix, MCP status, partner notes, full-run notes and submission draft, with what that run did not cover. Refs: #19
 
 - Replace the default favicon with the AgentShelf mark, an outline letter A with a blue dot on a dark tile, as `icon.svg`, a 16/32/48 `favicon.ico` and a 180px `apple-icon.png`.
 
