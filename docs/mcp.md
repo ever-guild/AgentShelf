@@ -2,6 +2,9 @@
 
 One remote connector covering all shops, for [#5](https://github.com/ever-guild/AgentShelf/issues/5). The endpoint is `POST /mcp` over Streamable HTTP, with the [MCP TypeScript SDK](https://github.com/modelcontextprotocol/typescript-sdk).
 
+> [!TIP]
+> For assistant connection instructions (claude.ai, Claude Code, and ChatGPT) with verified prompts, the 4-step purchase cycle, and environment limitations, see [AgentShelf Buyer Quickstart](buyer-quickstart.md).
+
 ## Status
 
 A client is marked working only after a real connection to it. Each row is separate evidence: a script, an SDK client or one assistant does not stand in for another. Levels are defined in [capabilities.md](capabilities.md#evidence-levels).
@@ -31,14 +34,22 @@ The schemas are in [`src/server/contracts/commerce.ts`](../src/server/contracts/
 
 A result carries `structuredContent` and the same JSON as text. A failure has `isError: true` and text with a JSON object holding a stable `code`, a `message` that is safe to show, and optional `details`. An input rejected by the schema has `isError: true` and text naming the field. A search with no match is an empty list, not an error.
 
-## Authentication
+## Authentication and route boundaries
 
-The connector has no sign-in, because everything it offers is public:
+The buyer connector at `POST /mcp` has no sign-in, because everything it offers is public:
 
 - It only reads published catalog data, and it returns no merchant identifiers or credentials.
 - A checkout or a booking only returns an approval link, and the buyer still confirms the payment in PayPal.
 - An order's status needs the capability returned with that order, so an order identifier alone reveals nothing.
-- Seller data is not reachable through it. Sellers use owner sessions in the browser, or separate seller MCP endpoints with an owner-issued Bearer grant, see [seller MCP](seller-agent-mcp.md). Never send a seller grant to `/mcp`.
+- Seller data is not reachable through it.
+
+### Boundary with Seller MCP
+
+Buyer MCP and Seller MCP are strictly separated:
+- **Public Buyer MCP (`POST /mcp`)**: Public, no authentication, 5 commerce tools (`search_products`, `get_slots`, `book_slot`, `create_checkout`, `get_order_status`). Available to any AI assistant or buyer client.
+- **Protected Seller MCP (`POST /mcp/seller/onboarding` and `POST /mcp/seller/shop/{shopId}`)**: Protected by an owner-issued Bearer grant token with fine-grained scopes (`create_shop`, `manage_catalog`, `manage_inventory`, `connect_paypal`). Used exclusively for shop onboarding, catalog imports/reviews, stock level updates, and PayPal seller onboarding. See [seller MCP](seller-agent-mcp.md).
+
+Never send a seller grant to `/mcp`, and never offer seller endpoints to public buyer assistants.
 
 ## Origin handling
 
@@ -50,7 +61,7 @@ Each `POST` creates its own server and transport and returns JSON. Nothing has t
 
 ## Connect Claude
 
-**Not tested in claude.ai.** These steps follow [Add a connector that isn't in the directory](https://claude.com/docs/connectors/custom/remote-mcp). Claude connects from Anthropic's cloud, so the URL must be publicly reachable over HTTPS.
+**Not tested in claude.ai.** These steps follow [Add a connector that isn't in the directory](https://claude.com/docs/connectors/custom/remote-mcp). Claude connects from Anthropic's cloud, so the URL must be publicly reachable over HTTPS. For end-to-end setup, verified prompts, and the 4-step purchase flow, see [AgentShelf Buyer Quickstart](buyer-quickstart.md).
 
 1. Go to **Customize > Connectors** and click **Add custom connector**. On Team and Enterprise plans, an Owner adds it under **Organization settings > Connectors**. The Free plan allows one custom connector.
 2. Enter `https://agentshelf-e5bk.onrender.com/mcp`.
@@ -62,6 +73,14 @@ Claude's documented limits are about 150,000 characters per tool result and 240 
 ### Claude Code
 
 Claude Code 2.1.319 connected to the deployed `/mcp` with this entry and listed the five tools on 8 November 2026, and Claude Code 2.1.282 ran a paid buyer flow through it on 9 November 2026 (see Status). The buyer connector needs no header. Do not reuse a seller grant here.
+
+Add via the CLI:
+
+```bash
+claude mcp add --scope user --transport http AgentShelf https://agentshelf-e5bk.onrender.com/mcp
+```
+
+Or configure via JSON:
 
 ```json
 {
@@ -77,7 +96,7 @@ claude --mcp-config ./agentshelf-buyer.json --strict-mcp-config
 
 ## Connect ChatGPT
 
-**Not tested.** No ChatGPT session has connected to this server, and a pass in Claude Code, the MCP Inspector or an SDK client is not evidence for ChatGPT. These steps follow [Connect and test your plugin](https://developers.openai.com/plugins/deploy/connect-chatgpt). Account and workspace policies can restrict custom servers.
+**Not tested.** No ChatGPT session has connected to this server, and a pass in Claude Code, the MCP Inspector or an SDK client is not evidence for ChatGPT. These steps follow [Connect and test your plugin](https://developers.openai.com/plugins/deploy/connect-chatgpt) and [Custom MCP server guide](https://developers.openai.com/api/docs/guides/custom-mcp-server). Account and workspace policies can restrict custom servers. For end-to-end setup, verified prompts, and the 4-step purchase flow, see [AgentShelf Buyer Quickstart](buyer-quickstart.md).
 
 1. Go to [ChatGPT Plugins](https://chatgpt.com/plugins), select the plus button, then **Add custom MCP server**.
 2. Enter a name and description, and under **Connection** enter `https://agentshelf-e5bk.onrender.com/mcp`.
