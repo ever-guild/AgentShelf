@@ -7,6 +7,17 @@ import {
   runImportJob,
   type ImportRunOutcome,
 } from "../src/server/services/import-run";
+import {
+  readWorkflowRevision,
+  registerWorkflowRevisionTask,
+} from "./revision";
+
+// Render can attest this release by finding the revision-named task in the released version.
+// Local development has no generated artifact and continues to register only the import task.
+registerWorkflowRevisionTask(
+  readWorkflowRevision(),
+  process.env.RENDER === "true",
+);
 
 // The Render Workflows entry point. A task receives only a job ID. The job says which shop it
 // belongs to, so a run can never be pointed at another shop's data.

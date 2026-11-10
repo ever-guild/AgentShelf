@@ -35,7 +35,7 @@ services:
     # Never auto-deploys. CI releases the exact CI-checked commit after the web deploy is verified
     # (POST /v1/workflowversions); a freeze disables the CI deploy job, so no release happens either.
     autoDeployTrigger: off
-    buildCommand: npm ci --include=dev
+    buildCommand: npm ci --include=dev && node scripts/write-workflow-revision.mjs
     startCommand: npx tsx workflows/main.ts
     envVars:
       - key: NODE_VERSION
