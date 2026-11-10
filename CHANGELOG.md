@@ -4,7 +4,7 @@ This project has no tagged releases yet, entries describe code present in the cu
 
 ## Unreleased
 
-- Replace the default favicon with the AgentShelf mark, a letter A crossed by a carbon-blue shelf on a white sheet, as `icon.svg`, a 16/32/48 `favicon.ico` and a 180px `apple-icon.png`.
+- Replace the default favicon with the AgentShelf mark, a white letter A cut by a shelf line on an ink-blue tile, as `icon.svg`, a 16/32/48 `favicon.ico` and a 180px `apple-icon.png`.
 
 - Record the first human Sandbox purchase through the storefront PayPal button (10 November, live `5c4daf9`, 7.50 EUR) in the capability matrix, partner notes, full-run notes and submission draft, with the checks that were not read for that order. Refs: #19
 
