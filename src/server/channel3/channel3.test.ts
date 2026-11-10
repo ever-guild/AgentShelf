@@ -436,6 +436,56 @@ describe("Channel3 Catalog Enrichment", () => {
       expect(missingTier.suggestion).toBeUndefined();
     });
 
+    it("does not exact-match unrelated titles without a recognized model", () => {
+      const unrelated = matchChannel3Results({
+        productId: TEST_PRODUCT_ID,
+        productTitle: "Ceramic desk clock",
+        shopCurrency: "EUR",
+        products: [{ id: "c3-clock", title: "Oak dining table", offers: [] }],
+      });
+      expect(unrelated.status).toBe("ambiguous");
+      expect(unrelated.suggestion).toBeUndefined();
+    });
+
+    it("rejects conflicting unrecognized model codes", () => {
+      const result = matchChannel3Results({
+        productId: TEST_PRODUCT_ID,
+        productTitle: "Logitech M185 wireless mouse",
+        shopCurrency: "EUR",
+        products: [{ id: "c3-m190", title: "Logitech M190 wireless mouse", offers: [] }],
+      });
+      expect(result.status).toBe("no_match");
+      expect(result.suggestion).toBeUndefined();
+    });
+
+    it("does not treat explicit color, size, or material differences as an exact variant", () => {
+      const variants = [
+        ["Apple iPhone 15 Pro Black Silicone Case", "Apple iPhone 15 Pro White Silicone Case"],
+        ["Apple iPhone 15 Pro Silicone Case 6.1 inch", "Apple iPhone 15 Pro Silicone Case 6.7-inch"],
+        ["Apple iPhone 15 Pro Silicone Case", "Apple iPhone 15 Pro Leather Case"],
+      ];
+      for (const [productTitle, candidateTitle] of variants) {
+        const result = matchChannel3Results({
+          productId: TEST_PRODUCT_ID,
+          productTitle,
+          shopCurrency: "EUR",
+          products: [{ id: "c3-variant", title: candidateTitle, offers: [] }],
+        });
+        expect(result.status).toBe("no_match");
+        expect(result.suggestion).toBeUndefined();
+      }
+    });
+
+    it("allows an identical specific SKU title without a known brand parser", () => {
+      const result = matchChannel3Results({
+        productId: TEST_PRODUCT_ID,
+        productTitle: "Logitech M185 wireless mouse",
+        shopCurrency: "EUR",
+        products: [{ id: "c3-m185", title: "Logitech M185 wireless mouse", offers: [] }],
+      });
+      expect(result.status).toBe("exact_match");
+    });
+
     it("uses Channel3's nested offer price.price field", () => {
       const result = matchChannel3Results({
         productId: TEST_PRODUCT_ID,

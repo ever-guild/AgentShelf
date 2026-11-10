@@ -16,6 +16,30 @@ export interface ProductSpecs {
   category?: string;
   variant?: string;
   compatibility?: string;
+  modelCode?: string;
+  colors?: string[];
+  materials?: string[];
+  sizes?: string[];
+}
+
+const TITLE_COLORS = [
+  "black", "white", "red", "blue", "green", "yellow", "pink", "purple", "orange", "gray", "grey", "silver", "gold", "clear", "transparent",
+  "черный", "чёрный", "белый", "красный", "синий", "зелёный", "зеленый",
+];
+const TITLE_MATERIALS = [
+  "silicone", "leather", "plastic", "metal", "aluminum", "aluminium", "glass", "rubber", "wood", "stainless steel",
+  "кожа", "силикон", "пластик", "стекло", "металл",
+];
+
+function findTerms(text: string, terms: string[]): string[] {
+  return terms.filter((term) =>
+    new RegExp("(?<![\\p{L}\\p{N}])" + term + "(?![\\p{L}\\p{N}])", "iu").test(text),
+  );
+}
+
+function hasNoSharedTerm(queryTerms: string[] | undefined, candidateTerms: string[] | undefined): boolean {
+  return Boolean(queryTerms?.length && candidateTerms?.length &&
+    !queryTerms.some((value) => candidateTerms.includes(value)));
 }
 
 export function isValidUrl(s?: string): boolean {
@@ -56,6 +80,8 @@ export function formatAmount(amount: unknown): string {
 
 export function extractSpecs(rawTitle: string): ProductSpecs {
   const t = rawTitle.toLowerCase();
+  const modelCode = t.match(/\b(?=[a-z0-9-]*[a-z])(?=[a-z0-9-]*\d)[a-z0-9]+(?:-[a-z0-9]+)*\b/i)?.[0]?.toUpperCase();
+  const sizes = t.match(/\b\d+(?:\.\d+)?[\s-]?(?:inch(?:es)?|in|mm|cm|gb|tb|mah|oz|ml|l)\b/gi)?.map((size) => size.replace(/[\s-]+/g, "").toLowerCase());
 
   // 1. Brand detection
   let brand: string | undefined;
@@ -133,6 +159,10 @@ export function extractSpecs(rawTitle: string): ProductSpecs {
     category,
     variant,
     compatibility,
+    modelCode,
+    colors: findTerms(t, TITLE_COLORS),
+    materials: findTerms(t, TITLE_MATERIALS),
+    sizes: sizes ?? [],
   };
 }
 
@@ -151,8 +181,6 @@ export function matchChannel3Results(options: MatchChannel3Options): CatalogEnri
   }
 
   const querySpecs = extractSpecs(productTitle);
-
-  // Check if query is just a brand with no model/variant/specs
   const isBrandOnlyQuery =
     Boolean(querySpecs.brand) &&
     !querySpecs.family &&
@@ -191,6 +219,16 @@ export function matchChannel3Results(options: MatchChannel3Options): CatalogEnri
         ...(domain ? { domain: domain.slice(0, 255) } : {}),
         ...(pSpecs.variant ? { variantInfo: pSpecs.variant.slice(0, 200) } : {}),
       };
+    });
+  }
+
+  if (!((querySpecs.family && querySpecs.generation) || querySpecs.modelCode) && !isBrandOnlyQuery) {
+    return catalogEnrichmentResult.parse({
+      productId,
+      productTitle,
+      status: "ambiguous",
+      message: "The product title does not identify a specific model or variant",
+      ambiguousCandidates: buildAmbiguousCandidates(),
     });
   }
 
@@ -235,6 +273,18 @@ export function matchChannel3Results(options: MatchChannel3Options): CatalogEnri
       continue;
     }
 
+    if (querySpecs.modelCode && specs.modelCode && querySpecs.modelCode !== specs.modelCode) {
+      continue;
+    }
+
+    if (
+      hasNoSharedTerm(querySpecs.colors, specs.colors) ||
+      hasNoSharedTerm(querySpecs.materials, specs.materials) ||
+      hasNoSharedTerm(querySpecs.sizes, specs.sizes)
+    ) {
+      continue;
+    }
+
     compatibleCandidates.push(item);
   }
 
@@ -256,8 +306,12 @@ export function matchChannel3Results(options: MatchChannel3Options): CatalogEnri
     (querySpecs.generation && !specs.generation) ||
     (querySpecs.tier && !specs.tier) ||
     (querySpecs.category && !specs.category) ||
+    (querySpecs.modelCode && !specs.modelCode) ||
     (specs.generation && !querySpecs.generation) ||
-    (specs.tier && !querySpecs.tier),
+    (specs.tier && !querySpecs.tier) ||
+    (querySpecs.colors?.length && !specs.colors?.length) ||
+    (querySpecs.materials?.length && !specs.materials?.length) ||
+    (querySpecs.sizes?.length && !specs.sizes?.length),
   );
   if (hasUnverifiedIdentity) {
     return catalogEnrichmentResult.parse({
