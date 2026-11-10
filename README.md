@@ -18,8 +18,8 @@ Buyer Checkout / MCP ◀── Configure Stock Policy ◀── Review & Publish
 ```
 
 1. **Sign in or register:**
-   - Log in with your PayPal Sandbox account at [Sign in](https://agentshelf-e5bk.onrender.com/seller/owner-sign-in) via **Log in with PayPal**, or create a password-based owner account at [Register](https://agentshelf-e5bk.onrender.com/seller/register).
-   - Enter your shop details (name, currency, timezone, location).
+   - The **Sign in** link on the home page opens the shop access-code form. Use **Sign in with an owner account** or **Register a shop** below it, or go straight to [owner sign-in](https://agentshelf-e5bk.onrender.com/seller/owner-sign-in) (**Log in with PayPal** or username and password) or [Register](https://agentshelf-e5bk.onrender.com/seller/register).
+   - Enter your shop details (name, currency, timezone, location), then select the shop. You land on `/seller/assistant`.
 2. **Connect your PayPal merchant account:**
    - Navigate to `/seller/paypal-connection` to grant AgentShelf platform permission to route customer payments directly to your PayPal account.
    - For architecture and verification status, see [PayPal platform setup](docs/paypal-platform-setup.md) and [Sandbox proof](docs/paypal-sandbox-proof.md).
@@ -34,6 +34,7 @@ Buyer Checkout / MCP ◀── Configure Stock Policy ◀── Review & Publish
    - Choose **Track quantity** (enter on-hand units $\ge 0$) or **Do not track quantity** (untracked mode). Quantities can be adjusted at any time with versioned conflict protection.
 7. **Configure workshop schedule (services):**
    - For repair and appointment services, open `/seller/schedule` to configure technicians and working hours. Bookings appear automatically in the Bryntum Scheduler.
+8. **Optional: work through your own assistant.** `/seller/assistant` (first item in the seller menu) shows the shop's seller MCP address and the three steps: issue a credential in `/seller/agent-access`, connect your agent to that address, ask in plain words. This is separate from the **Demand assistant** panel on `/seller/dashboard`, which is the built-in AG Studio assistant for questions about demand and cannot change the shop.
 
 ---
 
@@ -49,11 +50,11 @@ A public endpoint for customer-facing assistants (e.g., Claude, ChatGPT) to disc
 - `create_checkout`: Reserve required stock and return a PayPal Orders v2 approval URL.
 - `get_order_status`: Check reconciliation and payment capture status using the capabilities token.
 
-See [Buyer quickstart](docs/buyer-quickstart.md) and [Buyer MCP connector setup](docs/mcp.md) for Claude and ChatGPT connection instructions.
+On the home page, **Connect your assistant** leads to the connector address and the buttons **Connect Claude**, **Connect ChatGPT** and **Connect another agent**, each with three setup steps and a read-only search request. See [Buyer quickstart](docs/buyer-quickstart.md) and [Buyer MCP connector setup](docs/mcp.md) for the same instructions and the recorded client results.
 
 ### 2. Seller Agent MCP (`POST /mcp/seller/`)
 A protected management surface for the shop owner's autonomous agent (such as Claude Code):
-- Requires a shop-scoped Bearer token created by the owner under `/seller/agent-access`.
+- Requires a Bearer credential issued by the owner under `/seller/agent-access` (**Review and issue credential**); the credential lasts 15 minutes and is revoked with **Revoke credential**. The owner never shares server credentials. PayPal consent is a separate owner step on `/seller/paypal-connection` (**Start sandbox connection**), or a `connect_paypal` credential the owner grants after ticking the data-sharing consent.
 - Supports creating shops, importing price lists, publishing listings, setting inventory policies, and managing stock.
 - Grants can be revoked by the owner at any time. See [Seller agent MCP setup](docs/seller-agent-mcp.md) and [verified rehearsal guide](docs/seller-agent-rehearsal.md).
 
@@ -82,6 +83,6 @@ Open <http://localhost:3000>. Keep secrets in `.env.local` or your deployment se
 - **Hosting:** Deployed on Render web services with managed PostgreSQL. Pushes to `main` trigger CI, which validates linting, tests, and build before invoking the Render Deploy Hook for the exact commit SHA.
 - **Environment:** Operates strictly within **PayPal Sandbox**. Real credit cards, live banking, and production merchant accounts are out of scope.
 - **Payments:** Payment amounts route directly to seller accounts via Orders v2 `payee`. A human buyer must log in to PayPal to approve payments; agents never charge stored payment methods directly.
-- **Client verification:** Buyer MCP tools are tested via Streamable HTTP; external seller agent MCP is verified with Claude Code CLI (2.1.319). Client interfaces requiring non-standard auth or proprietary protocols are outside the verified boundary.
+- **Client verification:** The buyer MCP has recorded sessions in Claude Code, the Claude desktop app, claude.ai and ChatGPT, with dates, commits and caveats in [MCP status](docs/mcp.md#status); one ChatGPT purchase ended unpaid and a repair booking from ChatGPT is not tested. The seller MCP is verified with Claude Code CLI (2.1.319) only; claude.ai and ChatGPT cannot send its Bearer credential.
 
 [Capabilities matrix](docs/capabilities.md) · [Developer guide](DEVELOP.md) · [Partner integrations](docs/integrations.md) · [Contribution guide](CONTRIBUTING.md) · [Changelog](CHANGELOG.md) · [MIT license](LICENSE)

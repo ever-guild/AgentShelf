@@ -2,6 +2,10 @@
 
 AgentShelf exposes a public buyer MCP connector at `https://<origin>/mcp`. It uses HTTPS and requires no authentication. Use the production origin shown in the app; account or workspace policy may restrict remote connectors.
 
+## From the home page
+
+On the home page, **Connect your assistant** scrolls to the connector section. It shows the connector address with **Copy address** and three buttons: **Connect Claude**, **Connect ChatGPT** and **Connect another agent**. Each opens a dialog with three setup steps for that assistant, a **Copy request** button for the read-only search below, and a line **Buy something in PayPal Sandbox** that reveals the purchase request, the four buying steps and the repair note. For Claude and ChatGPT the dialog also offers **Copy address and open Claude** or **Copy address and open ChatGPT**; neither assistant offers a link that fills its form in, so you still paste the address yourself. Under **Using Claude Code** the Claude dialog shows the command from [Connect Claude Code](#connect-claude-code), and **Connect another agent** shows the settings entry from [Connect another agent](#connect-another-agent) with **Copy settings**.
+
 ## Connect claude.ai
 
 1. In Claude, open **Customize > Connectors** and choose **Add custom connector**. A Team or Enterprise organization owner may need to add it in **Organization settings > Connectors**.
