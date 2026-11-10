@@ -4,6 +4,8 @@ This project has no tagged releases yet, entries describe code present in the cu
 
 ## Unreleased
 
+- Add screenshots of the ChatGPT purchase and the Claude repair booking to the submission draft, in the story and in the gallery list. Refs: #22
+
 - Add two screenshots of the live service to the submission draft, embed them in the story and list them for the gallery, and name the phone shop and the tiler in the Inspiration section. Refs: #22
 
 - Add to the submission draft's Inspiration section the four small-business owners the team described the idea to, stated as informal conversations with family and acquaintances. Refs: #22

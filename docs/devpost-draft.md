@@ -47,6 +47,10 @@ This is close to home for us. The father of one of our team members runs TipTop 
 - **Storefront, no assistant.** A person bought a 7.50 EUR cable with the PayPal button on the public shop page.
 - **Three rehearsals on one deployed commit**, with no reset between them, produced six captures. Tracked stock went from 4 to 3 after a paid order, and a paid booking appeared in the workshop's schedule as confirmed: "Deposit of 20.00 EUR paid, 69.00 EUR due at the shop".
 
+![ChatGPT reporting a paid 14.00 EUR order through the AgentShelf connector](https://raw.githubusercontent.com/ever-guild/AgentShelf/main/docs/images/submission/chatgpt-purchase.png)
+
+![Claude holding a repair slot, returning the PayPal deposit link, and confirming the paid booking](https://raw.githubusercontent.com/ever-guild/AgentShelf/main/docs/images/submission/claude-booking.png)
+
 ![The public shop page of the rehearsal workshop, with products in stock and repairs booked through an assistant](https://raw.githubusercontent.com/ever-guild/AgentShelf/main/docs/images/submission/storefront.png)
 
 ### How we built it
@@ -109,19 +113,14 @@ The repository's first commit is dated 2026-11-05, so the work was started withi
 
 ## Gallery images
 
-Devpost shows gallery images at a 3:2 ratio. The two files below are 1920 by 1290 and were captured from the live service on 2026-11-10. The same two pictures are embedded in the story above through their `main` URLs, so they must stay at these paths.
+Devpost shows gallery images at a 3:2 ratio. The two product pictures are 1920 by 1290, captured from the live service on 2026-11-10. The two chat pictures are 800 wide, captured the same day from the shared conversations of the runs, cropped to the assistant's answer with no account name in frame. All four are embedded in the story above through their `main` URLs, so they must stay at these paths.
 
 | Picture | File | Caption for the gallery |
 | --- | --- | --- |
 | <img src="images/submission/home.png" alt="AgentShelf home page" width="360"> | [`home.png`](images/submission/home.png) | A price list becomes a catalog that a buyer's assistant can search and order from |
 | <img src="images/submission/storefront.png" alt="Public shop page of Liepāja Phone Workshop" width="360"> | [`storefront.png`](images/submission/storefront.png) | The public shop page: products with PayPal buttons, repairs booked through an assistant |
-
-Still to add by the person who ran them, from their own signed-in windows with the account name cropped out:
-
-- The ChatGPT purchase ending in "Payment confirmed" (14.00 EUR silicone case).
-- The Claude repair booking ending in payment `paid`, booking `confirmed` (20 EUR deposit).
-
-A signed-out capture of the shared ChatGPT conversation does not render the assistant's answers, so these two cannot be taken from the share links.
+| <img src="images/submission/chatgpt-purchase.png" alt="ChatGPT reporting a paid order" width="360"> | [`chatgpt-purchase.png`](images/submission/chatgpt-purchase.png) | ChatGPT, through the AgentShelf connector: a 14.00 EUR order approved by a person in PayPal, status paid |
+| <img src="images/submission/claude-booking.png" alt="Claude booking a repair slot and confirming the paid deposit" width="360"> | [`claude-booking.png`](images/submission/claude-booking.png) | Claude holds a repair slot, returns the PayPal deposit link and confirms the paid booking |
 
 ## Built with
 
