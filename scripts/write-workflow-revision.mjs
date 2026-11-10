@@ -9,11 +9,11 @@ const FULL_COMMIT = /^[0-9a-f]{40}$/i;
 export function writeWorkflowRevisionArtifact({ cwd = process.cwd(), readHead } = {}) {
   let revision;
   try {
-  revision = (readHead ?? (() => execFileSync("git", ["rev-parse", "HEAD"], {
-      cwd,
-      encoding: "utf8",
-      stdio: ["ignore", "pipe", "ignore"],
-    })))().trim().toLowerCase();
+    revision = (readHead ?? (() => execFileSync("git", ["rev-parse", "HEAD"], {
+        cwd,
+        encoding: "utf8",
+        stdio: ["ignore", "pipe", "ignore"],
+      })))().trim().toLowerCase();
   } catch {
     throw new Error("Cannot stamp workflow build: Git HEAD is unavailable.");
   }
