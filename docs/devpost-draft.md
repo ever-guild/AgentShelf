@@ -2,7 +2,7 @@
 
 Copy-ready text for the [PayPal AI Hackathon](https://paypalaihackathon.devpost.com/) entry, for [#22](https://github.com/ever-guild/AgentShelf/issues/22). Each section below can be pasted into the matching Devpost field. The Devpost form needs a login and its exact fields were not seen, so the representative maps these sections to the form.
 
-Last checked against `main` `11f634e` on 2026-11-10. The hosted checks below remain dated to their actual revisions; the final `11f634e` Channel3 validation was an SSR replay, not a live browser interaction. Rules read on 2026-11-10: [rules](https://paypalaihackathon.devpost.com/rules). Deadline: Nov 12, 2026 12:00 pm PST (20:00 UTC). The internal team target may be earlier.
+Last checked against `main` and Render live at `11f634e` on 2026-11-10. [CI run 42755300614](https://github.com/ever-guild/AgentShelf/actions/runs/42755300614) passed lint, the full suite (1,845 tests), production build and deploy. The hosted checks below remain dated to their actual revisions. Rules read on 2026-11-10: [rules](https://paypalaihackathon.devpost.com/rules). Deadline: Nov 12, 2026 12:00 pm PST (20:00 UTC). The internal team target may be earlier.
 
 ## Name
 
@@ -72,7 +72,7 @@ TypeScript, Next.js 16, React, PostgreSQL (Drizzle migrations), MCP TypeScript S
 - **Render:** hosts the web service and PostgreSQL; CI deploys the exact commit. Render Workflows code exists, see the table for its limit.
 - **Bryntum Scheduler** (8.0 Community): repair bookings.
 - **AG Grid's AG Studio:** the seller dashboard and assistant. The team accepted an AG Studio Pro with AI licence through 24 December 2026; see [integration evidence](integrations.md#ag-studio).
-- **Channel3:** real provider API and browser price lookup were verified at `5348463` for [#24](https://github.com/ever-guild/AgentShelf/issues/24); final `11f634e` validation replayed server-rendered markup only.
+- **Channel3:** helps a seller review suggested product specs and reference prices, then explicitly apply a selected price to a catalog item.
 - **APIMatic Context Plugin:** used while writing PayPal Server SDK client code ([docs/integrations.md](integrations.md)).
 - **Postman:** the smoke collection in [docs/postman](postman/README.md) was verified with Newman: 10 requests and 20 assertions passed ([#20](https://github.com/ever-guild/AgentShelf/issues/20)).
 
@@ -110,7 +110,7 @@ PayPal Agent Toolkit, Elastic, Zapier, KERNEL, Astropods.
 | Demand insights | Rehearsals and issue 48 comment: unmet-demand notes written by `gpt-6-astra` | PASS 2026-11-09 |
 | Seller MCP | [Claude Code session](seller-agent-rehearsal.md#external-claude-code-session): Claude Code 2.1.319 created a shop, imported, reviewed and published a price list and set stock, deployed demo `0c8e262`, 8 Nov | PASS 2026-11-08. Claude Code only; no PayPal step in that run |
 | Render Workflows | Code and CI delivery on main ([render-workflows.md](render-workflows.md)); hosted activation remains gated by [#55](https://github.com/ever-guild/AgentShelf/issues/55) and hosting continuity by [#56](https://github.com/ever-guild/AgentShelf/issues/56) | LIMIT: hosted service is not enabled for Workflows; no hosted workflow or photo run verified |
-| Channel3 catalog enrichment | Real provider API and browser price lookup verified at `5348463`; issue [#24](https://github.com/ever-guild/AgentShelf/issues/24#issuecomment-6759013324) closed. Final `11f634e` replay checked server-rendered markup only | PASS for the cited provider/browser run; the final revision has no live browser interaction proof |
+| Channel3 catalog enrichment | Real provider API and local browser price lookup verified at `5348463`; issue [#24](https://github.com/ever-guild/AgentShelf/issues/24#issuecomment-6759013324) closed. On `11f634e`, SSR checked selected-attribute rendering, full CI [42755300614](https://github.com/ever-guild/AgentShelf/actions/runs/42755300614) passed 1,845 tests/build/deploy, and live health matched the SHA | PASS for the cited API/browser run and final CI/live checks; a final-revision browser interaction remains inconclusive |
 | claude.ai connector | Steps in [docs/mcp.md](mcp.md) | NOT_RUN |
 | ChatGPT connector | Steps in [docs/mcp.md](mcp.md) | NOT_RUN |
 | Storefront JS SDK v6 buttons | Implemented in `src/app/shops/buy-flow.ts` | NOT_RUN with a human Sandbox buyer |

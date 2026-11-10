@@ -6,7 +6,7 @@ This project has no tagged releases yet, entries describe code present in the cu
 
 - Clarify the evidence-level definitions and update ChatGPT plugin installation steps from current documentation. Refs: #19
 
-- Refresh the submission draft against `11f634e`, retain historical `198bc1f` checks as dated evidence, and cite verified Newman and Channel3 results with their remaining limits. Refs: #22
+- Refresh the submission draft against `11f634e`, retain historical `198bc1f` checks, and cite Newman, Channel3 browser/API evidence, full CI and live health while preserving the final browser-check limit. Refs: #22
 
 - Align the capability and partner evidence matrix with dated hosted checks, mutating rehearsals, the verified AG Studio licence, and the unresolved hosted Workflow gate. Refs: #19
 
