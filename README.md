@@ -18,7 +18,7 @@ Buyer Checkout / MCP ◀── Configure Stock Policy ◀── Review & Publish
 ```
 
 1. **Sign in or register:**
-   - The **Sign in** link on the home page opens the shop access-code form. Use **Sign in with an owner account** or **Register a shop** below it, or go straight to [owner sign-in](https://agentshelf-e5bk.onrender.com/seller/owner-sign-in) (**Log in with PayPal** or username and password) or [Register](https://agentshelf-e5bk.onrender.com/seller/register).
+   - The **Sign in** link on the home page opens the shop access-code form. Use **Sign in with an owner account** or **Register a shop** below it, or go straight to [owner sign-in](https://agentshelf-e5bk.onrender.com/seller/owner-sign-in) (**Log in with PayPal**, or username and password under **Other sign-in options**) or [Register](https://agentshelf-e5bk.onrender.com/seller/register).
    - Enter your shop details (name, currency, timezone, location), then select the shop. You land on `/seller/assistant`.
 2. **Connect your PayPal merchant account:**
    - Navigate to `/seller/paypal-connection` to grant AgentShelf platform permission to route customer payments directly to your PayPal account.
