@@ -82,7 +82,7 @@ claude --mcp-config ./agentshelf-buyer.json --strict-mcp-config
 1. Go to [ChatGPT Plugins](https://chatgpt.com/plugins), select the plus button, then **Add custom MCP server**.
 2. Enter a name and description, and under **Connection** enter `https://agentshelf-e5bk.onrender.com/mcp`.
 3. Set authentication to **No authentication**, review the warning and confirm, then select **Create as a plugin**.
-4. Review the discovered tools. In a new conversation, type `@`, select the plugin and ask the same question.
+4. Select **Install plugin**. In a new conversation, type `@`, select the installed plugin and ask the same question.
 5. After a server change, select **Refresh** on the connection and start a new conversation.
 
 Vendor documentation, not tested here: [ChatGPT honours `readOnlyHint`](https://developers.openai.com/api/docs/guides/custom-mcp-server) and treats a tool without that hint as a write action, and write actions require confirmation by default. `search_products`, `get_slots` and `get_order_status` are marked read-only, `create_checkout` and `book_slot` are marked as writes.
