@@ -1,5 +1,4 @@
-export type Assistant = "claude" | "chatgpt";
-export type ClaudeMode = "web" | "cli";
+export type Assistant = "claude" | "chatgpt" | "agent";
 export type CopyState = "idle" | "copied" | "selected" | "failed";
 
 export const COPY_STATUS_TEXT: Record<CopyState, string> = {
@@ -25,26 +24,23 @@ export interface ConnectStep {
   detail: string;
 }
 
+// Three steps for each assistant: where to go, what to enter, how to use it in a chat.
 export const CLAUDE_AI_STEPS: ConnectStep[] = [
   {
     number: 1,
-    title: "Open Customize",
-    detail: "In claude.ai, open Customize, then Connectors.",
+    title: "Open Connectors",
+    detail: "In claude.ai, open Customize, then Connectors",
   },
   {
     number: 2,
-    title: "Add Custom Connector",
-    detail: "Click Add custom connector. Team or Enterprise workspaces may require an organization owner to add it.",
+    title: "Add custom connector",
+    detail:
+      "Name it AgentShelf Buyer, paste the address ending in /mcp and choose No sign-in. In a Team or Enterprise workspace an owner may have to add it.",
   },
   {
     number: 3,
-    title: "Enter MCP Server Details",
-    detail: "Name: AgentShelf Buyer · URL: your connector address · Authentication: No sign-in. Public MCP URL must end in /mcp.",
-  },
-  {
-    number: 4,
-    title: "Enable in Chat",
-    detail: "In any chat, click the + button, open Connectors, and toggle on AgentShelf Buyer.",
+    title: "Switch it on in a chat",
+    detail: "Press +, open Connectors and switch on AgentShelf Buyer",
   },
 ];
 
@@ -52,24 +48,50 @@ export const CHATGPT_STEPS: ConnectStep[] = [
   {
     number: 1,
     title: "Open Plugins",
-    detail: "Open ChatGPT Plugins.",
+    detail: "Open ChatGPT Plugins and click +",
   },
   {
     number: 2,
-    title: "Add Custom MCP Server",
-    detail: "Open ChatGPT Plugins, click +, then choose Add custom MCP server. Account or workspace policy may restrict access.",
+    title: "Add custom MCP server",
+    detail:
+      "Name it AgentShelf Buyer, paste the address ending in /mcp and choose No authentication. Your account or workspace may restrict this.",
   },
   {
     number: 3,
-    title: "Enter MCP Server Details",
-    detail: "Name: AgentShelf Buyer · URL: your connector address ending in /mcp · Authentication: No authentication.",
-  },
-  {
-    number: 4,
-    title: "Select in Chat",
-    detail: "Create as a plugin, install it, start a new chat, type @, and select the installed AgentShelf Buyer plugin.",
+    title: "Pick it in a chat",
+    detail: "Create as a plugin, install it, start a new chat, type @ and pick AgentShelf Buyer",
   },
 ];
+
+// Any other agent that can use a remote MCP server.
+export const AGENT_STEPS: ConnectStep[] = [
+  {
+    number: 1,
+    title: "Add a remote MCP server",
+    detail: "In your agent’s settings, add a server and choose Streamable HTTP",
+  },
+  {
+    number: 2,
+    title: "Paste the address",
+    detail: "It needs no authentication, token or API key",
+  },
+  {
+    number: 3,
+    title: "Check the tools",
+    detail: "It lists search_products, get_slots, book_slot, create_checkout and get_order_status",
+  },
+];
+
+export const STEPS_BY_ASSISTANT: Record<Assistant, ConnectStep[]> = {
+  claude: CLAUDE_AI_STEPS,
+  chatgpt: CHATGPT_STEPS,
+  agent: AGENT_STEPS,
+};
+
+// A server entry in the shape many agents read from their settings file.
+export function getAgentConfig(address: string): string {
+  return JSON.stringify({ mcpServers: { agentshelf: { type: "http", url: address } } }, null, 2);
+}
 
 export interface PurchaseFlowStep {
   number: number;

@@ -304,7 +304,7 @@ export function ScheduleBoard({
             <button type="button" className={button} onClick={() => goTo(shiftDate(requestedDate, 1))}>
               Next day
             </button>
-            <DatePicker date={requestedDate} onPick={goTo} />
+            <DatePicker date={requestedDate} today={view.today} onPick={goTo} />
           </nav>
 
           <RefreshLine
@@ -442,33 +442,140 @@ export function ScheduleBoard({
   );
 }
 
-// Typing a year passes through dates like 0002-11-09, which are not days to navigate to, so this
-// leaves the field alone until what is typed can be shown.
-function DatePicker({ date, onPick }: { date: string; onPick: (date: string) => void }) {
-  const input = useRef<HTMLInputElement>(null);
+const WEEKDAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
+const FIRST_MONTH = "2000-01";
+const LAST_MONTH = "2099-12";
+const monthName = new Intl.DateTimeFormat("en-GB", { month: "long", year: "numeric", timeZone: "UTC" });
+const pickedDate = new Intl.DateTimeFormat("en-GB", { dateStyle: "medium", timeZone: "UTC" });
+
+// Dates here are the shop's calendar days, so every step is done in UTC and no time zone moves a day.
+function shiftMonth(month: string, by: number): string {
+  const [year = 2000, index = 1] = month.split("-").map(Number);
+  return new Date(Date.UTC(year, index - 1 + by, 1)).toISOString().slice(0, 7);
+}
+
+function daysOf(month: string): { blanks: number; days: string[] } {
+  const [year = 2000, index = 1] = month.split("-").map(Number);
+  const count = new Date(Date.UTC(year, index, 0)).getUTCDate();
+  // Weeks start on Monday, as they do where the demo shops are.
+  const blanks = (new Date(Date.UTC(year, index - 1, 1)).getUTCDay() + 6) % 7;
+  return {
+    blanks,
+    days: Array.from({ length: count }, (_, day) => `${month}-${String(day + 1).padStart(2, "0")}`),
+  };
+}
+
+// The page's own calendar, so the day is picked in the page's language and colors on every system.
+function DatePicker({ date, today, onPick }: { date: string; today: string; onPick: (date: string) => void }) {
+  const [open, setOpen] = useState(false);
+  const [month, setMonth] = useState(date.slice(0, 7));
+  const root = useRef<HTMLDivElement>(null);
+
   useEffect(() => {
-    if (input.current) {
-      input.current.value = date;
+    if (!open) return;
+    function onDown(event: MouseEvent) {
+      if (!root.current?.contains(event.target as Node)) setOpen(false);
     }
-  }, [date]);
+    function onKey(event: KeyboardEvent) {
+      if (event.key === "Escape") setOpen(false);
+    }
+    document.addEventListener("mousedown", onDown);
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("mousedown", onDown);
+      document.removeEventListener("keydown", onKey);
+    };
+  }, [open]);
+
+  const { blanks, days } = daysOf(month);
+  const step =
+    "inline-flex size-9 items-center justify-center rounded-lg transition-colors hover:bg-zinc-100 disabled:opacity-40 dark:hover:bg-zinc-800";
+
   return (
-    <label className={`flex items-center gap-2 text-sm ${SECONDARY_TEXT}`}>
-      Go to
-      <input
-        ref={input}
-        type="date"
-        defaultValue={date}
-        min="2000-01-01"
-        max="2099-12-31"
-        onChange={(event) => {
-          const picked = event.target.value;
-          if (picked >= "2000-01-01" && picked <= "2099-12-31") {
-            onPick(picked);
-          }
+    <div ref={root} className={`relative flex items-center gap-2 text-sm ${SECONDARY_TEXT}`}>
+      <span id="go-to-label">Go to</span>
+      <button
+        type="button"
+        aria-haspopup="dialog"
+        aria-expanded={open}
+        aria-labelledby="go-to-label go-to-value"
+        onClick={() => {
+          // The calendar always opens on the month of the day being shown.
+          setMonth(date.slice(0, 7));
+          setOpen((current) => !current);
         }}
-        className="h-10 rounded-lg border border-zinc-300 bg-transparent px-2 text-base text-foreground tabular-nums sm:h-9 sm:text-sm dark:border-zinc-700"
-      />
-    </label>
+        className="inline-flex h-10 items-center rounded-lg border border-zinc-300 px-3 text-base text-foreground tabular-nums transition-colors hover:bg-zinc-100 sm:h-9 sm:text-sm dark:border-zinc-700 dark:hover:bg-zinc-800"
+      >
+        <span id="go-to-value">{pickedDate.format(new Date(`${date}T00:00:00Z`))}</span>
+      </button>
+      {open ? (
+        <div
+          role="dialog"
+          aria-label="Choose a date"
+          className="absolute top-full left-0 z-20 mt-2 flex w-72 max-w-[calc(100vw-2rem)] flex-col gap-2 rounded-xl border border-zinc-200 bg-background p-3 text-foreground shadow-lg dark:border-zinc-800"
+        >
+          <div className="flex items-center justify-between gap-2">
+            <button
+              type="button"
+              aria-label="Previous month"
+              disabled={month <= FIRST_MONTH}
+              onClick={() => setMonth(shiftMonth(month, -1))}
+              className={step}
+            >
+              <svg aria-hidden="true" viewBox="0 0 16 16" className="size-4" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M10 3 5 8l5 5" />
+              </svg>
+            </button>
+            <p aria-live="polite" className="font-medium">
+              {monthName.format(new Date(`${month}-01T00:00:00Z`))}
+            </p>
+            <button
+              type="button"
+              aria-label="Next month"
+              disabled={month >= LAST_MONTH}
+              onClick={() => setMonth(shiftMonth(month, 1))}
+              className={step}
+            >
+              <svg aria-hidden="true" viewBox="0 0 16 16" className="size-4" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+                <path d="m6 3 5 5-5 5" />
+              </svg>
+            </button>
+          </div>
+          <div className="grid grid-cols-7 text-center tabular-nums">
+            {WEEKDAYS.map((weekday) => (
+              <span key={weekday} className={`py-1 text-xs ${SECONDARY_TEXT}`}>
+                {weekday}
+              </span>
+            ))}
+            {Array.from({ length: blanks }, (_, blank) => (
+              <span key={`blank-${blank}`} />
+            ))}
+            {days.map((day) => {
+              const shown = day === date;
+              return (
+                <button
+                  key={day}
+                  type="button"
+                  aria-pressed={shown}
+                  aria-current={day === today ? "date" : undefined}
+                  onClick={() => {
+                    setOpen(false);
+                    onPick(day);
+                  }}
+                  className={`inline-flex size-9 items-center justify-center justify-self-center rounded-lg transition-colors ${
+                    shown
+                      ? "bg-ink font-medium text-background"
+                      : `hover:bg-zinc-100 dark:hover:bg-zinc-800 ${day === today ? "font-medium text-ink" : ""}`
+                  }`}
+                >
+                  {Number(day.slice(8))}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      ) : null}
+    </div>
   );
 }
 

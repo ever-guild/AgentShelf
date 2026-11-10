@@ -93,16 +93,16 @@ export function BuyerConnectDialog({
         aria-modal="true"
         aria-labelledby="buyer-connect-dialog-title"
         tabIndex={-1}
-        className="relative z-10 flex min-h-0 min-w-0 max-h-[90vh] w-full max-w-3xl flex-col rounded-2xl border border-zinc-200 bg-white shadow-2xl"
+        className="relative z-10 flex min-h-0 min-w-0 max-h-[90vh] w-full max-w-xl flex-col rounded-2xl border border-zinc-200 bg-white shadow-2xl"
       >
         {/* Header */}
         <div className="flex items-center justify-between border-b border-zinc-200 px-6 py-4">
           <div className="flex flex-col gap-0.5">
-            <h2 id="buyer-connect-dialog-title" className="text-lg font-semibold text-zinc-900">
-              Connect Your AI Assistant
+            <h2 id="buyer-connect-dialog-title" className="text-lg font-medium text-zinc-900">
+              Connect your assistant
             </h2>
             <p className="text-xs text-zinc-500">
-              Browse products and authorize PayPal Sandbox checkouts through MCP
+              One connector for every shop, with payments in PayPal Sandbox
             </p>
           </div>
           <button

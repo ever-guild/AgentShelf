@@ -54,7 +54,7 @@ export function ConnectorAddress({ address }: { address: string }) {
         </div>
 
         {/* Dedicated Assistant Connection Buttons */}
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           <button
             type="button"
             onClick={() => setActiveAssistant("claude")}
@@ -68,6 +68,13 @@ export function ConnectorAddress({ address }: { address: string }) {
             className="inline-flex h-9 items-center justify-center rounded-lg border border-zinc-300 bg-white px-3 text-sm font-medium text-zinc-900 transition-colors hover:bg-zinc-100 active:scale-[0.98]"
           >
             Connect ChatGPT
+          </button>
+          <button
+            type="button"
+            onClick={() => setActiveAssistant("agent")}
+            className="inline-flex h-9 items-center justify-center rounded-lg border border-zinc-300 bg-white px-3 text-sm font-medium text-zinc-900 transition-colors hover:bg-zinc-100 active:scale-[0.98]"
+          >
+            Connect another agent
           </button>
         </div>
       </div>
@@ -92,6 +99,9 @@ export function ConnectorAddress({ address }: { address: string }) {
           </p>
           <p className="mt-1">
             <strong>Claude:</strong> Customize → Connectors → Add custom connector
+          </p>
+          <p className="mt-1">
+            <strong>Any other agent:</strong> add a remote MCP server over Streamable HTTP with this address and no authentication
           </p>
           <p className="mt-1">
             <strong>ChatGPT:</strong> Plugins → + → Add custom MCP server → No authentication → Create as plugin → Install → open a new chat and select @AgentShelf Buyer

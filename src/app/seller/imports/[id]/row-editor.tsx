@@ -253,7 +253,7 @@ export function RowEditor({
               key={row.currency ?? ""}
               aria-label={`Currency, ${row.sourceRef}`}
               defaultValue={row.currency ?? ""}
-              className={`w-[4.5rem] flex-none ${controlClass}`}
+              className={`w-[5.5rem] flex-none ${controlClass}`}
               onChange={(event) => save({ currency: event.target.value === "" ? null : event.target.value })}
             >
               <option value="">?</option>

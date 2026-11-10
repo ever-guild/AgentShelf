@@ -7,6 +7,7 @@ import {
   CLAUDE_AI_STEPS,
   COPY_STATUS_TEXT,
   copyToClipboard,
+  getAgentConfig,
   getClaudeCodeCommand,
   PROMPT_PURCHASE,
   PROMPT_SEARCH,
@@ -215,18 +216,18 @@ describe("copyToClipboard fallback logic", () => {
 describe("BuyerConnectGuide Component Rendering", () => {
   const testAddress = "https://example.com/mcp";
 
-  it("renders the 5 required steps and address", () => {
+  it("renders the address, the steps, one request and the purchase details", () => {
     const html = renderToStaticMarkup(
       React.createElement(BuyerConnectGuide, { address: testAddress, initialAssistant: "claude" }),
     );
 
-    expect(html).toContain("MCP Server Address");
+    expect(html).toContain("Connector address");
     expect(html).toContain(testAddress);
-    expect(html).toContain("Public · No login needed");
+    expect(html).toContain("Public, with no sign-in, token or key");
     expect(html).toContain("Connect in Claude");
-    expect(html).toContain("Try Sample Prompts in Chat");
-    expect(html).toContain("How Assistant Buying Works (4-Step Flow)");
-    expect(html).toContain("Services &amp; Repairs Distinction");
+    expect(html).toContain("Then ask");
+    expect(html).toContain("Buy something in PayPal Sandbox");
+    expect(html).toContain("Repairs are booked, not bought");
   });
 
   it("renders both sample prompts with copy buttons", () => {
@@ -236,8 +237,8 @@ describe("BuyerConnectGuide Component Rendering", () => {
 
     expect(html).toContain(PROMPT_SEARCH);
     expect(html).toContain(PROMPT_PURCHASE);
-    expect(html).toContain("Copy prompt");
-    expect(html).toContain("Purchase (Sandbox Checkout)");
+    expect(html).toContain("Copy request");
+    expect(html).toContain("A PayPal approval link is not a payment");
   });
 
   it("renders ChatGPT setup instructions when assistant is chatgpt", () => {
@@ -256,10 +257,24 @@ describe("BuyerConnectGuide Component Rendering", () => {
       React.createElement(BuyerConnectGuide, { address: testAddress, initialAssistant: "claude" }),
     );
 
-    expect(html).toContain("claude.ai (Web)");
-    expect(html).toContain("Claude Code (CLI)");
+    expect(html).toContain("Using Claude Code");
+    expect(html).toContain(getClaudeCodeCommand(testAddress));
     expect(html).toContain("Add custom connector");
     expect(html).toContain("No sign-in");
+  });
+
+  it("renders generic setup for any other agent", () => {
+    const html = renderToStaticMarkup(
+      React.createElement(BuyerConnectGuide, { address: testAddress, initialAssistant: "agent" }),
+    );
+
+    expect(html).toContain("Connect any agent");
+    expect(html).toContain("Streamable HTTP");
+    expect(html).toContain("no authentication, token or API key");
+    expect(html).toContain("get_order_status");
+    expect(JSON.parse(getAgentConfig(testAddress))).toEqual({
+      mcpServers: { agentshelf: { type: "http", url: testAddress } },
+    });
   });
 });
 
@@ -289,7 +304,7 @@ describe("BuyerConnectDialog Component", () => {
     expect(html).toContain('role="dialog"');
     expect(html).toContain('aria-modal="true"');
     expect(html).toContain('aria-labelledby="buyer-connect-dialog-title"');
-    expect(html).toContain("Connect Your AI Assistant");
+    expect(html).toContain("Connect your assistant");
     expect(html).toContain('aria-label="Close dialog"');
     expect(html).toContain("Done");
   });
@@ -305,6 +320,7 @@ describe("ConnectorAddress Component", () => {
     expect(html).toContain("Copy");
     expect(html).toContain("Connect Claude");
     expect(html).toContain("Connect ChatGPT");
+    expect(html).toContain("Connect another agent");
     expect(html).toContain("noscript");
   });
 });

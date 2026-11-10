@@ -25,6 +25,20 @@ The account or workspace must allow custom MCP servers. See OpenAI's [setup guid
 claude mcp add --scope user --transport http AgentShelf https://<origin>/mcp
 ```
 
+## Connect another agent
+
+Any agent that can use a remote MCP server connects the same way: add a server over Streamable HTTP with `https://<origin>/mcp` and no authentication. Many agents read an entry like this from their settings:
+
+```json
+{
+  "mcpServers": {
+    "agentshelf": { "type": "http", "url": "https://<origin>/mcp" }
+  }
+}
+```
+
+The server lists `search_products`, `get_slots`, `book_slot`, `create_checkout` and `get_order_status`. Only the clients in [MCP status](mcp.md#status) have been tested; the key names in the settings entry vary between agents.
+
 ## Try the read-only search
 
 ```text
