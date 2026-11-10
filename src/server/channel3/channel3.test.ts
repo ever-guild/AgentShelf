@@ -529,6 +529,35 @@ describe("Channel3 Catalog Enrichment", () => {
       expect(result.status).toBe("exact_match");
       expect(result.suggestion?.referencePrices[0].amount).toBe("49.99");
     });
+
+    it("includes selected variants as unique aggregated factual attributes", () => {
+      const result = matchChannel3Results({
+        productId: TEST_PRODUCT_ID,
+        productTitle: "Apple iPhone 15 Pro Silicone Case",
+        shopCurrency: "USD",
+        products: [{
+          id: "selected-color-case",
+          title: "Apple iPhone 15 Pro Silicone Case",
+          structured_attributes: { material: ["Silicone", "Cotton"] },
+          variants: {
+            options: [],
+            selected: [
+              { name: "Color", label: "Light Pink" },
+              { name: "Material", label: "silicone" },
+            ],
+          },
+          offers: [],
+        }],
+      });
+
+      expect(result.status).toBe("exact_match");
+      const attributes = result.suggestion!.attributes;
+      expect(attributes).toContainEqual({ name: "Color", value: "Light Pink" });
+      expect(attributes.find((attribute) => attribute.name.toLowerCase() === "material")?.value)
+        .toBe("Silicone, Cotton");
+      expect(new Set(attributes.map((attribute) => attribute.name.toLowerCase())).size)
+        .toBe(attributes.length);
+    });
   });
 
   describe("Spec Extraction & Formatting Utilities", () => {

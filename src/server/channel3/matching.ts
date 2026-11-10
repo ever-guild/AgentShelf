@@ -367,21 +367,45 @@ export function matchChannel3Results(options: MatchChannel3Options): CatalogEnri
   }
 
   // Process attributes
-  const attributes: EnrichmentAttribute[] = [];
-  for (const [key, values] of Object.entries(bestMatch.structured_attributes ?? {})) {
-    for (const value of values) {
-      if (value.trim()) attributes.push({ name: key.slice(0, 100), value: value.trim().slice(0, 500) });
+  const attributeValues = new Map<string, { name: string; values: Map<string, string> }>();
+  function addAttribute(name: string, value: string) {
+    const cleanName = name.trim();
+    const cleanValue = value.trim();
+    if (!cleanName || !cleanValue) return;
+    const key = cleanName.toLowerCase();
+    let attribute = attributeValues.get(key);
+    if (!attribute) {
+      attribute = { name: cleanName.slice(0, 100), values: new Map() };
+      attributeValues.set(key, attribute);
+    }
+    const valueKey = cleanValue.toLowerCase();
+    if (!attribute.values.has(valueKey)) {
+      attribute.values.set(valueKey, cleanValue.slice(0, 500));
     }
   }
 
-  // If attributes empty, populate factual specs
-  if (attributes.length === 0) {
-    if (bestSpecs.brand) attributes.push({ name: "Brand", value: bestSpecs.brand });
-    if (bestSpecs.family) attributes.push({ name: "Device Family", value: bestSpecs.family });
-    if (bestSpecs.variant) attributes.push({ name: "Model", value: bestSpecs.variant });
-    if (bestSpecs.compatibility) attributes.push({ name: "Compatibility", value: bestSpecs.compatibility });
-    if (bestSpecs.category) attributes.push({ name: "Category", value: bestSpecs.category });
+  for (const [key, values] of Object.entries(bestMatch.structured_attributes ?? {})) {
+    for (const value of values) {
+      addAttribute(key, value);
+    }
   }
+  for (const option of bestMatch.variants?.selected ?? []) {
+    addAttribute(option.name, option.label);
+  }
+
+  // If attributes empty, populate factual specs
+  if (attributeValues.size === 0) {
+    if (bestSpecs.brand) addAttribute("Brand", bestSpecs.brand);
+    if (bestSpecs.family) addAttribute("Device Family", bestSpecs.family);
+    if (bestSpecs.variant) addAttribute("Model", bestSpecs.variant);
+    if (bestSpecs.compatibility) addAttribute("Compatibility", bestSpecs.compatibility);
+    if (bestSpecs.category) addAttribute("Category", bestSpecs.category);
+  }
+
+  const attributes: EnrichmentAttribute[] = [...attributeValues.values()].map(({ name, values }) => ({
+    name,
+    value: [...values.values()].join(", ").slice(0, 500),
+  }));
 
   let sourceDomain: string | undefined;
   let sourceUrl: string | undefined;
