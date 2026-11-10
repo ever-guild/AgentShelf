@@ -4,6 +4,8 @@ This project has no tagged releases yet, entries describe code present in the cu
 
 ## Unreleased
 
+- Clip the buyer connection dialog to its rounded corners, so the footer no longer shows square bottom corners.
+
 - Shorten the buyer connection dialog to the address, three steps for the chosen assistant and one search request, with the purchase request, the four buying steps and the repair note behind one line. Add a third choice, `Connect another agent`, for any agent that can use a remote MCP server over Streamable HTTP, with a settings entry to copy. Replace the schedule's system date field with the page's own calendar, in English and in the page's colors on every system, and give every list one closed look with a single chevron.
 
 - Put the owner's own assistant first in the seller screens: a new `/seller/assistant` screen, first in the menu and where a shop sign-in lands, shows the three steps to work through an assistant (issue access, connect to the shop's seller MCP address, ask in plain words) and what stays with the owner. The issued-credential panel in `/seller/agent-access` now shows the address to connect to, the price list and catalog screens carry a one-line example request, and the schedule says that buyers' assistants hold and book its slots. No seller tool, grant rule or screen is removed.
