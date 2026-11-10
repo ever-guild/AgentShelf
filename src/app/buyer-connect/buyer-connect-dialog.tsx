@@ -93,7 +93,7 @@ export function BuyerConnectDialog({
         aria-modal="true"
         aria-labelledby="buyer-connect-dialog-title"
         tabIndex={-1}
-        className="relative z-10 flex max-h-[90vh] w-full max-w-3xl flex-col rounded-2xl border border-zinc-200 bg-white shadow-2xl"
+        className="relative z-10 flex min-h-0 min-w-0 max-h-[90vh] w-full max-w-3xl flex-col rounded-2xl border border-zinc-200 bg-white shadow-2xl"
       >
         {/* Header */}
         <div className="flex items-center justify-between border-b border-zinc-200 px-6 py-4">
@@ -119,7 +119,7 @@ export function BuyerConnectDialog({
         </div>
 
         {/* Content body */}
-        <div className="flex-1 overflow-y-auto px-6 py-6">
+        <div className="min-h-0 flex-1 overflow-y-auto px-4 py-4 sm:px-6 sm:py-6">
           <BuyerConnectGuide
             address={address}
             initialAssistant={initialAssistant}
