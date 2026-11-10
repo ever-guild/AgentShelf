@@ -358,7 +358,7 @@ describe("ProductEnrichment UI states rendering", () => {
     );
     expect(html).toContain('role="region"');
     expect(html).toContain("Apple iPhone 15 Pro Silicone Case with MagSafe");
-    expect(html).toContain("Designed by Apple to complement iPhone 15 Pro");
+    expect(html).not.toContain("Designed by Apple to complement iPhone 15 Pro");
     // Attributes
     expect(html).toContain("Brand");
     expect(html).toContain("Apple");

@@ -1,117 +1,33 @@
-# Channel3 Catalog Enrichment Integration
+# Channel3 catalog suggestions
 
-This document outlines the architecture, API contract, matching rules, and operational setup for Channel3 product data and price comparison enrichment in AgentShelf (Issue [#24](https://github.com/ever-guild/AgentShelf/issues/24)).
+Channel3 can help a seller review reference specifications and retailer offers for a physical catalog product. It is optional; the catalog works when no key is configured. This is an assistive lookup, not SKU verification or automatic catalog enrichment.
 
----
+## Seller flow
 
-## 1. Architectural Principles
+1. In `/seller/catalog`, the seller chooses **Check market specs & price** on a product.
+2. AgentShelf sends the product title to Channel3 and shows suggested attributes, a source link, and returned offers. Provider marketing descriptions and images are not shown or copied.
+3. The seller checks the source listing's exact model and condition. Matching is heuristic and does not verify an exact SKU. A matching label is not proof that the returned item is identical.
+4. Offers in another currency are shown as incomparable; AgentShelf does not convert currencies. Shipping and tax are not verified; check the source listing before applying a price.
+5. The seller may choose **Apply reference price**. This sends only the price through the existing catalog `PATCH`; it does not save automatically when results arrive. The seller's currency, stock, deposit, and publication status are not changed by this action. **Dismiss** leaves the catalog unchanged.
 
-1. **Seller-Controlled Enrichment**:
-   - Channel3 data serves strictly as **reference suggestions**.
-   - Suggestions **never** automatically overwrite product title, description, price, deposit, currency, stock levels, or publication status.
-   - The seller explicitly inspects suggestions and decides whether to apply a reference price or review suggested specifications.
+Channel3 results are short-lived references. Source links are shown for immediate review and are not persisted. AgentShelf does not download, mirror, or publish Channel3 images.
 
-2. **Server-Side Isolation**:
-   - All Channel3 API calls occur strictly on the server (`/src/server/channel3/*` and `/api/seller/catalog/[id]/enrichment`).
-   - The API key (`CHANNEL3_API_KEY`) is never exposed to the client bundle, network payloads, or client logs.
-   - If `CHANNEL3_API_KEY` is not configured, the catalog operates normally without errors (`status: "not_configured"`).
+## Request and safeguards
 
-3. **Content Rights & Image Safety**:
-   - Third-party images from external retailer sites are **not** downloaded, mirrored, or republished without verified intellectual property licenses.
-   - Only factual technical specifications (e.g., brand, model, compatibility, color) and source retailer domain links are presented.
+The server sends `POST https://api.trychannel3.com/v1/search` with `x-api-key` authentication and a JSON body containing the title as `query` and `limit: 5`. The raw HTTP response contains `products`; product offers use `price: { price, currency }`. The key is server-side only and is never included in the browser response.
 
-4. **Zero SDK Bloat**:
-   - Built using Node.js / Web native `fetch` with strict 5-second `AbortSignal.timeout(5000)` and payload size limits. No additional third-party dependencies.
+The adapter limits requests to five results, times out after 5 seconds, and rejects response bodies larger than 1 MiB. The seller endpoint permits 10 lookups per shop per hour when the provider key is configured. Missing configuration, no match, ambiguous match, rate limiting, provider errors, and timeouts leave the catalog available.
 
----
+Matching uses title-derived brand, model, generation, tier, category, and compatibility clues. Brand-only or conflicting variant results are marked ambiguous. These rules reduce obvious mismatches but cannot confirm product identity or item condition; inspect the source before applying a price.
 
-## 2. Channel3 API Specifications
+## Configuration
 
-- **Search Endpoint**: `POST https://api.trychannel3.com/v1/search`
-- **Authentication**: `x-api-key: $CHANNEL3_API_KEY`
-- **Content Type**: `application/json`
-- **Request Body**:
-  ```json
-  {
-    "query": "iPhone 15 Pro Silicone Case",
-    "limit": 5
-  }
-  ```
-- **Response**: the raw HTTP response uses `products: Product[]` and optional `next_page_token`. The Channel3 TypeScript SDK wraps this in a `Page` whose `.data` property contains those products; that SDK wrapper is not the wire response schema.
-- **Response Format**:
-  ```json
-  {
-    "products": [
-      {
-        "id": "prod_123",
-        "title": "Apple iPhone 15 Pro Silicone Case with MagSafe",
-        "description": "Designed by Apple to complement iPhone 15 Pro...",
-        "images": ["https://..."],
-        "offers": [
-          {
-            "domain": "target.com",
-              "price": { "price": 49.0, "currency": "USD" },
-            "availability": "InStock",
-              "url": "https://www.target.com/..."
-          }
-        ]
-      }
-    ]
-  }
-  ```
+For local development, put the key in the ignored `.env.local` file:
 
-The Channel3 API reference defines `ProductOffer.price` as `{ price: number, currency: string }`; the response adapter validates this wire shape and caps response bodies at 1 MiB. Offer URLs are affiliate-tracked and short-lived, so they are used only as immediate source links and are never persisted by AgentShelf. See the [Channel3 API reference](https://raw.githubusercontent.com/channel3-ai/skills/main/skills/channel3-api/references/api-reference.md).
+```dotenv
+CHANNEL3_API_KEY=
+```
 
----
+For Render, the optional GitHub Environment secret `CHANNEL3_API_KEY` is synchronized to the Render web service after CI validation. It is not sent to Render Workflows. If the GitHub secret is absent or blank, the sync skips this setting and leaves any existing Render value untouched. To disable Channel3 on Render, remove the GitHub secret and explicitly remove `CHANNEL3_API_KEY` from the web service environment in Render. See [deployment configuration](deployment.md#environment-variables).
 
-## 3. Matching & Ambiguity Resolution
-
-1. **Brand vs. Model/Variant Discrimination**:
-   - Matching solely by brand is treated as insufficient.
-   - Specific device generations, models, sizes, and compatibility attributes are checked against the seller's catalog item.
-   - If returned results span multiple distinct variants (e.g. iPhone 14 case vs. iPhone 15 Pro case), the response is classified as `ambiguous` with candidate details.
-
-2. **Currency & Variant Comparability**:
-   - Offers are tagged with `isComparableCurrency: boolean`.
-   - If an offer's currency differs from the seller shop's configured currency (e.g., USD vs. EUR), the UI marks the price comparison as incomparable and advises the seller rather than attempting inaccurate automated forex conversion.
-
-3. **Safe Error Handling**:
-   - **Missing Key**: Returns `status: "not_configured"`.
-   - **429 Rate Limit**: Returns `status: "rate_limited"` with retry guidance.
-   - **401/403 Auth**: Returns `status: "provider_error"` ("Channel3 authentication failed").
-   - **Timeout / Network Error**: Returns `status: "provider_error"` ("Channel3 provider unavailable").
-   - **No Results**: Returns `status: "no_match"`.
-
----
-
-## 4. UI States (`product-enrichment.tsx`)
-
-Following the `unslop` design direction and neutral styling:
-- `idle`: Subdued "Check market specs & price" trigger.
-- `loading`: Subtle inline loading notice.
-- `not_configured`: Clean notification that Channel3 is not configured in this environment.
-- `no_match`: Notification that no reference matches were found.
-- `ambiguous`: Review card listing alternative candidates without auto-applying changes.
-- `exact_match`: Verified suggestion card displaying:
-  - Canonical product title & factual specifications.
-  - Retailer offers with domain, price, currency, retrieval timestamp, and external provenance link.
-  - Explicit "Apply reference price" button connected to the existing `PATCH /api/seller/catalog/[id]` contract.
-  - "Dismiss" action.
-- `rate_limited`: Rate limit advisory notice.
-- `provider_error`: Provider connection error notice.
-- `applied`: Confirmation that reference price was applied to the product form.
-
----
-
-## 5. Configuration & Setup
-
-1. **Acquiring Credentials**:
-   - Register at [Channel3 Developer Dashboard](https://trychannel3.com/developers).
-   - Apply the hackathon promo code: `PAYPAL-HACKATHON-2026`.
-   - Generate your API key.
-
-2. **Environment Variable**:
-   ```bash
-   CHANNEL3_API_KEY=ch3_live_...
-   ```
-   Add to `.env.local` for local development or configure in Render environment settings.
+A real-provider acceptance check is separate from fixture-based adapter and UI tests. Do not describe those tests as proof of live Channel3 use.

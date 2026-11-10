@@ -17,7 +17,7 @@ export default function PrivacyPage() {
       <main className="mx-auto flex w-full max-w-3xl flex-1 flex-col gap-8 px-4 py-10 sm:px-8">
         <div className="flex flex-col gap-2">
           <h1 className="text-3xl font-medium tracking-tight">Privacy policy</h1>
-          <p className={quiet}>AgentShelf PayPal Sandbox demo · Updated November 8, 2026</p>
+          <p className={quiet}>AgentShelf PayPal Sandbox demo · Updated November 10, 2026</p>
         </div>
 
         <section className="flex flex-col gap-3">
@@ -31,6 +31,9 @@ export default function PrivacyPage() {
           <h2 className="text-lg font-medium">Services and AI processing</h2>
           <p className={quiet}>
             Render hosts the application and its database. When you use an AI feature, the relevant content may be sent to AI service providers used by AgentShelf or your connected assistant for processing; this can include a price-list photo, catalog text, or search terms. PayPal provides the sign-in button and handles PayPal sign-in, seller approval, and buyer payment. AgentShelf does not ask for PayPal passwords or payment-card details.
+          </p>
+          <p className={quiet}>
+            If a seller chooses <em>Check market specs &amp; price</em> for a catalog product, AgentShelf sends that product’s title to Channel3 to request matching product and offer data. This lookup is optional and runs only after the seller selects it.
           </p>
         </section>
 

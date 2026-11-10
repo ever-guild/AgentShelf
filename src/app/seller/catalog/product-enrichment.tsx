@@ -212,16 +212,11 @@ export function ProductEnrichment({
         <div className="flex items-start justify-between gap-3">
           <div className="min-w-0">
             <span className="text-[11px] font-semibold uppercase tracking-wider text-zinc-500 dark:text-zinc-400">
-              Channel3 Reference Data
+              Channel3 suggestions
             </span>
             <p className="mt-0.5 text-sm font-semibold text-zinc-900 break-words dark:text-zinc-100">
               {suggestion.canonicalTitle}
             </p>
-            {suggestion.description ? (
-              <p className="mt-1 text-xs text-zinc-600 line-clamp-2 dark:text-zinc-400">
-                {suggestion.description}
-              </p>
-            ) : null}
           </div>
           <button
             type="button"
@@ -253,8 +248,13 @@ export function ProductEnrichment({
         {suggestion.referencePrices && suggestion.referencePrices.length > 0 ? (
           <div className="mt-3 border-t border-zinc-200 pt-2 dark:border-zinc-800">
             <span className="text-[11px] font-semibold uppercase tracking-wider text-zinc-500 dark:text-zinc-400">
-              Market Reference Prices
+              Reference offers
             </span>
+            <p className="mt-1 text-xs text-zinc-600 dark:text-zinc-400">
+              Matching is heuristic and does not verify an exact SKU. Shipping, tax, and item
+              condition are not verified. Check the source listing’s model and condition before
+              applying a price.
+            </p>
             <ul className="mt-1.5 space-y-2">
               {suggestion.referencePrices.map((refPrice, idx) => {
                 const comparable = isComparableCurrency(

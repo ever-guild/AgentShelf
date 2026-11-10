@@ -28,10 +28,11 @@ Buyer Checkout / MCP ◀── Configure Stock Policy ◀── Review & Publish
    - CSV parsing is fully deterministic and requires no AI credentials. Photo recognition uses the server-configured AI provider.
 4. **Review and publish:**
    - Review imported rows on `/seller/imports/[id]`, correct titles, prices, categories, or deposit amounts, and click **Publish**.
-5. **Set physical inventory stock policy:**
+5. **Optional product reference lookup:** In `/seller/catalog`, request Channel3 reference specifications and retailer offers, then check the source and choose whether to apply a same-currency price. Results are heuristic suggestions, not exact SKU verification. See [Channel3 catalog suggestions](docs/channel3.md).
+6. **Set physical inventory stock policy:**
    - Open `/seller/catalog`. Newly published physical products are marked **Stock decision required** and fail closed on checkout until a policy is configured.
    - Choose **Track quantity** (enter on-hand units $\ge 0$) or **Do not track quantity** (untracked mode). Quantities can be adjusted at any time with versioned conflict protection.
-6. **Configure workshop schedule (services):**
+7. **Configure workshop schedule (services):**
    - For repair and appointment services, open `/seller/schedule` to configure technicians and working hours. Bookings appear automatically in the Bryntum Scheduler.
 
 ---
