@@ -4,6 +4,8 @@ This project has no tagged releases yet, entries describe code present in the cu
 
 ## Unreleased
 
+- Record the first paid buyer run in claude.ai through the custom connector (10 November, 10.90 EUR, order `paid`) in the capability matrix, MCP status, partner notes, full-run notes and submission draft, with what that run did not cover. Refs: #19
+
 - Replace the default favicon with the AgentShelf mark, an outline letter A with a blue dot on a dark tile, as `icon.svg`, a 16/32/48 `favicon.ico` and a 180px `apple-icon.png`.
 
 - Record the first human Sandbox purchase through the storefront PayPal button (10 November, live `5c4daf9`, 7.50 EUR) in the capability matrix, partner notes, full-run notes and submission draft, with the checks that were not read for that order. Refs: #19

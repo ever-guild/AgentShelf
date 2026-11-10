@@ -37,6 +37,7 @@ Shopping is moving into assistants, and the shops with the least time for techno
 
 **Demonstrated on the hosted service, in PayPal Sandbox**
 
+- In a claude.ai chat with the AgentShelf connector, Claude listed the tools, found a tempered glass for iPhone 14 and created a 10.90 EUR order. A person approved it in PayPal, and the order status read `paid`.
 - An assistant found a tempered glass for iPhone 13 and created a 9.90 EUR order. A person approved it in PayPal, the server captured it, and tracked stock went from 4 to 3.
 - An assistant booked a screen repair with a 20 EUR deposit. After approval the booking appeared in the workshop's schedule as confirmed: "Deposit of 20.00 EUR paid, 69.00 EUR due at the shop".
 - Three rehearsals on one deployed commit, with no reset between them, produced six captures.
@@ -90,11 +91,11 @@ One buyer endpoint over Streamable HTTP with five tools: `search_products`, `get
 
 ### What's next for AgentShelf
 
-Record full purchase runs in the claude.ai and ChatGPT connectors, move photo reading to a background Render Workflow, sync published items to the PayPal catalog, and then try AgentShelf with real workshops.
+Record a full purchase in the ChatGPT connector, move photo reading to a background Render Workflow, sync published items to the PayPal catalog, and then try AgentShelf with real workshops.
 
 ### Verified scope
 
-PayPal Sandbox only, no real money. The assistant client verified end to end is Claude Code. The same public endpoint has setup guides for claude.ai and ChatGPT; full purchase runs in those two clients are not recorded yet. The [capability matrix](https://github.com/ever-guild/AgentShelf/blob/main/docs/capabilities.md) lists every capability with its evidence level, date and commit.
+PayPal Sandbox only, no real money. Full purchases ran through Claude Code and through a claude.ai chat with the custom connector. ChatGPT has a setup guide for the same endpoint; a full purchase there is not recorded yet. The [capability matrix](https://github.com/ever-guild/AgentShelf/blob/main/docs/capabilities.md) lists every capability with its evidence level, date and commit.
 
 ## Significant update during the submission period
 
@@ -113,7 +114,7 @@ In full: TypeScript, Next.js 16, React, PostgreSQL (Drizzle migrations), MCP Typ
 The form asks which model or AI service was used and how.
 
 - **In the product:** the live service uses an OpenAI-compatible provider with model `gpt-6-astra` for price-list photo reading, listing descriptions, search terms, unmet-demand notes and the dashboard assistant. An Anthropic Claude adapter also exists and is used when only an Anthropic key is configured.
-- **As the buyer and the seller agent:** Claude Code acted as a buyer over the public MCP endpoint on 9 Nov and as a seller agent on 8 Nov (see the table).
+- **As the buyer and the seller agent:** Claude Code acted as a buyer over the public MCP endpoint on 9 Nov and as a seller agent on 8 Nov, and Claude in a claude.ai chat acted as a buyer on 10 Nov (see the table).
 - **While building:** AI coding agents and the APIMatic Context Plugin skills for PayPal Server SDK code.
 
 ### Sponsor tools and their evidence
@@ -140,7 +141,7 @@ PayPal Agent Toolkit, Elastic, Zapier, KERNEL, Astropods.
 ## Testing instructions for judges
 
 1. Open the hosted demo and the [README](../README.md) walkthrough. Health check: `/api/health` returns the deployed commit.
-2. Connect an MCP client to `https://agentshelf-e5bk.onrender.com/mcp` with no authentication, following [docs/mcp.md](mcp.md). Claude Code is the verified client. Try "find an iPhone 13 screen protector in Liepaja".
+2. Connect an MCP client to `https://agentshelf-e5bk.onrender.com/mcp` with no authentication, following [docs/mcp.md](mcp.md). Claude Code and claude.ai are the clients that completed a purchase. Try "find an iPhone 13 screen protector in Liepaja".
 3. Payments are PayPal Sandbox only. To approve a payment, use a Sandbox buyer account. The Sandbox buyer credentials are supplied by the representative in the private testing field of the Devpost form and are not in this repository.
 4. Seller side: register an owner at `/seller/register` or sign in with PayPal, then import a CSV at `/seller/imports`.
 
@@ -162,7 +163,7 @@ PayPal Agent Toolkit, Elastic, Zapier, KERNEL, Astropods.
 | Two connected Sandbox merchants | [#35](https://github.com/ever-guild/AgentShelf/issues/35) and the [capability matrix](capabilities.md): two distinct Sandbox merchants connected through Partner Referrals | PASS, Sandbox only |
 | Render Workflows | Code and CI delivery on main ([render-workflows.md](render-workflows.md)); hosted activation remains gated by [#55](https://github.com/ever-guild/AgentShelf/issues/55) and hosting continuity by [#56](https://github.com/ever-guild/AgentShelf/issues/56) | LIMIT: hosted service is not enabled for Workflows; no hosted workflow or photo run verified |
 | Channel3 catalog enrichment | Real provider API and local browser price lookup verified at `5348463`; issue [#24](https://github.com/ever-guild/AgentShelf/issues/24#issuecomment-6759013324) closed. On `11f634e`, SSR checked selected-attribute rendering, full CI [42755300614](https://github.com/ever-guild/AgentShelf/actions/runs/42755300614) passed 1,845 tests/build/deploy, and live health matched the SHA | PASS for the cited API/browser run and final CI/live checks; a final-revision browser interaction remains inconclusive |
-| claude.ai connector | Steps in [docs/mcp.md](mcp.md) | NOT_RUN |
+| claude.ai connector | 10 Nov 2026, order `paid` at 12:10:20 UTC: in a claude.ai chat with the AgentShelf Buyer custom connector a person typed three prompts. Claude listed the five tools, called `search_products` (one match, Tempered glass iPhone 14 at Liepāja Phone Workshop, 10.90 EUR, `available`, matching `full`), called `create_checkout` once (order `3f5873d1…`) and returned the approval link without paying. The person approved 10.90 EUR in PayPal as the Sandbox buyer, and `get_order_status` then reported `paid` ([mcp.md](mcp.md#status)) | PASS 2026-11-10, one session. Live commit `2ea42d6` when the order became paid (its deploy finished at 12:05 UTC; the checkout may have been created on `5c4daf9`, which differs only in docs). LIMIT: transcript supplied by the person who ran it; plan, model and surface not recorded; no booking; stock, dashboard and webhook for this order not read |
 | ChatGPT connector | Steps in [docs/mcp.md](mcp.md) | NOT_RUN |
 | Storefront JS SDK v6 buttons | 10 Nov 2026, about 11:55 UTC, live `5c4daf9`: on the public product page of `liepaja-phone-workshop` the PayPal button created a 7.50 EUR order (`daa49d33…`, USB-C cable 1 m), a person signed in as the Sandbox buyer and approved it, and `/checkout/result` showed "Payment confirmed" and `Paid` ([capabilities.md](capabilities.md)) | PASS 2026-11-10 on `5c4daf9`, one purchase. Button click scripted, sign-in and approval by a person. LIMIT: capture id, stock change, dashboard entry and webhook receipt for this order not read |
 | PayPal Catalog for platform shops | [Release handoff](https://github.com/ever-guild/AgentShelf/issues/19#issuecomment-6751195724): products published in the PayPal-connected rehearsal shop show sync `not_configured`, 9 Nov | OPEN. Cause unconfirmed; PayPal permission for Catalog calls not verified. Listings stay on sale |
@@ -173,11 +174,11 @@ PayPal Agent Toolkit, Elastic, Zapier, KERNEL, Astropods.
 
 - Fix the first gallery caption on the live entry: "eview imported CSV products" should read "Review imported CSV products".
 - Remove the "Current limits" section from the live entry; "Verified scope" above replaces it.
-- If a full purchase is recorded in claude.ai or ChatGPT before submission: add it to [capabilities.md](capabilities.md) with client, date and commit first, then update "Verified scope", "What's next" and the table rows above. Do not edit the entry ahead of the evidence.
+- If a full purchase is recorded in ChatGPT before submission: add it to [capabilities.md](capabilities.md) with client, date and commit first, then update "Verified scope", "What's next" and the table rows above. Do not edit the entry ahead of the evidence.
 
 ## Not ready or not confirmed
 
-- claude.ai and ChatGPT connectors, Catalog sync, Render Workflows hosted run, hosting after 2026-12-05 (#56).
+- ChatGPT connector, a repair booking through claude.ai, Catalog sync, Render Workflows hosted run, hosting after 2026-12-05 (#56).
 - Video: the remaining #21 checks (captions, permissions, sensitive data, content against the delivered candidate).
 - Webhook delivery receipts for the 9 Nov captures remain unread.
 - The APIMatic claim form ([integrations.md](integrations.md#owner-actions)) has not been filed.
