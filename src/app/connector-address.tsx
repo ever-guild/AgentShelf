@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 import {
   BuyerConnectDialog,
@@ -14,6 +14,7 @@ export function ConnectorAddress({ address }: { address: string }) {
   const [state, setState] = useState<CopyState>("idle");
   const [activeAssistant, setActiveAssistant] = useState<Assistant | null>(null);
   const addressRef = useRef<HTMLSpanElement>(null);
+  const closeDialog = useCallback(() => setActiveAssistant(null), []);
 
   useEffect(() => {
     if (state !== "copied") {
@@ -76,7 +77,7 @@ export function ConnectorAddress({ address }: { address: string }) {
         isOpen={activeAssistant !== null}
         initialAssistant={activeAssistant ?? "claude"}
         address={address}
-        onClose={() => setActiveAssistant(null)}
+        onClose={closeDialog}
       />
 
       {/* Static Fallback for no-JS environments */}
@@ -90,10 +91,10 @@ export function ConnectorAddress({ address }: { address: string }) {
             <strong>Claude Code CLI:</strong> <code>claude mcp add --scope user --transport http AgentShelf {address}</code>
           </p>
           <p className="mt-1">
-            <strong>claude.ai:</strong> Profile → Settings → Connectors → Add custom connector (Authentication: No sign-in)
+            <strong>Claude:</strong> Customize → Connectors → Add custom connector
           </p>
           <p className="mt-1">
-            <strong>ChatGPT:</strong> Settings → Apps / Developer mode → Add custom MCP server (Authentication: No authentication)
+            <strong>ChatGPT:</strong> Plugins → + → Add custom MCP server → No authentication → Create as plugin → Install → open a new chat and select @AgentShelf Buyer
           </p>
         </div>
       </noscript>

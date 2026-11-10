@@ -53,15 +53,32 @@ export function BuyerConnectGuide({
     setCopyStatus((prev) => ({ ...prev, [key]: result }));
   }
 
+  function handleAssistantTabKeyDown(event: React.KeyboardEvent<HTMLButtonElement>) {
+    if (!["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) return;
+    const tabs = Array.from(
+      event.currentTarget.parentElement?.querySelectorAll<HTMLButtonElement>('[role="tab"]') ?? [],
+    );
+    if (tabs.length === 0) return;
+    event.preventDefault();
+    const currentIndex = tabs.indexOf(event.currentTarget);
+    const nextIndex = event.key === "Home"
+      ? 0
+      : event.key === "End"
+        ? tabs.length - 1
+        : (currentIndex + (event.key === "ArrowRight" ? 1 : tabs.length - 1)) % tabs.length;
+    tabs[nextIndex]?.focus();
+    setAssistant(nextIndex === 0 ? "claude" : "chatgpt");
+  }
+
   const claudeCodeCommand = getClaudeCodeCommand(address);
 
   return (
     <div className="flex flex-col gap-8 text-zinc-900">
       {/* Assistant Selection Tabs */}
       <div className="flex flex-col gap-2">
-        <label id={`${idPrefix}-assistant-label`} className="text-xs font-medium uppercase tracking-wider text-zinc-500">
+        <p id={`${idPrefix}-assistant-label`} className="text-xs font-medium uppercase tracking-wider text-zinc-500">
           Choose your AI Assistant
-        </label>
+        </p>
         <div
           role="tablist"
           aria-labelledby={`${idPrefix}-assistant-label`}
@@ -74,8 +91,9 @@ export function BuyerConnectGuide({
             aria-selected={assistant === "claude"}
             aria-controls={`${idPrefix}-panel-claude`}
             tabIndex={assistant === "claude" ? 0 : -1}
+            onKeyDown={handleAssistantTabKeyDown}
             onClick={() => setAssistant("claude")}
-            className={`inline-flex items-center justify-center rounded-md px-4 py-2 text-sm font-medium transition-colors ${
+            className={`inline-flex items-center justify-center rounded-md px-4 py-2 text-sm font-medium transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-zinc-900 ${
               assistant === "claude"
                 ? "bg-white text-zinc-900 shadow-xs"
                 : "text-zinc-600 hover:text-zinc-900"
@@ -90,8 +108,9 @@ export function BuyerConnectGuide({
             aria-selected={assistant === "chatgpt"}
             aria-controls={`${idPrefix}-panel-chatgpt`}
             tabIndex={assistant === "chatgpt" ? 0 : -1}
+            onKeyDown={handleAssistantTabKeyDown}
             onClick={() => setAssistant("chatgpt")}
-            className={`inline-flex items-center justify-center rounded-md px-4 py-2 text-sm font-medium transition-colors ${
+            className={`inline-flex items-center justify-center rounded-md px-4 py-2 text-sm font-medium transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-zinc-900 ${
               assistant === "chatgpt"
                 ? "bg-white text-zinc-900 shadow-xs"
                 : "text-zinc-600 hover:text-zinc-900"
@@ -164,8 +183,9 @@ export function BuyerConnectGuide({
             <div className="flex gap-2 border-b border-zinc-200 pb-2">
               <button
                 type="button"
+                aria-pressed={claudeMode === "web"}
                 onClick={() => setClaudeMode("web")}
-                className={`text-xs font-medium pb-1 transition-colors ${
+                className={`text-xs font-medium pb-1 transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-zinc-900 ${
                   claudeMode === "web"
                     ? "border-b-2 border-zinc-900 text-zinc-900"
                     : "text-zinc-500 hover:text-zinc-800"
@@ -175,8 +195,9 @@ export function BuyerConnectGuide({
               </button>
               <button
                 type="button"
+                aria-pressed={claudeMode === "cli"}
                 onClick={() => setClaudeMode("cli")}
-                className={`text-xs font-medium pb-1 transition-colors ${
+                className={`text-xs font-medium pb-1 transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-zinc-900 ${
                   claudeMode === "cli"
                     ? "border-b-2 border-zinc-900 text-zinc-900"
                     : "text-zinc-500 hover:text-zinc-800"

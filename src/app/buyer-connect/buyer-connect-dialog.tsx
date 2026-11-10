@@ -25,12 +25,10 @@ export function BuyerConnectDialog({
   useEffect(() => {
     if (!isOpen) return;
 
-    previousFocusRef.current = document.activeElement as HTMLElement | null;
-
-    // Focus close button on mount
-    const timer = setTimeout(() => {
-      closeButtonRef.current?.focus();
-    }, 50);
+    previousFocusRef.current = document.activeElement instanceof HTMLElement
+      ? document.activeElement
+      : null;
+    closeButtonRef.current?.focus();
 
     const originalOverflow = document.body.style.overflow;
     document.body.style.overflow = "hidden";
@@ -39,14 +37,37 @@ export function BuyerConnectDialog({
       if (e.key === "Escape") {
         e.preventDefault();
         onClose();
+        return;
+      }
+
+      if (e.key !== "Tab") return;
+      const focusable = Array.from(
+        dialogRef.current?.querySelectorAll<HTMLElement>(
+          'a[href], button:not([disabled]), input:not([disabled]):not([type="hidden"]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])',
+        ) ?? [],
+      ).filter((element) => element.tabIndex >= 0 && element.getClientRects().length > 0);
+      const first = focusable[0];
+      const last = focusable.at(-1);
+      if (!first || !last) {
+        e.preventDefault();
+        dialogRef.current?.focus();
+        return;
+      }
+
+      const active = document.activeElement;
+      if (e.shiftKey && (active === first || !dialogRef.current?.contains(active))) {
+        e.preventDefault();
+        last.focus();
+      } else if (!e.shiftKey && (active === last || !dialogRef.current?.contains(active))) {
+        e.preventDefault();
+        first.focus();
       }
     }
 
-    window.addEventListener("keydown", handleKeyDown);
+    document.addEventListener("keydown", handleKeyDown);
     return () => {
-      clearTimeout(timer);
       document.body.style.overflow = originalOverflow;
-      window.removeEventListener("keydown", handleKeyDown);
+      document.removeEventListener("keydown", handleKeyDown);
       previousFocusRef.current?.focus();
     };
   }, [isOpen, onClose]);
@@ -71,6 +92,7 @@ export function BuyerConnectDialog({
         role="dialog"
         aria-modal="true"
         aria-labelledby="buyer-connect-dialog-title"
+        tabIndex={-1}
         className="relative z-10 flex max-h-[90vh] w-full max-w-3xl flex-col rounded-2xl border border-zinc-200 bg-white shadow-2xl"
       >
         {/* Header */}
