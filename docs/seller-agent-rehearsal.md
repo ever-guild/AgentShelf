@@ -66,14 +66,16 @@ Use synthetic data only, API-based fixture creation must be identified separatel
 | Unconnected checkout | No approval URL or order capability | Local negative-checkout PASS at the runtime baseline |
 | Capture and booking | Timely capture, ambiguity, expiry, paid booking replay and late review | Provider-fixture and PostgreSQL suites PASS at the runtime baseline |
 | Per-shop consent UI | Switching shops and successful grant issuance reset acknowledgement | Chrome PASS at [a7c2f62](https://github.com/ever-guild/AgentShelf/commit/a7c2f62ad07136c39f7871b3c4432ceb3e66fccf), including reset after successful issuance |
-| Platform payment webhook | Signature-first verification, identifier agreement, deduplication and revoked-completed order | Run the platform webhook suite on the final revision, real delivery remains unverified |
-| Sandbox seller/payment flow | Two consents, approval, recipient, capture and both webhook subscriptions | Two owner shops ready with different merchants ([#35](https://github.com/ever-guild/AgentShelf/issues/35)); one human-approved EUR 1 checkout captured for the right seller with both platform webhooks verified ([#2](https://github.com/ever-guild/AgentShelf/issues/2)), 8 November 2026. A real Sandbox booking deposit is not yet verified |
-| External seller assistant | Real configured-client session performing seller tools | PASS with Claude Code 2.1.319 on the deployed demo at `0c8e262`, see [below](#external-claude-code-session) |
-| Public deployment | Exact Render live SHA plus health and functional checks | Runtime integrated in main and deployed; record the live SHA from `/api/health` for each later run in [#18](https://github.com/ever-guild/AgentShelf/issues/18) |
+| Platform payment webhook | Signature-first verification, identifier agreement, deduplication and revoked-completed order | Suite `implemented`. Real delivery: one event chain verified on 8 November 2026 for one EUR 1 order ([sandbox proof](paypal-sandbox-proof.md)). Webhook receipts for the 9 November rehearsal captures are not proven; the buyer return captured first and stored receipts were not read |
+| Sandbox seller/payment flow | Two consents, approval, recipient, capture and both webhook subscriptions | Two owner shops ready with different merchants ([#35](https://github.com/ever-guild/AgentShelf/issues/35)); one human-approved EUR 1 checkout captured for the right seller with both platform webhooks verified for that order ([#2](https://github.com/ever-guild/AgentShelf/issues/2)), 8 November 2026. A 20 EUR booking deposit was approved and captured in the 9 November hosted rehearsals on `d908114` ([#18](https://github.com/ever-guild/AgentShelf/issues/18#issuecomment-6751024359)) |
+| External seller assistant | Real configured-client session performing seller tools | `external client verified`: PASS with Claude Code 2.1.319 on the deployed demo at `0c8e262`, 8 November 2026, see [below](#external-claude-code-session). Claude Code only; no PayPal connection, order or capture in that run |
+| Public deployment | Exact Render live SHA plus health and functional checks | Runtime integrated in main. Deployed demo at `0c8e262` for the 8 November Claude Code run; `d908114` for the 9 November rehearsals; `198bc1f` for the read-only check of 10 November ([mcp.md](mcp.md#status)). Record the live SHA from `/api/health` for each later run in [#18](https://github.com/ever-guild/AgentShelf/issues/18) |
 
 For an actual Sandbox rehearsal, follow [Sandbox setup](paypal-sandbox-setup.md), [merchant connection](paypal-merchant-connection.md) and [inventory behavior](inventory-contract.md), use separate subscription IDs for consent revocation and platform payment events
 
 ## External Claude Code session
+
+Evidence level: `external client verified`, Claude Code 2.1.319 only. The "Result" column records what the tool returned; a row that reads `not_configured` is not a pass.
 
 On 8 November 2026 Claude Code 2.1.319 ran the seller scenario against the deployed demo at [`0c8e262`](https://github.com/ever-guild/AgentShelf/commit/0c8e26249c92b97428c01a2816cf22ed15fe7688) in non-interactive sessions (`claude -p --mcp-config --strict-mcp-config`, `http` transport, `Authorization` header from an environment variable). Every tool call below was issued by the client; the owner session and grants came from the documented `/api/seller/identity/*` owner endpoints used by `/seller/agent-access`.
 
@@ -85,7 +87,7 @@ On 8 November 2026 Claude Code 2.1.319 ran the seller scenario against the deplo
 | Shop grant | `read_shop`, `manage_catalog`, `manage_inventory` | 201, five shop tools listed |
 | Import | `seller_import_price_list`, two-row test CSV, called once | `needs_review` |
 | Review | `seller_review_import` `get`, `edit_row` for the missing price, `accept_clean`, `get`, `publish` | Blocker cleared, both rows accepted, `publishedCount: 2` |
-| Catalog | `seller_manage_catalog` `list` | Both products published, PayPal sync `not_configured` |
+| Catalog | `seller_manage_catalog` `list` | Both products published. PayPal Catalog sync showed `not_configured`, which is expected here: this test shop had no PayPal connection (`paymentStatus: "not_configured"` above). It is not a pass and says nothing about platform-connected shops. In code, `not_configured` is written only when no PayPal sender is available at that moment, a PayPal error on send is `failed`, |
 | Stock before policy | `seller_manage_stock` `read` | `NOT_FOUND`, the product had no inventory policy |
 | Stock | `set_mode` tracked 3, `read`, `adjust` -1 with version 0, `read` | 3 at version 0, then 2 at version 1 |
 | Stale version | `adjust` again with version 0 | `CONFLICT`, quantity unchanged |
