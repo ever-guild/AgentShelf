@@ -1,18 +1,19 @@
 export type Assistant = "claude" | "chatgpt";
 export type ClaudeMode = "web" | "cli";
-export type CopyState = "idle" | "copied" | "selected";
+export type CopyState = "idle" | "copied" | "selected" | "failed";
 
 export const COPY_STATUS_TEXT: Record<CopyState, string> = {
   idle: "",
   copied: "Copied",
   selected: "Selected. Press Ctrl or Cmd and C to copy",
+  failed: "Copy failed. Select and copy the text manually",
 };
 
 export const PROMPT_SEARCH =
-  "Find an iPhone 13 screen protector in Liepaja. Use only AgentShelf Buyer; do not search the web or book/order.";
+  "Use only AgentShelf Buyer and call search_products to find an iPhone 13 screen protector in Liepaja. Do not use web search or tools outside AgentShelf Buyer, and do not book, order, or pay.";
 
 export const PROMPT_PURCHASE =
-  "I want to buy the tempered glass for iPhone 13 from Liepāja Phone Workshop for €9.90. Please call create_checkout on AgentShelf Buyer to get my PayPal Sandbox payment link.";
+  "Use only AgentShelf Buyer. First call search_products for an iPhone 13 tempered glass at Liepāja Phone Workshop and show me the current available item, availability, price, and currency. If the result is ambiguous or the current price differs from a price I previously approved, ask me to confirm before checkout. Once I choose a current result, call create_checkout exactly once for that product and quantity 1, then give me its PayPal Sandbox approval link. Do not use web search or tools outside AgentShelf Buyer, do not automatically repeat or create another checkout while payment is pending, and do not claim payment is complete until get_order_status reports paid. After I return from PayPal, check order status.";
 
 export function getClaudeCodeCommand(address: string): string {
   return `claude mcp add --scope user --transport http AgentShelf ${address}`;
@@ -33,12 +34,12 @@ export const CLAUDE_AI_STEPS: ConnectStep[] = [
   {
     number: 2,
     title: "Navigate to Connectors",
-    detail: "Under Customize, select Connectors, then click Add custom connector.",
+    detail: "Under Customize, select Connectors, then click Add custom connector. Team or Enterprise workspaces may require an organization owner to add it.",
   },
   {
     number: 3,
     title: "Enter MCP Server Details",
-    detail: "Name: AgentShelf Buyer · URL: your connector address · Authentication: No sign-in.",
+    detail: "Name: AgentShelf Buyer · URL: your connector address · Authentication: No sign-in. Public MCP URL must end in /mcp.",
   },
   {
     number: 4,
@@ -56,17 +57,17 @@ export const CHATGPT_STEPS: ConnectStep[] = [
   {
     number: 2,
     title: "Add Custom MCP Server",
-    detail: "Go to Apps / Developer mode and click Add custom MCP server.",
+    detail: "Open ChatGPT Plugins, click +, then choose Add custom MCP server. Account or workspace policy may restrict access.",
   },
   {
     number: 3,
     title: "Enter MCP Server Details",
-    detail: "Name: AgentShelf Buyer · URL: your connector address · Authentication: No authentication.",
+    detail: "Name: AgentShelf Buyer · URL: your connector address ending in /mcp · Authentication: No authentication.",
   },
   {
     number: 4,
     title: "Select in Chat",
-    detail: "In any chat, select @AgentShelf from the connector list to enable tools.",
+    detail: "Create as a plugin, install it, start a new chat, type @, and select the installed AgentShelf Buyer plugin.",
   },
 ];
 
@@ -130,36 +131,44 @@ export async function copyToClipboard(
     }
   }
 
-  if (typeof window !== "undefined") {
-    if (targetEl) {
-      const selection = window.getSelection();
-      if (selection) {
-        selection.removeAllRanges();
-        const range = document.createRange();
-        range.selectNodeContents(targetEl);
-        selection.addRange(range);
-      }
-    }
+  if (typeof document === "undefined" || typeof window === "undefined") {
+    return "failed";
+  }
 
+  const selectTarget = (): boolean => {
+    if (!targetEl) return false;
     try {
-      if (typeof document !== "undefined") {
-        const textarea = document.createElement("textarea");
-        textarea.value = text;
-        textarea.setAttribute("readonly", "");
-        textarea.style.position = "absolute";
-        textarea.style.left = "-9999px";
-        document.body.appendChild(textarea);
-        textarea.select();
-        const successful = document.execCommand("copy");
-        document.body.removeChild(textarea);
-        if (successful) {
-          return "copied";
-        }
-      }
+      const selection = window.getSelection();
+      if (!selection) return false;
+      selection.removeAllRanges();
+      const range = document.createRange();
+      range.selectNodeContents(targetEl);
+      selection.addRange(range);
+      return selection.toString() === text;
     } catch {
-      // ignore
+      return false;
+    }
+  };
+
+  let textarea: HTMLTextAreaElement | null = null;
+  try {
+    textarea = document.createElement("textarea");
+    textarea.value = text;
+    textarea.setAttribute("readonly", "");
+    textarea.style.position = "absolute";
+    textarea.style.left = "-9999px";
+    document.body.appendChild(textarea);
+    textarea.select();
+    if (document.execCommand("copy")) return "copied";
+  } catch {
+    // A failed legacy copy may still leave the visible text selectable.
+  } finally {
+    try {
+      textarea?.remove();
+    } catch {
+      // Cleanup must not replace the copy status with an exception.
     }
   }
 
-  return "selected";
+  return selectTarget() ? "selected" : "failed";
 }

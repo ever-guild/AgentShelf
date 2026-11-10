@@ -4,7 +4,7 @@ This project has no tagged releases yet, entries describe code present in the cu
 
 ## Unreleased
 
-- Add interactive Claude and ChatGPT connection actions on the homepage, with copyable MCP connector address, fallback clipboard support, tested search and sandbox checkout prompts, 4-step assistant purchase explanation with human payment approval, and comprehensive buyer quickstart documentation ([docs/buyer-quickstart.md](docs/buyer-quickstart.md)). Refs: #19
+- Add interactive Claude and ChatGPT connection actions on the homepage, with copyable MCP connector address, accurate clipboard fallback states, safe search and Sandbox checkout prompts, human payment approval guidance, and a concise buyer quickstart ([docs/buyer-quickstart.md](docs/buyer-quickstart.md)). Refs: #19
 
 - Restore the six-column capability-matrix structure for Channel3 evidence and limits. Refs: #19
 

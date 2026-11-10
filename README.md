@@ -43,7 +43,7 @@ AgentShelf provides two dedicated Model Context Protocol (MCP) surfaces over Str
 
 ### 1. Buyer MCP (`POST /mcp`)
 A public endpoint for customer-facing assistants (e.g., Claude, ChatGPT) to discover items and create orders across shops without authentication:
-- `search_products`: Multi-language semantic and keyword search across published listings, respecting stock availability.
+- `search_products`: Multi-language SQL full-text search over published listings and AI-indexed search terms, respecting stock availability.
 - `get_slots`: Find available appointment slots for service listings.
 - `book_slot`: Reserve a 15-minute slot and obtain a PayPal deposit approval URL.
 - `create_checkout`: Reserve required stock and return a PayPal Orders v2 approval URL.

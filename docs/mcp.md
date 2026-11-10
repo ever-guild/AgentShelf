@@ -61,7 +61,7 @@ Each `POST` creates its own server and transport and returns JSON. Nothing has t
 
 ## Connect Claude
 
-**Not tested in claude.ai.** These steps follow [Add a connector that isn't in the directory](https://claude.com/docs/connectors/custom/remote-mcp). Claude connects from Anthropic's cloud, so the URL must be publicly reachable over HTTPS. For end-to-end setup, verified prompts, and the 4-step purchase flow, see [AgentShelf Buyer Quickstart](buyer-quickstart.md).
+**Not tested in claude.ai.** These steps follow Anthropic's [custom remote connector instructions](https://claude.com/docs/connectors/custom/add-unlisted). Claude connects from Anthropic's cloud, so the URL must be publicly reachable over HTTPS. For setup and safe sample prompts, see [AgentShelf Buyer Quickstart](buyer-quickstart.md).
 
 1. Go to **Customize > Connectors** and click **Add custom connector**. On Team and Enterprise plans, an Owner adds it under **Organization settings > Connectors**. The Free plan allows one custom connector.
 2. Enter `https://agentshelf-e5bk.onrender.com/mcp`.
@@ -98,10 +98,10 @@ claude --mcp-config ./agentshelf-buyer.json --strict-mcp-config
 
 **Not tested.** No ChatGPT session has connected to this server, and a pass in Claude Code, the MCP Inspector or an SDK client is not evidence for ChatGPT. These steps follow [Connect and test your plugin](https://developers.openai.com/plugins/deploy/connect-chatgpt) and [Custom MCP server guide](https://developers.openai.com/api/docs/guides/custom-mcp-server). Account and workspace policies can restrict custom servers. For end-to-end setup, verified prompts, and the 4-step purchase flow, see [AgentShelf Buyer Quickstart](buyer-quickstart.md).
 
-1. Go to [ChatGPT Plugins](https://chatgpt.com/plugins), select the plus button, then **Add custom MCP server**.
-2. Enter a name and description, and under **Connection** enter `https://agentshelf-e5bk.onrender.com/mcp`.
-3. Set authentication to **No authentication**, review the warning and confirm, then select **Create as a plugin**.
-4. Select **Install plugin**. In a new conversation, type `@`, select the installed plugin and ask the same question.
+1. Open [ChatGPT Plugins](https://chatgpt.com/plugins), click **+**, then choose **Add custom MCP server**.
+2. Set the name to **AgentShelf Buyer** and the connection URL to `https://agentshelf-e5bk.onrender.com/mcp`. Choose **No authentication**.
+3. Review the security notice, choose **Create as a plugin**, then select **Install plugin**.
+4. Start a new conversation, type `@`, select the installed AgentShelf Buyer plugin and try the read-only search prompt in [Buyer Quickstart](buyer-quickstart.md).
 5. After a server change, select **Refresh** on the connection and start a new conversation.
 
 Vendor documentation, not tested here: [ChatGPT honours `readOnlyHint`](https://developers.openai.com/api/docs/guides/custom-mcp-server) and treats a tool without that hint as a write action, and write actions require confirmation by default. `search_products`, `get_slots` and `get_order_status` are marked read-only, `create_checkout` and `book_slot` are marked as writes.
