@@ -101,6 +101,9 @@ async function putValue(fetchImpl, apiKey, key, value, target = WEB_TARGET) {
 
 export async function syncRenderAiEnv({ env, apiKey, fetchImpl = fetch, logger = console }) {
   const desired = readAndValidateConfig(env);
+  const channel3ApiKey = env.CHANNEL3_API_KEY;
+  const hasChannel3ApiKey = typeof channel3ApiKey === "string" && channel3ApiKey.trim() !== "";
+  if (hasChannel3ApiKey) desired.CHANNEL3_API_KEY = channel3ApiKey;
   if (typeof apiKey !== "string" || apiKey.trim() === "") {
     throw new Error("Missing required configuration: RENDER_API_KEY.");
   }
@@ -109,7 +112,8 @@ export async function syncRenderAiEnv({ env, apiKey, fetchImpl = fetch, logger =
   if (workflowId !== undefined && !WORKFLOW_ID_PATTERN.test(workflowId)) {
     throw new Error("RENDER_WORKFLOW_ID is invalid.");
   }
-  const targets = [{ ...WEB_TARGET, keys: KEYS }];
+  const webKeys = hasChannel3ApiKey ? [...KEYS, "CHANNEL3_API_KEY"] : KEYS;
+  const targets = [{ ...WEB_TARGET, keys: webKeys }];
   if (workflowId !== undefined) targets.push({ ...workflowTarget(workflowId), keys: WORKFLOW_KEYS });
 
   // Read all managed values of every target before writing so a read failure never leaves a partial sync.
@@ -141,6 +145,7 @@ export async function syncRenderAiEnv({ env, apiKey, fetchImpl = fetch, logger =
   } else {
     logger.log("Render Workflow not configured; workflow settings not synced.");
   }
+  if (!hasChannel3ApiKey) logger.log("Channel3 API key not supplied; web-service setting skipped.");
   return { changed: web.changed, workflowChanged: workflow ? workflow.changed : [] };
 }
 

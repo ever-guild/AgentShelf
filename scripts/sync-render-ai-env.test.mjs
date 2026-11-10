@@ -111,8 +111,80 @@ describe("syncRenderAiEnv", () => {
     expect(fake.logs).toEqual([
       "Render AI environment already matches GitHub Environment; no updates made.",
       "Render Workflow not configured; workflow settings not synced.",
+      "Channel3 API key not supplied; web-service setting skipped.",
     ]);
     expect(fake.calls.some((call) => call.url.includes("build-sources"))).toBe(false);
+  });
+
+  it("skips an absent optional Channel3 key without touching an existing Render key", async () => {
+    const fake = harness({ ...renderDesired, CHANNEL3_API_KEY: "existing-channel3-key" });
+    const result = await syncRenderAiEnv({ env: desired, apiKey, fetchImpl: fake.fetchImpl, logger: fake.logger });
+    expect(fake.values.get("CHANNEL3_API_KEY")).toBe("existing-channel3-key");
+    expect(fake.calls.some((call) => call.key === "CHANNEL3_API_KEY")).toBe(false);
+    expect(fake.calls.filter((call) => call.method === "PUT")).toHaveLength(0);
+    expect(result.changed).toEqual([]);
+    expect(fake.logs).toContain("Channel3 API key not supplied; web-service setting skipped.");
+  });
+
+  it("syncs a supplied Channel3 key only to the web service and leaves workflow keys unchanged", async () => {
+    const channel3Secret = "channel3-test-secret-never-log";
+    const fake = harness({ ...renderDesired, CHANNEL3_API_KEY: "old-channel3-key" });
+    await syncRenderAiEnv({
+      env: { ...desired, CHANNEL3_API_KEY: channel3Secret, RENDER_WORKFLOW_ID: "wfl-test123" },
+      apiKey,
+      fetchImpl: fake.fetchImpl,
+      logger: fake.logger,
+    });
+    const channel3Calls = fake.calls.filter((call) => call.key === "CHANNEL3_API_KEY");
+    expect(channel3Calls.map((call) => call.method)).toEqual(["GET", "PUT", "GET"]);
+    expect(channel3Calls.every((call) => call.url.startsWith("https://api.render.com/v1/services/srv-dbm8a6e1egvs73bl8d90/env-vars/"))).toBe(true);
+    expect(fake.values.get("CHANNEL3_API_KEY")).toBe(channel3Secret);
+    const workflowCalls = fake.calls.filter((call) => call.url.includes("build-sources"));
+    expect(workflowCalls.map((call) => call.key)).toEqual([
+      "AGENT_SHELF_AI_PROVIDER",
+      "AGENT_SHELF_AI_PROVIDER_BASE_URL",
+      "AGENT_SHELF_AI_PROVIDER_API_KEY",
+      "AGENT_SHELF_AI_PROVIDER",
+      "AGENT_SHELF_AI_PROVIDER_BASE_URL",
+      "AGENT_SHELF_AI_PROVIDER_API_KEY",
+    ]);
+    expect(workflowCalls.some((call) => call.key === "CHANNEL3_API_KEY")).toBe(false);
+    expect(fake.logs.join(" ")).not.toContain(channel3Secret);
+  });
+
+  it("redacts Channel3 key write failures", async () => {
+    const channel3Secret = "channel3-test-secret-never-log";
+    const fake = harness({ ...renderDesired, CHANNEL3_API_KEY: "old-channel3-key" });
+    fake.setFailPutFor("CHANNEL3_API_KEY");
+    await expect(syncRenderAiEnv({
+      env: { ...desired, CHANNEL3_API_KEY: channel3Secret },
+      apiKey,
+      fetchImpl: fake.fetchImpl,
+      logger: fake.logger,
+    })).rejects.toThrow("Render update failed for CHANNEL3_API_KEY (HTTP 500).");
+    expect(fake.logs.join(" ")).not.toContain(channel3Secret);
+  });
+
+  it("treats a blank optional Channel3 key as not supplied", async () => {
+    const fake = harness({ ...renderDesired, CHANNEL3_API_KEY: "existing-channel3-key" });
+    await syncRenderAiEnv({ env: { ...desired, CHANNEL3_API_KEY: "  " }, apiKey, fetchImpl: fake.fetchImpl, logger: fake.logger });
+    expect(fake.values.get("CHANNEL3_API_KEY")).toBe("existing-channel3-key");
+    expect(fake.calls.some((call) => call.key === "CHANNEL3_API_KEY")).toBe(false);
+    expect(fake.logs).toContain("Channel3 API key not supplied; web-service setting skipped.");
+  });
+
+  it("does not rewrite an already matching optional Channel3 key", async () => {
+    const channel3Secret = "channel3-test-secret-never-log";
+    const fake = harness({ ...renderDesired, CHANNEL3_API_KEY: channel3Secret });
+    const result = await syncRenderAiEnv({
+      env: { ...desired, CHANNEL3_API_KEY: channel3Secret },
+      apiKey,
+      fetchImpl: fake.fetchImpl,
+      logger: fake.logger,
+    });
+    expect(result.changed).toEqual([]);
+    expect(fake.calls.some((call) => call.key === "CHANNEL3_API_KEY" && call.method === "PUT")).toBe(false);
+    expect(fake.logs.join(" ")).not.toContain(channel3Secret);
   });
 
   it("does not begin writes if any preflight read fails", async () => {
