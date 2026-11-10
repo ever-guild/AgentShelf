@@ -8,6 +8,8 @@ This project has no tagged releases yet, entries describe code present in the cu
 
 - Rebuild the homepage around both sides working through an assistant: a dark opening band with a scene that plays one sale in three panels (the owner's assistant, the record AgentShelf keeps, the buyer's assistant) on the demo seed's data, a list of what an assistant could get wrong and the rule that prevents it, the four Sandbox payments of 10 November, the price list becoming a catalog, an example day's schedule and missed searches, who can pay, and the connector. Motion plays once and rests in its final state; the design direction records the dark band and the motion rule.
 
+- Include the shop payment-readiness snapshot in buyer product search results so assistants can avoid offering checkout or booking for shops that are not currently ready. This field is not proof of payment. Refs: #19
+
 - Make two statements in the submission draft exact: the import leaves a price that is not a single amount for the seller to fill in, instead of "nothing is guessed", and the price list was imported once, in the first of the three rehearsals. Refs: #22
 
 - Correct the buyer MCP row of the capability matrix, which said both that ChatGPT completed a paid purchase and that ChatGPT is not tested: the untested part is a repair booking from ChatGPT. Refs: #19
