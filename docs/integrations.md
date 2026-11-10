@@ -194,7 +194,7 @@ The current schedule uses Bryntum Community and has no license environment varia
 - The Devpost submission form and the PayPal Discord, both of which need a login.
 - PayPal Catalog sync for platform-connected shops: products showed `not_configured`, cause unconfirmed. In code, `not_configured` is written only when no PayPal sender is available, and a PayPal error on send is `failed`. Partner Referrals requests only `PAYMENT` / `EXPRESS_CHECKOUT`; whether PayPal permits Catalog Products calls under that consent is unverified.
 - For the one storefront-button purchase of 10 November ([capabilities.md](capabilities.md)): the capture id, the stock change, the dashboard entry and the webhook receipt.
-- A paid purchase through the ChatGPT connector (one session connected, searched and created a checkout that ended in `review_required`), and the claude.ai web client as a named surface. One paid product purchase and one paid repair booking ran through the Claude connector on 10 November ([mcp.md](mcp.md#status)).
+- A paid purchase through the ChatGPT connector (one session connected, searched and created a checkout that ended in `review_required`). One paid product purchase (desktop app) and one paid repair booking (claude.ai web client) ran through the Claude connector on 10 November ([mcp.md](mcp.md#status)).
 - PayPal webhook receipts for the 9 November rehearsal captures. Only the 8 November chain for one order is verified ([sandbox proof](paypal-sandbox-proof.md)).
 
 ## Sources
