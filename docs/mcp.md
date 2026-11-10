@@ -4,15 +4,18 @@ One remote connector covering all shops, for [#5](https://github.com/ever-guild/
 
 ## Status
 
-A client is marked working only after a real connection to it. Each row is separate evidence: a script, an SDK client or one assistant does not stand in for another.
+A client is marked working only after a real connection to it. Each row is separate evidence: a script, an SDK client or one assistant does not stand in for another. Levels are defined in [capabilities.md](capabilities.md#evidence-levels).
 
-| Check | Result |
-| --- | --- |
-| `smoke:mcp` and `smoke:demo` against a local production build with the fixture seed | **PASS** on 9 November 2026 at `37fea91`: initialize, list tools, search both demo shops, reject bad input, free repair slots. `create_checkout` on a fixture shop answered `PAYMENT_NOT_CONFIGURED` and created no order |
-| Direct HTTPS JSON-RPC call to the deployed `/mcp` for a PayPal-connected shop | **PASS** on 8 November 2026: one `create_checkout` for EUR 1, approved in PayPal Sandbox by a person, captured for the right seller, and `get_order_status` reported `paid`, see [proof #2](https://github.com/ever-guild/AgentShelf/issues/2). This was a helper script, not an assistant |
-| Claude Code CLI with an `http` server entry for the deployed `/mcp` | Connected and listed the five tools on 8 November 2026; no buyer tool was called |
-| Claude custom connector (claude.ai) | **Not tested** |
-| ChatGPT | **Not tested** |
+| Check | Level | Result |
+| --- | --- | --- |
+| `smoke:mcp` and `smoke:demo` against a local production build with the fixture seed | `locally tested` | **PASS** on 9 November 2026 at `37fea91`: initialize, list tools, search both demo shops, reject bad input, free repair slots. `create_checkout` on a fixture shop answered `PAYMENT_NOT_CONFIGURED` and created no order |
+| Direct HTTPS JSON-RPC call to the deployed `/mcp` for a PayPal-connected shop | `live/read-only verified` (dated hosted run, helper script, no external client); PayPal Sandbox evidence: order approved by a person | **PASS** on 8 November 2026: one `create_checkout` for EUR 1, approved in PayPal Sandbox by a person, captured for the right seller, and `get_order_status` reported `paid`, see [proof #2](https://github.com/ever-guild/AgentShelf/issues/2). This was a helper script, not an assistant |
+| Claude Code CLI with an `http` server entry for the deployed `/mcp` | `external client verified` (Claude Code only) | Connected and listed the five tools on 8 November 2026; no buyer tool was called |
+| Claude Code 2.1.282 with claude-opus-5-5 as the buyer through the public `/mcp` connector | `external client verified` (Claude Code only) | 9 November 2026, 20:51-20:52 UTC: `search_products`, `create_checkout`, a person approved 9.90 EUR as the Sandbox buyer, order `paid`, stock 2 to 1, see [#18 closing checks](https://github.com/ever-guild/AgentShelf/issues/18#issuecomment-6751202970). Claude Code is a CLI client, not claude.ai or ChatGPT |
+| Hosted release rehearsals on `d908114` | `live/read-only verified` (dated hosted rehearsal); PayPal Sandbox captures | 9 November 2026: search `full`, `get_slots` and `book_slot`, a 20 EUR deposit approved and captured, a 9.90 EUR order paid, stock 4 to 3 to 2. See [#18 rehearsal 1](https://github.com/ever-guild/AgentShelf/issues/18#issuecomment-6750920042) and [rehearsals 2 and 3](https://github.com/ever-guild/AgentShelf/issues/18#issuecomment-6751024359) |
+| Read-only check of the hosted service at `198bc1f` | `live/read-only verified` | 10 November 2026, 03:51-03:52 UTC, plain HTTP without an `Origin` header: `GET /api/health` 200 with commit `198bc1f`; `GET /api/health/ready` 200 `ready`; `tools/list` 200 with the five tools; one `search_products` ("iPhone 13 screen protector", Liepaja) 200 with 2 available products, `matching.mode` `full`; one `get_slots` for the demo repair service, 11-13 November, 200 with 68 slots, `truncated: false`, Europe/Riga. No booking, checkout, order or payment was created. It does not show that claude.ai or ChatGPT work |
+| Claude custom connector (claude.ai) | `not tested` | No session has connected. Minimal manual step: the repository owner or a teammate with a claude.ai plan that allows custom connectors follows [Connect Claude](#connect-claude), runs a read-only search, and records client, plan type, date, commit and result. A payment run also needs the human Sandbox buyer |
+| ChatGPT | `not tested` | No session has connected. Minimal manual step: the repository owner or a teammate with a ChatGPT plan that allows custom MCP connectors follows [Connect ChatGPT](#connect-chatgpt), runs a read-only search, and records client, plan type, date, commit and result. A payment run also needs the human Sandbox buyer |
 
 ## Tools
 
@@ -23,7 +26,7 @@ The schemas are in [`src/server/contracts/commerce.ts`](../src/server/contracts/
 | `search_products` | Read-only for the caller | Works across all shops, in English, Latvian and Russian, with deterministic matching and no model call. Records each search as demand, and reports `matching.mode`. See [Search](architecture.md#search) |
 | `create_checkout` | Write | Reserves stock and creates a PayPal sandbox order from the stored cart, then returns its approval link, which is not payment. A shop needs a ready PayPal connection, or legacy demo credentials, otherwise the answer is `PAYMENT_NOT_CONFIGURED` and no order is created. A physical product also needs an explicit stock policy and available units, otherwise `PRODUCT_UNAVAILABLE`. [architecture.md](architecture.md#checkout) lists its errors and when to retry |
 | `get_slots` | Read-only | Lists free appointment times for a service, with exact instants, the shop's timezone and the technician. At most 100 per answer, and `truncated` says when there are more |
-| `book_slot` | Write | Holds a slot for 15 minutes and creates a PayPal sandbox order for the service's deposit, and returns its approval link, which is not payment. The booking is confirmed only after a verified capture. Slots exist only for a shop with a technician and working hours, set up on `/seller/schedule`. The shop must be payment-ready, otherwise booking answers `PAYMENT_NOT_CONFIGURED`. A real Sandbox deposit has not been verified yet; booking setup for a connected workshop is tracked in [#47](https://github.com/ever-guild/AgentShelf/issues/47). [architecture.md](architecture.md#booking) lists its states and errors |
+| `book_slot` | Write | Holds a slot for 15 minutes and creates a PayPal sandbox order for the service's deposit, and returns its approval link, which is not payment. The booking is confirmed only after a verified capture. Slots exist only for a shop with a technician and working hours, set up on `/seller/schedule`. The shop must be payment-ready, otherwise booking answers `PAYMENT_NOT_CONFIGURED`. A 20 EUR Sandbox deposit was approved and captured in the 9 November rehearsals ([#18](https://github.com/ever-guild/AgentShelf/issues/18#issuecomment-6751024359)); booking setup for a connected workshop is tracked in [#47](https://github.com/ever-guild/AgentShelf/issues/47). [architecture.md](architecture.md#booking) lists its states and errors |
 | `get_order_status` | Read-only | Reads one order's stored payment status with the `statusToken` from `create_checkout` or `book_slot`, and for a booking its state, deposit and remaining balance. It never asks PayPal and never changes anything. [architecture.md](architecture.md#payment-reconciliation) explains how an order gets to each status |
 
 A result carries `structuredContent` and the same JSON as text. A failure has `isError: true` and text with a JSON object holding a stable `code`, a `message` that is safe to show, and optional `details`. An input rejected by the schema has `isError: true` and text naming the field. A search with no match is an empty list, not an error.
@@ -58,7 +61,7 @@ Claude's documented limits are about 150,000 characters per tool result and 240 
 
 ### Claude Code
 
-Claude Code 2.1.319 connected to the deployed `/mcp` with this entry and listed the five tools; no buyer tool was called through it. The buyer connector needs no header. Do not reuse a seller grant here.
+Claude Code 2.1.319 connected to the deployed `/mcp` with this entry and listed the five tools on 8 November 2026, and Claude Code 2.1.282 ran a paid buyer flow through it on 9 November 2026 (see Status). The buyer connector needs no header. Do not reuse a seller grant here.
 
 ```json
 {
@@ -82,7 +85,7 @@ claude --mcp-config ./agentshelf-buyer.json --strict-mcp-config
 4. Review the discovered tools. In a new conversation, type `@`, select the plugin and ask the same question.
 5. After a server change, select **Refresh** on the connection and start a new conversation.
 
-[ChatGPT honours `readOnlyHint`](https://developers.openai.com/api/docs/guides/custom-mcp-server): it treats a tool without that hint as a write action, and write actions require confirmation by default. `search_products`, `get_slots` and `get_order_status` are marked read-only, `create_checkout` and `book_slot` are marked as writes.
+Vendor documentation, not tested here: [ChatGPT honours `readOnlyHint`](https://developers.openai.com/api/docs/guides/custom-mcp-server) and treats a tool without that hint as a write action, and write actions require confirmation by default. `search_products`, `get_slots` and `get_order_status` are marked read-only, `create_checkout` and `book_slot` are marked as writes.
 
 Only the buyer connector is offered to ChatGPT. Seller MCP needs a Bearer header, which the documented ChatGPT setup does not provide.
 

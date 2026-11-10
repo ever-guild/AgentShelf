@@ -45,7 +45,7 @@ Errors return a stable `code` with fixed recovery guidance. Service messages, ro
 
 ## Connect Claude Code
 
-Verified with Claude Code 2.1.319 against the deployed demo on 8 November 2026, see [rehearsal evidence](seller-agent-rehearsal.md#external-claude-code-session). Claude Code connects through its `http` (Streamable HTTP) transport with a static `Authorization` header.
+`external client verified` with Claude Code 2.1.319 only, against the deployed demo at commit `0c8e262` on 8 November 2026, see [rehearsal evidence](seller-agent-rehearsal.md#external-claude-code-session). Claude Code connects through its `http` (Streamable HTTP) transport with a static `Authorization` header.
 
 1. Sign in as the owner and open `/seller/agent-access`. Issue an owner-level grant with `create_shop`, copy the token, it is shown once and expires after 15 minutes.
 2. Keep the token in an environment variable and reference it from a private config file outside the repository, so it never appears in a shared config or command line:
@@ -78,8 +78,8 @@ A rejected grant shows as a failed `agentshelf-seller` server in `/mcp` with `AU
 
 | Client | Status |
 | --- | --- |
-| Claude Code with an `http` server entry and an `Authorization` header | **Verified** on the deployed demo, see above |
-| Other MCP clients that send a static `Authorization: Bearer` header over Streamable HTTP | Should work by protocol, **not tested** |
+| Claude Code with an `http` server entry and an `Authorization` header | `external client verified`: Claude Code 2.1.319, deployed demo at `0c8e262`, 8 November 2026, see above |
+| Other MCP clients that send a static `Authorization: Bearer` header over Streamable HTTP | Should work by protocol, `not tested` |
 | ChatGPT | **Not offered.** Its documented custom connector setup uses OAuth or no authentication, and this route accepts only a Bearer grant. There is no OAuth flow for seller MCP |
 | Claude custom connector (claude.ai) | **Not offered** for the same reason |
 
