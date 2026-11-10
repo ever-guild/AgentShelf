@@ -4,6 +4,8 @@ This project has no tagged releases yet, entries describe code present in the cu
 
 ## Unreleased
 
+- Make two statements in the submission draft exact: the import leaves a price that is not a single amount for the seller to fill in, instead of "nothing is guessed", and the price list was imported once, in the first of the three rehearsals. Refs: #22
+
 - Correct the buyer MCP row of the capability matrix, which said both that ChatGPT completed a paid purchase and that ChatGPT is not tested: the untested part is a repair booking from ChatGPT. Refs: #19
 
 - Add screenshots of the ChatGPT purchase and the Claude repair booking to the submission draft, in the story and in the gallery list. Refs: #22

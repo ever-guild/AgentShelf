@@ -30,7 +30,7 @@ This is close to home for us. The father of one of our team members runs TipTop 
 
 **For the shop**
 
-- Photograph a price list or upload a CSV. AI reads the photo into rows, the seller corrects them in a table and publishes. Nothing is guessed: a price written as "from 60 €" or "on request" stays empty for the seller to fill in.
+- Photograph a price list or upload a CSV. AI reads the photo into rows, the seller corrects them in a table and publishes. A price that is not a single amount is left to the seller: one written as "from 60 €" or "on request" stays empty until the seller fills it in.
 - Connect a PayPal account once. Every order names the shop as the payee, so the money goes directly to the seller.
 - See orders, repair bookings and stock in one dashboard, and see **what assistants searched for and did not find**. A workshop that sells screen protectors learns that buyers asked for wireless chargers and leather cases, with AI notes on each group of searches.
 
@@ -45,7 +45,7 @@ This is close to home for us. The father of one of our team members runs TipTop 
 - **ChatGPT, product purchase.** With AgentShelf installed as a custom MCP server, the same three prompts bought a 14.00 EUR silicone case: tools listed, product found, one PayPal order created, approved by a person, status `paid`.
 - **Claude, repair booking.** On claude.ai, Claude listed tomorrow's free repair slots, held 09:00 for an iPhone 13 screen replacement and returned a 20 EUR deposit link. After the person approved it, the status read payment `paid`, booking `confirmed`.
 - **Storefront, no assistant.** A person bought a 7.50 EUR cable with the PayPal button on the public shop page.
-- **Three rehearsals on one deployed commit**, with no reset between them, produced six captures. Tracked stock went from 4 to 3 after a paid order, and a paid booking appeared in the workshop's schedule as confirmed: "Deposit of 20.00 EUR paid, 69.00 EUR due at the shop".
+- **Three rehearsals on one deployed commit**, with no reset between them, produced six captures. The price list was photographed, reviewed and published once, in the first rehearsal; the second and third repeated the booking and the purchase on that catalog. Tracked stock went from 4 to 3 after a paid order, and a paid booking appeared in the workshop's schedule as confirmed: "Deposit of 20.00 EUR paid, 69.00 EUR due at the shop".
 
 ![ChatGPT reporting a paid 14.00 EUR order through the AgentShelf connector](https://raw.githubusercontent.com/ever-guild/AgentShelf/main/docs/images/submission/chatgpt-purchase.png)
 
