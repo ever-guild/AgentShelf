@@ -40,6 +40,7 @@ Shopping is moving into assistants, and the shops with the least time for techno
 - An assistant found a tempered glass for iPhone 13 and created a 9.90 EUR order. A person approved it in PayPal, the server captured it, and tracked stock went from 4 to 3.
 - An assistant booked a screen repair with a 20 EUR deposit. After approval the booking appeared in the workshop's schedule as confirmed: "Deposit of 20.00 EUR paid, 69.00 EUR due at the shop".
 - Three rehearsals on one deployed commit, with no reset between them, produced six captures.
+- A person bought a 7.50 EUR cable with the PayPal button on the public storefront, without an assistant.
 
 ### How we built it
 
@@ -93,7 +94,7 @@ Record full purchase runs in the claude.ai and ChatGPT connectors, move photo re
 
 ### Verified scope
 
-PayPal Sandbox only, no real money. The assistant client verified end to end is Claude Code. The same public endpoint has setup guides for claude.ai and ChatGPT; full purchase runs in those two clients, and a human purchase through the storefront buttons, are not recorded yet. The [capability matrix](https://github.com/ever-guild/AgentShelf/blob/main/docs/capabilities.md) lists every capability with its evidence level, date and commit.
+PayPal Sandbox only, no real money. The assistant client verified end to end is Claude Code. The same public endpoint has setup guides for claude.ai and ChatGPT; full purchase runs in those two clients are not recorded yet. The [capability matrix](https://github.com/ever-guild/AgentShelf/blob/main/docs/capabilities.md) lists every capability with its evidence level, date and commit.
 
 ## Significant update during the submission period
 
@@ -163,7 +164,7 @@ PayPal Agent Toolkit, Elastic, Zapier, KERNEL, Astropods.
 | Channel3 catalog enrichment | Real provider API and local browser price lookup verified at `5348463`; issue [#24](https://github.com/ever-guild/AgentShelf/issues/24#issuecomment-6759013324) closed. On `11f634e`, SSR checked selected-attribute rendering, full CI [42755300614](https://github.com/ever-guild/AgentShelf/actions/runs/42755300614) passed 1,845 tests/build/deploy, and live health matched the SHA | PASS for the cited API/browser run and final CI/live checks; a final-revision browser interaction remains inconclusive |
 | claude.ai connector | Steps in [docs/mcp.md](mcp.md) | NOT_RUN |
 | ChatGPT connector | Steps in [docs/mcp.md](mcp.md) | NOT_RUN |
-| Storefront JS SDK v6 buttons | Implemented in `src/app/shops/buy-flow.ts` | NOT_RUN with a human Sandbox buyer |
+| Storefront JS SDK v6 buttons | 10 Nov 2026, about 11:55 UTC, live `5c4daf9`: on the public product page of `liepaja-phone-workshop` the PayPal button created a 7.50 EUR order (`daa49d33…`, USB-C cable 1 m), a person signed in as the Sandbox buyer and approved it, and `/checkout/result` showed "Payment confirmed" and `Paid` ([capabilities.md](capabilities.md)) | PASS 2026-11-10 on `5c4daf9`, one purchase. Button click scripted, sign-in and approval by a person. LIMIT: capture id, stock change, dashboard entry and webhook receipt for this order not read |
 | PayPal Catalog for platform shops | [Release handoff](https://github.com/ever-guild/AgentShelf/issues/19#issuecomment-6751195724): products published in the PayPal-connected rehearsal shop show sync `not_configured`, 9 Nov | OPEN. Cause unconfirmed; PayPal permission for Catalog calls not verified. Listings stay on sale |
 | Hosting through judging | [#56](https://github.com/ever-guild/AgentShelf/issues/56): free database expires 2026-12-05 19:08 UTC, judging runs 1 to 15 Dec | OPEN. Owner decision pending |
 | Demo video | https://www.youtube.com/watch?v=wm-96MgGBOY: a signed-out request on 2026-11-10 returned the video as public (not private, not unlisted), 138 to 139 s long, published 2026-11-09 | PASS for public visibility and length under 3 minutes. OPEN in [#21](https://github.com/ever-guild/AgentShelf/issues/21): captions, permissions, sensitive-data and content checks. Animated scenes are not evidence of a real client run |
@@ -172,11 +173,11 @@ PayPal Agent Toolkit, Elastic, Zapier, KERNEL, Astropods.
 
 - Fix the first gallery caption on the live entry: "eview imported CSV products" should read "Review imported CSV products".
 - Remove the "Current limits" section from the live entry; "Verified scope" above replaces it.
-- If a full purchase is recorded in claude.ai or ChatGPT, or through the storefront buttons, before submission: add it to [capabilities.md](capabilities.md) with client, date and commit first, then update "Verified scope", "What's next" and the table rows above. Do not edit the entry ahead of the evidence.
+- If a full purchase is recorded in claude.ai or ChatGPT before submission: add it to [capabilities.md](capabilities.md) with client, date and commit first, then update "Verified scope", "What's next" and the table rows above. Do not edit the entry ahead of the evidence.
 
 ## Not ready or not confirmed
 
-- claude.ai and ChatGPT connectors, storefront buttons with a human buyer, Catalog sync, Render Workflows hosted run, hosting after 2026-12-05 (#56).
+- claude.ai and ChatGPT connectors, Catalog sync, Render Workflows hosted run, hosting after 2026-12-05 (#56).
 - Video: the remaining #21 checks (captions, permissions, sensitive data, content against the delivered candidate).
 - Webhook delivery receipts for the 9 Nov captures remain unread.
 - The APIMatic claim form ([integrations.md](integrations.md#owner-actions)) has not been filed.

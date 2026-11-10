@@ -4,6 +4,8 @@ This project has no tagged releases yet, entries describe code present in the cu
 
 ## Unreleased
 
+- Record the first human Sandbox purchase through the storefront PayPal button (10 November, live `5c4daf9`, 7.50 EUR) in the capability matrix, partner notes, full-run notes and submission draft, with the checks that were not read for that order. Refs: #19
+
 - Rewrite the paste-ready submission text around the judging criteria: problem and demonstrated result first, one paragraph per partner tool, open checks reduced to a "Verified scope" paragraph that links to the capability matrix. Record the public video link and length, the live check on `eb41627`, the unused `paypal-agent-toolkit` tag and the unfiled APIMatic claim. Refs: #22
 
 - Add interactive Claude and ChatGPT connection actions on the homepage, with copyable MCP connector address, accurate clipboard fallback states, safe search and Sandbox checkout prompts, human payment approval guidance, and a concise buyer quickstart ([docs/buyer-quickstart.md](docs/buyer-quickstart.md)). Refs: #19

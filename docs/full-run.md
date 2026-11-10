@@ -16,7 +16,7 @@ Not yet run against the real service. Treat these as unverified until a step bel
 - A repair booking with a real Sandbox deposit, and the Bryntum schedule showing it. A connected workshop needs technicians first ([#47](https://github.com/ever-guild/AgentShelf/issues/47)).
 - Reading a real price-list photo with the model, search indexing and demand insights on Render, and the Render Workflows task ([#48](https://github.com/ever-guild/AgentShelf/issues/48)).
 - Claude (claude.ai) and ChatGPT connecting to the buyer `/mcp`.
-- PayPal Catalog Products sync for a platform-connected shop, and the JS SDK v6 storefront button.
+- PayPal Catalog Products sync for a platform-connected shop. The JS SDK v6 storefront button was paid once by a person on 10 November, see [capabilities.md](capabilities.md).
 - AG Studio with a key, including the AI assistant, which needs a key for "AG Studio Pro with AI".
 - The screen reader and keyboard passes.
 

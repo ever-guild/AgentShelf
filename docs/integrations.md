@@ -193,7 +193,7 @@ The current schedule uses Bryntum Community and has no license environment varia
 - Builds on Linux with the partner packages. The repository's own build runs on Linux in CI.
 - The Devpost submission form and the PayPal Discord, both of which need a login.
 - PayPal Catalog sync for platform-connected shops: products showed `not_configured`, cause unconfirmed. In code, `not_configured` is written only when no PayPal sender is available, and a PayPal error on send is `failed`. Partner Referrals requests only `PAYMENT` / `EXPRESS_CHECKOUT`; whether PayPal permits Catalog Products calls under that consent is unverified.
-- Storefront PayPal JS SDK buttons with a human Sandbox purchase.
+- For the one storefront-button purchase of 10 November ([capabilities.md](capabilities.md)): the capture id, the stock change, the dashboard entry and the webhook receipt.
 - claude.ai and ChatGPT connectors ([mcp.md](mcp.md#status)).
 - PayPal webhook receipts for the 9 November rehearsal captures. Only the 8 November chain for one order is verified ([sandbox proof](paypal-sandbox-proof.md)).
 
