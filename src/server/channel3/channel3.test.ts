@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { enrichCatalogProduct } from "./client";
-import { extractSpecs, formatAmount, isValidUrl as requireIsValidUrl, matchChannel3Results } from "./matching";
+import { extractSpecs, formatAmount, getDomain, isValidUrl as requireIsValidUrl, matchChannel3Results } from "./matching";
 import type { Channel3Product } from "./types";
 
 const TEST_PRODUCT_ID = "11111111-1111-4111-a111-111111111111";
@@ -436,6 +436,34 @@ describe("Channel3 Catalog Enrichment", () => {
       expect(missingTier.suggestion).toBeUndefined();
     });
 
+    it("keeps one fully verified product despite a compatible generic neighbor", () => {
+      const result = matchChannel3Results({
+        productId: TEST_PRODUCT_ID,
+        productTitle: "Apple iPhone 15 Pro Max Silicone Case",
+        shopCurrency: "USD",
+        products: [
+          { id: "iphone-15-generic", title: "Apple iPhone 15 Silicone Case", offers: [] },
+          { id: "iphone-15-pro-max", title: "Apple iPhone 15 Pro Max Silicone Case", offers: [] },
+        ],
+      });
+      expect(result.status).toBe("exact_match");
+      expect(result.suggestion?.canonicalTitle).toBe("Apple iPhone 15 Pro Max Silicone Case");
+    });
+
+    it("keeps multiple fully verified product identities ambiguous", () => {
+      const result = matchChannel3Results({
+        productId: TEST_PRODUCT_ID,
+        productTitle: "Apple iPhone 15 Pro Silicone Case",
+        shopCurrency: "USD",
+        products: [
+          { id: "black-case", title: "Apple iPhone 15 Pro Black Silicone Case", offers: [] },
+          { id: "blue-case", title: "Apple iPhone 15 Pro Blue Silicone Case", offers: [] },
+        ],
+      });
+      expect(result.status).toBe("ambiguous");
+      expect(result.suggestion).toBeUndefined();
+    });
+
     it("does not exact-match unrelated titles without a recognized model", () => {
       const unrelated = matchChannel3Results({
         productId: TEST_PRODUCT_ID,
@@ -526,6 +554,12 @@ describe("Channel3 Catalog Enrichment", () => {
       expect(requireIsValidUrl("javascript:alert(1)")).toBe(false);
       expect(requireIsValidUrl("https://user:pass@example.com/item")).toBe(false);
       expect(requireIsValidUrl("data:text/html,hello")).toBe(false);
+    });
+
+    it("uses a validated retailer domain only for Channel3 affiliate redirects", () => {
+      expect(getDomain({ url: "https://buy.trychannel3.com/x", domain: "bestbuy.com" })).toBe("bestbuy.com");
+      expect(getDomain({ url: "https://buy.trychannel3.com/x", domain: "bestbuy.com/evil" })).toBe("buy.trychannel3.com");
+      expect(getDomain({ url: "https://example.test/x", domain: "bestbuy.com" })).toBe("example.test");
     });
 
     it("formats amounts cleanly without floating point precision artifacts", () => {
