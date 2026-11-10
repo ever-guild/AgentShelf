@@ -22,9 +22,11 @@ A phone repair workshop has a paper price list on the wall and an Instagram page
 
 Shopping is moving into assistants, and the shops with the least time for technology are the first to be left out. We wanted the smallest possible step for them: a photo of the price list they already have.
 
-This is close to home for us. The father of one of our team members runs a phone shop in Liepāja, Latvia, the same kind of business as our demo workshop. Before submitting we described AgentShelf to him and to three other people who work for themselves: his business partner in Riga, a self-employed builder in Germany and a key maker in Valga. All four called it a good idea. These were short conversations with family and acquaintances, not a survey. They are still the people this is built for: they sell their time and small jobs as much as goods, and AgentShelf handles both products and bookable services.
+This is close to home for us. The father of one of our team members runs TipTop telefons, a phone shop in Liepāja, Latvia, the same kind of business as our demo workshop. Before submitting we described AgentShelf to him and to three other people who work for themselves: his business partner in Riga, a tiler in Germany who works alone as [SKWildCat](https://skwildcat.me), and a key maker in Valga. All four called it a good idea. These were short conversations with family and acquaintances, not a survey. They are still the people this is built for: they sell their time and small jobs as much as goods, and AgentShelf handles both products and bookable services.
 
 ### What it does
+
+![AgentShelf home page: a price list, the catalog it becomes, and an order through a buyer's assistant](https://raw.githubusercontent.com/ever-guild/AgentShelf/main/docs/images/submission/home.png)
 
 **For the shop**
 
@@ -44,6 +46,8 @@ This is close to home for us. The father of one of our team members runs a phone
 - **Claude, repair booking.** On claude.ai, Claude listed tomorrow's free repair slots, held 09:00 for an iPhone 13 screen replacement and returned a 20 EUR deposit link. After the person approved it, the status read payment `paid`, booking `confirmed`.
 - **Storefront, no assistant.** A person bought a 7.50 EUR cable with the PayPal button on the public shop page.
 - **Three rehearsals on one deployed commit**, with no reset between them, produced six captures. Tracked stock went from 4 to 3 after a paid order, and a paid booking appeared in the workshop's schedule as confirmed: "Deposit of 20.00 EUR paid, 69.00 EUR due at the shop".
+
+![The public shop page of the rehearsal workshop, with products in stock and repairs booked through an assistant](https://raw.githubusercontent.com/ever-guild/AgentShelf/main/docs/images/submission/storefront.png)
 
 ### How we built it
 
@@ -102,6 +106,22 @@ PayPal Sandbox only, no real money. A product purchase and a repair booking with
 ## Significant update during the submission period
 
 The repository's first commit is dated 2026-11-05, so the work was started within the submission period, which began Oct 1, 2026. Everything described here, including the PayPal integration, MCP endpoints, seller onboarding, dashboard and hosted deployment, was built during that period; see the commit history and the [CHANGELOG](../CHANGELOG.md).
+
+## Gallery images
+
+Devpost shows gallery images at a 3:2 ratio. The two files below are 1920 by 1290 and were captured from the live service on 2026-11-10. The same two pictures are embedded in the story above through their `main` URLs, so they must stay at these paths.
+
+| Picture | File | Caption for the gallery |
+| --- | --- | --- |
+| <img src="images/submission/home.png" alt="AgentShelf home page" width="360"> | [`home.png`](images/submission/home.png) | A price list becomes a catalog that a buyer's assistant can search and order from |
+| <img src="images/submission/storefront.png" alt="Public shop page of Liepāja Phone Workshop" width="360"> | [`storefront.png`](images/submission/storefront.png) | The public shop page: products with PayPal buttons, repairs booked through an assistant |
+
+Still to add by the person who ran them, from their own signed-in windows with the account name cropped out:
+
+- The ChatGPT purchase ending in "Payment confirmed" (14.00 EUR silicone case).
+- The Claude repair booking ending in payment `paid`, booking `confirmed` (20 EUR deposit).
+
+A signed-out capture of the shared ChatGPT conversation does not render the assistant's answers, so these two cannot be taken from the share links.
 
 ## Built with
 
@@ -175,8 +195,9 @@ PayPal Agent Toolkit, Elastic, Zapier, KERNEL, Astropods.
 ## Before pasting
 
 - Fix the first gallery caption on the live entry: "eview imported CSV products" should read "Review imported CSV products".
+- Add the pictures from [Gallery images](#gallery-images) to the gallery.
 - Remove the "Current limits" section from the live entry; "Verified scope" above replaces it.
-- The Inspiration paragraph about four conversations rests on the team captain's account of them. It names no person or shop. Add the shop's name only with its owner's consent, and keep the family relationship stated.
+- The Inspiration paragraph about four conversations rests on the team captain's account of them. TipTop telefons is named with its owner's consent, as the captain reports it. SKWildCat is named from its public site; confirm with its owner before submitting, or drop the name. No person is named, and the family relationship stays stated.
 
 ## Not ready or not confirmed
 
