@@ -15,7 +15,7 @@ Not yet run against the real service. Treat these as unverified until a step bel
 
 - A repair booking with a real Sandbox deposit, and the Bryntum schedule showing it. A connected workshop needs technicians first ([#47](https://github.com/ever-guild/AgentShelf/issues/47)).
 - Reading a real price-list photo with the model, search indexing and demand insights on Render, and the Render Workflows task ([#48](https://github.com/ever-guild/AgentShelf/issues/48)).
-- A paid purchase through ChatGPT. ChatGPT connected to the buyer `/mcp`, searched and created a checkout on 10 November, and that order was not paid. The Claude desktop app ran one paid product purchase through the custom connector on 10 November, see [mcp.md](mcp.md#status).
+- A repair booking through ChatGPT. On 10 November ChatGPT ran one paid product purchase through the buyer `/mcp`, and Claude ran a paid product purchase and a paid repair booking through the custom connector, see [mcp.md](mcp.md#status).
 - PayPal Catalog Products sync for a platform-connected shop. The JS SDK v6 storefront button was paid once by a person on 10 November, see [capabilities.md](capabilities.md).
 - AG Studio with a key, including the AI assistant, which needs a key for "AG Studio Pro with AI".
 - The screen reader and keyboard passes.
