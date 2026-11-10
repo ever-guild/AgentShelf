@@ -4,6 +4,8 @@ This project has no tagged releases yet, entries describe code present in the cu
 
 ## Unreleased
 
+- Restore the six-column capability-matrix structure for Channel3 evidence and limits. Refs: #19
+
 - Clarify the evidence-level definitions and update ChatGPT plugin installation steps from current documentation. Refs: #19
 
 - Refresh the submission draft against `11f634e`, retain historical `198bc1f` checks, and cite Newman, Channel3 browser/API evidence, full CI and live health while preserving the final browser-check limit. Refs: #22
