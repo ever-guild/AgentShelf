@@ -4,6 +4,8 @@ This project has no tagged releases yet, entries describe code present in the cu
 
 ## Unreleased
 
+- Add to the submission draft's Inspiration section the four small-business owners the team described the idea to, stated as informal conversations with family and acquaintances. Refs: #22
+
 - Record the first paid purchase through ChatGPT with the buyer connector installed as a custom MCP server (10 November, 14.00 EUR, order `paid`). Refs: #19
 
 - Record a repair booking with a paid 20 EUR deposit made in the claude.ai web client through the custom connector (10 November), which completes the five buyer tools for that connector, and the buyer's report of why the ChatGPT order was not paid. Refs: #19

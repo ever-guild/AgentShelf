@@ -22,6 +22,8 @@ A phone repair workshop has a paper price list on the wall and an Instagram page
 
 Shopping is moving into assistants, and the shops with the least time for technology are the first to be left out. We wanted the smallest possible step for them: a photo of the price list they already have.
 
+This is close to home for us. The father of one of our team members runs a phone shop in Liepāja, Latvia, the same kind of business as our demo workshop. Before submitting we described AgentShelf to him and to three other people who work for themselves: his business partner in Riga, a self-employed builder in Germany and a key maker in Valga. All four called it a good idea. These were short conversations with family and acquaintances, not a survey. They are still the people this is built for: they sell their time and small jobs as much as goods, and AgentShelf handles both products and bookable services.
+
 ### What it does
 
 **For the shop**
@@ -174,6 +176,7 @@ PayPal Agent Toolkit, Elastic, Zapier, KERNEL, Astropods.
 
 - Fix the first gallery caption on the live entry: "eview imported CSV products" should read "Review imported CSV products".
 - Remove the "Current limits" section from the live entry; "Verified scope" above replaces it.
+- The Inspiration paragraph about four conversations rests on the team captain's account of them. It names no person or shop. Add the shop's name only with its owner's consent, and keep the family relationship stated.
 
 ## Not ready or not confirmed
 
