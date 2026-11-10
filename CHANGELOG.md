@@ -4,7 +4,9 @@ This project has no tagged releases yet, entries describe code present in the cu
 
 ## Unreleased
 
-- Add seller-side Channel3 catalog enrichment with validated, bounded candidate searches and explicit selection of suggested product matches. Real-provider use remains gated on configuration and external proof. Refs: #24
+- Align the capability and partner evidence matrix with dated hosted checks, mutating rehearsals, the verified AG Studio licence, and the unresolved hosted Workflow gate. Refs: #19
+
+- Add seller-side Channel3 catalog enrichment with validated, bounded candidate searches and explicit selection of suggested product matches. Provider API and browser lookup were verified on `5348463`; hosted deployment and later SSR replay evidence are recorded in the capability matrix. Refs: #24
 
 - Prepare Render Workflow releases with a revision marker generated from the workflow build's Git checkout; CI verifies the selected new version registers the marker for the requested SHA and the import task. Hosted activation and photo processing remain unverified. Refs: #55
 
