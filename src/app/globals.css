@@ -88,3 +88,110 @@ body {
     display: none;
   }
 }
+
+/* Homepage motion. Every piece plays once and explains a step: the three panels of the opening
+   scene in order, a section coming onto the screen, a held slot becoming a confirmed one. Nothing
+   loops, and each element's resting style is its final state, so the page is complete without
+   motion and without scripts. `--at` and `--until` are seconds from the start of the scene. */
+@keyframes step-in {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@keyframes step-out {
+  from {
+    opacity: 1;
+  }
+  to {
+    opacity: 0;
+  }
+}
+
+@keyframes step-type {
+  from {
+    clip-path: inset(0 100% 0 0);
+  }
+  to {
+    clip-path: inset(0 0 0 0);
+  }
+}
+
+@keyframes line-fill {
+  from {
+    transform: scaleX(0);
+  }
+  to {
+    transform: scaleX(1);
+  }
+}
+
+.stage-step {
+  animation: step-in 0.45s var(--ease-out) var(--at, 0s) both;
+}
+
+.stage-type {
+  animation: step-type 1.4s steps(30, end) var(--at, 0s) both;
+}
+
+/* A state that is true only for a while, such as "4 in stock" before a sale. It is hidden at rest,
+   so what stays on the page is the state that follows it. */
+.stage-passing {
+  opacity: 0;
+  animation:
+    step-in 0.3s var(--ease-out) var(--at, 0s) both,
+    step-out 0.3s var(--ease-out) var(--until, 0s) forwards;
+}
+
+/* A section below the first screen waits for the reader. The script that marks it `pending` runs
+   only when the section starts off screen and motion is allowed. */
+[data-reveal="pending"] :is(.reveal, .reveal-then) {
+  opacity: 0;
+}
+
+[data-reveal="play"] .reveal {
+  animation: step-in 0.5s var(--ease-out) var(--at, 0s) both;
+}
+
+.reveal-first {
+  opacity: 0;
+}
+
+[data-reveal="play"] .reveal-first {
+  animation:
+    step-in 0.3s var(--ease-out) 0.4s both,
+    step-out 0.3s var(--ease-out) 2.6s forwards;
+}
+
+[data-reveal="play"] .reveal-then {
+  animation: step-in 0.3s var(--ease-out) 2.6s both;
+}
+
+.reveal-line {
+  transform-origin: left;
+}
+
+[data-reveal="pending"] .reveal-line {
+  transform: scaleX(0);
+}
+
+[data-reveal="play"] .reveal-line {
+  animation: line-fill 1.4s var(--ease-out) 0.2s both;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .stage-step,
+  .stage-type,
+  .stage-passing,
+  .reveal,
+  .reveal-first,
+  .reveal-then,
+  .reveal-line {
+    animation: none !important;
+  }
+}
