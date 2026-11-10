@@ -88,6 +88,21 @@ export const STEPS_BY_ASSISTANT: Record<Assistant, ConnectStep[]> = {
   agent: AGENT_STEPS,
 };
 
+// The short way in. Neither assistant has a link that fills its form in, so the nearest thing is to
+// put the address on the clipboard and open the page where it is pasted.
+export const QUICK_OPEN: Partial<Record<Assistant, { url: string; label: string; next: string }>> = {
+  claude: {
+    url: "https://claude.ai/customize/connectors",
+    label: "Copy address and open Claude",
+    next: "Claude opens on Connectors. Choose Add, then Add custom connector, and paste the address.",
+  },
+  chatgpt: {
+    url: "https://chatgpt.com/plugins",
+    label: "Copy address and open ChatGPT",
+    next: "ChatGPT opens on Plugins. Click +, choose Add custom MCP server, and paste the address.",
+  },
+};
+
 // A server entry in the shape many agents read from their settings file.
 export function getAgentConfig(address: string): string {
   return JSON.stringify({ mcpServers: { agentshelf: { type: "http", url: address } } }, null, 2);

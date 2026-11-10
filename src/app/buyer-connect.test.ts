@@ -247,6 +247,8 @@ describe("BuyerConnectGuide Component Rendering", () => {
     );
 
     expect(html).toContain("Connect in ChatGPT");
+    expect(html).toContain("Copy address and open ChatGPT");
+    expect(html).toContain('href="https://chatgpt.com/plugins"');
     expect(html).toContain("ChatGPT Plugins");
     expect(html).toContain("Create as a plugin");
     expect(html).toContain("install it");
@@ -257,6 +259,9 @@ describe("BuyerConnectGuide Component Rendering", () => {
       React.createElement(BuyerConnectGuide, { address: testAddress, initialAssistant: "claude" }),
     );
 
+    expect(html).toContain("Copy address and open Claude");
+    expect(html).toContain('href="https://claude.ai/customize/connectors"');
+    expect(html).toContain("Or step by step");
     expect(html).toContain("Using Claude Code");
     expect(html).toContain(getClaudeCodeCommand(testAddress));
     expect(html).toContain("Add custom connector");
@@ -269,6 +274,7 @@ describe("BuyerConnectGuide Component Rendering", () => {
     );
 
     expect(html).toContain("Connect any agent");
+    expect(html).not.toContain("Copy address and open");
     expect(html).toContain("Streamable HTTP");
     expect(html).toContain("no authentication, token or API key");
     expect(html).toContain("get_order_status");

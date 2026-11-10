@@ -4,6 +4,8 @@ This project has no tagged releases yet, entries describe code present in the cu
 
 ## Unreleased
 
+- Add a short way in to the buyer connection dialog for Claude and ChatGPT: one button copies the connector address and opens the assistant's own page for adding a connector, with the three steps kept below it as the other choice. Neither assistant offers a link that fills its form in, so the address is still pasted by hand.
+
 - Clip the buyer connection dialog to its rounded corners, so the footer no longer shows square bottom corners.
 
 - Shorten the buyer connection dialog to the address, three steps for the chosen assistant and one search request, with the purchase request, the four buying steps and the repair note behind one line. Add a third choice, `Connect another agent`, for any agent that can use a remote MCP server over Streamable HTTP, with a settings entry to copy. Replace the schedule's system date field with the page's own calendar, in English and in the page's colors on every system, and give every list one closed look with a single chevron.

@@ -10,6 +10,7 @@ import {
   PROMPT_PURCHASE,
   PROMPT_SEARCH,
   PURCHASE_FLOW_STEPS,
+  QUICK_OPEN,
   REPAIR_SERVICES_DISTINCTION,
   STEPS_BY_ASSISTANT,
   type Assistant,
@@ -111,6 +112,7 @@ export function BuyerConnectGuide({
   const copy = { copied, onCopied: setCopied };
 
   const steps = STEPS_BY_ASSISTANT[assistant];
+  const quick = QUICK_OPEN[assistant];
   const name = ASSISTANTS.find(({ id }) => id === assistant)?.label ?? "";
 
   return (
@@ -155,6 +157,27 @@ export function BuyerConnectGuide({
         className="flex flex-col gap-4"
       >
         <h3 className="font-medium">{assistant === "agent" ? "Connect any agent" : `Connect in ${name}`}</h3>
+        {quick ? (
+          <div className="flex flex-col gap-2">
+            {/* A link, so the new tab opens the way the browser expects, with the copy riding on the click. */}
+            <a
+              href={quick.url}
+              target="_blank"
+              rel="noreferrer"
+              onClick={() => {
+                void copyToClipboard(address).then((state) => setCopied({ key: "quick", state }));
+              }}
+              className="inline-flex h-11 w-fit items-center rounded-lg bg-ink px-4 font-medium text-background transition-[background-color,transform] hover:bg-ink/90 active:scale-[0.98]"
+            >
+              {quick.label}
+            </a>
+            <p className={`text-sm ${SECONDARY_TEXT}`}>{quick.next}</p>
+            <span role="status" aria-live="polite" className={`text-xs ${SECONDARY_TEXT}`}>
+              {copied?.key === "quick" ? COPY_STATUS_TEXT[copied.state] : ""}
+            </span>
+            <p className="pt-2 text-sm font-medium">Or step by step</p>
+          </div>
+        ) : null}
         <ol className="flex flex-col gap-3">
           {steps.map((step) => (
             <li key={step.number} className="flex gap-4">
