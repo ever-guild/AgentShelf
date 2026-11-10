@@ -16,6 +16,30 @@ export interface ProductSpecs {
   category?: string;
   variant?: string;
   compatibility?: string;
+  modelCode?: string;
+  colors?: string[];
+  materials?: string[];
+  sizes?: string[];
+}
+
+const TITLE_COLORS = [
+  "black", "white", "red", "blue", "green", "yellow", "pink", "purple", "orange", "gray", "grey", "silver", "gold", "clear", "transparent",
+  "черный", "чёрный", "белый", "красный", "синий", "зелёный", "зеленый",
+];
+const TITLE_MATERIALS = [
+  "silicone", "leather", "plastic", "metal", "aluminum", "aluminium", "glass", "rubber", "wood", "stainless steel",
+  "кожа", "силикон", "пластик", "стекло", "металл",
+];
+
+function findTerms(text: string, terms: string[]): string[] {
+  return terms.filter((term) =>
+    new RegExp("(?<![\\p{L}\\p{N}])" + term + "(?![\\p{L}\\p{N}])", "iu").test(text),
+  );
+}
+
+function hasNoSharedTerm(queryTerms: string[] | undefined, candidateTerms: string[] | undefined): boolean {
+  return Boolean(queryTerms?.length && candidateTerms?.length &&
+    !queryTerms.some((value) => candidateTerms.includes(value)));
 }
 
 export function isValidUrl(s?: string): boolean {
@@ -32,12 +56,20 @@ export function isValidUrl(s?: string): boolean {
 export function getDomain(offer: Channel3Offer): string {
   if (offer.url && isValidUrl(offer.url)) {
     try {
-      return new URL(offer.url).hostname.toLowerCase();
+      const urlHost = new URL(offer.url).hostname.toLowerCase();
+      if (urlHost === "buy.trychannel3.com" && offer.domain && isBareHostname(offer.domain)) {
+        return offer.domain.toLowerCase();
+      }
+      return urlHost;
     } catch {
       return "";
     }
   }
   return "";
+}
+
+function isBareHostname(value: string): boolean {
+  return /^(?=.{1,253}$)(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$/i.test(value);
 }
 
 export function formatAmount(amount: unknown): string {
@@ -56,6 +88,8 @@ export function formatAmount(amount: unknown): string {
 
 export function extractSpecs(rawTitle: string): ProductSpecs {
   const t = rawTitle.toLowerCase();
+  const modelCode = t.match(/\b(?=[a-z0-9-]*[a-z])(?=[a-z0-9-]*\d)[a-z0-9]+(?:-[a-z0-9]+)*\b/i)?.[0]?.toUpperCase();
+  const sizes = t.match(/\b\d+(?:\.\d+)?[\s-]?(?:inch(?:es)?|in|mm|cm|gb|tb|mah|oz|ml|l)\b/gi)?.map((size) => size.replace(/[\s-]+/g, "").toLowerCase());
 
   // 1. Brand detection
   let brand: string | undefined;
@@ -133,6 +167,10 @@ export function extractSpecs(rawTitle: string): ProductSpecs {
     category,
     variant,
     compatibility,
+    modelCode,
+    colors: findTerms(t, TITLE_COLORS),
+    materials: findTerms(t, TITLE_MATERIALS),
+    sizes: sizes ?? [],
   };
 }
 
@@ -151,8 +189,6 @@ export function matchChannel3Results(options: MatchChannel3Options): CatalogEnri
   }
 
   const querySpecs = extractSpecs(productTitle);
-
-  // Check if query is just a brand with no model/variant/specs
   const isBrandOnlyQuery =
     Boolean(querySpecs.brand) &&
     !querySpecs.family &&
@@ -172,13 +208,6 @@ export function matchChannel3Results(options: MatchChannel3Options): CatalogEnri
     return { product: p, specs };
   });
 
-  const distinctVariants = new Set<string>();
-  for (const { specs } of candidatesWithSpecs) {
-    if (specs.variant) {
-      distinctVariants.add(specs.variant.toLowerCase());
-    }
-  }
-
   // Build ambiguous candidates list helper
   function buildAmbiguousCandidates(): AmbiguousCandidate[] {
     return products.slice(0, 5).map((p) => {
@@ -191,6 +220,16 @@ export function matchChannel3Results(options: MatchChannel3Options): CatalogEnri
         ...(domain ? { domain: domain.slice(0, 255) } : {}),
         ...(pSpecs.variant ? { variantInfo: pSpecs.variant.slice(0, 200) } : {}),
       };
+    });
+  }
+
+  if (!((querySpecs.family && querySpecs.generation) || querySpecs.modelCode) && !isBrandOnlyQuery) {
+    return catalogEnrichmentResult.parse({
+      productId,
+      productTitle,
+      status: "ambiguous",
+      message: "The product title does not identify a specific model or variant",
+      ambiguousCandidates: buildAmbiguousCandidates(),
     });
   }
 
@@ -235,6 +274,18 @@ export function matchChannel3Results(options: MatchChannel3Options): CatalogEnri
       continue;
     }
 
+    if (querySpecs.modelCode && specs.modelCode && querySpecs.modelCode !== specs.modelCode) {
+      continue;
+    }
+
+    if (
+      hasNoSharedTerm(querySpecs.colors, specs.colors) ||
+      hasNoSharedTerm(querySpecs.materials, specs.materials) ||
+      hasNoSharedTerm(querySpecs.sizes, specs.sizes)
+    ) {
+      continue;
+    }
+
     compatibleCandidates.push(item);
   }
 
@@ -249,17 +300,22 @@ export function matchChannel3Results(options: MatchChannel3Options): CatalogEnri
   }
 
   // An exact suggestion requires evidence for every identity detail present in the seller query.
-  // A missing brand/model/tier/category is uncertainty, not a successful match.
-  const hasUnverifiedIdentity = compatibleCandidates.some(({ specs }) =>
+  // Keep uncertain neighbors from vetoing a separate fully verified candidate.
+  const hasUnverifiedIdentity = (specs: ProductSpecs) =>
     (querySpecs.brand && !specs.brand) ||
     (querySpecs.family && !specs.family) ||
     (querySpecs.generation && !specs.generation) ||
     (querySpecs.tier && !specs.tier) ||
     (querySpecs.category && !specs.category) ||
+    (querySpecs.modelCode && !specs.modelCode) ||
     (specs.generation && !querySpecs.generation) ||
-    (specs.tier && !querySpecs.tier),
-  );
-  if (hasUnverifiedIdentity) {
+    (specs.tier && !querySpecs.tier) ||
+    (querySpecs.colors?.length && !specs.colors?.length) ||
+    (querySpecs.materials?.length && !specs.materials?.length) ||
+    (querySpecs.sizes?.length && !specs.sizes?.length);
+  const fullyEvidencedCandidates = compatibleCandidates.filter(({ specs }) => !hasUnverifiedIdentity(specs));
+
+  if (fullyEvidencedCandidates.length === 0) {
     return catalogEnrichmentResult.parse({
       productId,
       productTitle,
@@ -269,44 +325,22 @@ export function matchChannel3Results(options: MatchChannel3Options): CatalogEnri
     });
   }
 
-  // Rule: If query lacked a specific generation/tier (e.g. "iPhone Case"),
-  // and candidates span multiple conflicting variants (e.g. iPhone 14 and iPhone 15 Pro):
-  // or if returned results contain multiple conflicting variants that both match:
-  const compatibleVariants = new Set<string>();
-  for (const { specs } of compatibleCandidates) {
-    if (specs.variant) {
-      compatibleVariants.add(specs.variant.toLowerCase());
-    }
-  }
-
-  // If there are multiple conflicting variants among candidates
-  if (distinctVariants.size > 1) {
-    // If the query didn't have an exact generation & tier to resolve the conflict
-    if (!querySpecs.generation || compatibleVariants.size > 1) {
-      return catalogEnrichmentResult.parse({
-        productId,
-        productTitle,
-        status: "ambiguous",
-        message: "Multiple conflicting product variants found",
-        ambiguousCandidates: buildAmbiguousCandidates(),
-      });
-    }
-  }
-
-  // If the query lacked specific model generation, but candidate has one:
-  if (!querySpecs.generation && compatibleCandidates.some((c) => Boolean(c.specs.generation))) {
+  const fullyEvidencedIdentities = new Set(
+    fullyEvidencedCandidates.map(({ product }) => product.id),
+  );
+  if (fullyEvidencedIdentities.size > 1) {
     return catalogEnrichmentResult.parse({
       productId,
       productTitle,
       status: "ambiguous",
-      message: "Multiple potential models found for generic accessory query",
+      message: "Multiple fully matching reference products were found",
       ambiguousCandidates: buildAmbiguousCandidates(),
     });
   }
 
   // Exact match found!
-  const bestMatch = compatibleCandidates[0].product;
-  const bestSpecs = compatibleCandidates[0].specs;
+  const bestMatch = fullyEvidencedCandidates[0].product;
+  const bestSpecs = fullyEvidencedCandidates[0].specs;
 
   // Process reference prices without image downloads or external asset storage
   const referencePrices: ReferencePriceComparison[] = [];
