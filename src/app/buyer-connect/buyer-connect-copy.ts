@@ -28,13 +28,13 @@ export interface ConnectStep {
 export const CLAUDE_AI_STEPS: ConnectStep[] = [
   {
     number: 1,
-    title: "Open Settings",
-    detail: "In claude.ai, click your profile menu at the bottom-left and select Settings.",
+    title: "Open Customize",
+    detail: "In claude.ai, open Customize, then Connectors.",
   },
   {
     number: 2,
-    title: "Navigate to Connectors",
-    detail: "Under Customize, select Connectors, then click Add custom connector. Team or Enterprise workspaces may require an organization owner to add it.",
+    title: "Add Custom Connector",
+    detail: "Click Add custom connector. Team or Enterprise workspaces may require an organization owner to add it.",
   },
   {
     number: 3,
@@ -51,8 +51,8 @@ export const CLAUDE_AI_STEPS: ConnectStep[] = [
 export const CHATGPT_STEPS: ConnectStep[] = [
   {
     number: 1,
-    title: "Open Settings",
-    detail: "In ChatGPT, open Settings from your account profile menu.",
+    title: "Open Plugins",
+    detail: "Open ChatGPT Plugins.",
   },
   {
     number: 2,

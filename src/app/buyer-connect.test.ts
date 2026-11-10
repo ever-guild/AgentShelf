@@ -44,7 +44,7 @@ describe("Buyer Connect Prompts and Copy", () => {
 
   it("specifies correct connection steps for claude.ai", () => {
     const texts = CLAUDE_AI_STEPS.map((s) => `${s.title}: ${s.detail}`).join(" ");
-    expect(texts).toContain("Settings");
+    expect(texts).toContain("Customize");
     expect(texts).toContain("Connectors");
     expect(texts).toContain("AgentShelf Buyer");
     expect(texts).toContain("No sign-in");
@@ -53,6 +53,7 @@ describe("Buyer Connect Prompts and Copy", () => {
 
   it("specifies correct connection steps for ChatGPT", () => {
     const texts = CHATGPT_STEPS.map((s) => `${s.title}: ${s.detail}`).join(" ");
+    expect(texts).toContain("Open Plugins");
     expect(texts).toContain("ChatGPT Plugins");
     expect(texts).toContain("click +");
     expect(texts).toContain("Add custom MCP server");
