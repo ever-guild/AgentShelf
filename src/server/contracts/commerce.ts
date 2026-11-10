@@ -61,6 +61,10 @@ export const productSummary = z.strictObject({
   availability: availabilityValue,
   serviceDurationMinutes: z.int().positive().nullable(),
   depositMinor: minorAmount.nullable(),
+  // A snapshot of whether the shop can start a PayPal payment now. For a service it covers the
+  // deposit only; a free slot still comes from get_slots. The write tools check again.
+  paymentReady: z.boolean(),
+  paymentUnavailableReason: z.enum(["not_connected", "not_ready"]).nullable(),
 });
 export type ProductSummary = z.infer<typeof productSummary>;
 

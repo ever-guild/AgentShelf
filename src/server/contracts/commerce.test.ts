@@ -156,8 +156,12 @@ describe("product summary", () => {
       availability: "available",
       serviceDurationMinutes: null,
       depositMinor: null,
+      paymentReady: true,
+      paymentUnavailableReason: null,
     };
     expect(productSummary.safeParse(summary).success).toBe(true);
+    expect(productSummary.safeParse({ ...summary, paymentUnavailableReason: "other" }).success).toBe(false);
+    expect(productSummary.safeParse({ ...summary, paymentReady: undefined }).success).toBe(false);
     for (const leak of ["paypalMerchantId", "paypalCredentialRef"]) {
       expect(productSummary.safeParse({ ...summary, [leak]: "x" }).success).toBe(
         false,

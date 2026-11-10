@@ -76,7 +76,7 @@ export function createMcpServer(
     {
       title: "Search products",
       description:
-        "Search published products and repair services across all AgentShelf shops, in English, Latvian or Russian. Every meaningful word must match. Filter by location, maximum price in minor units, currency and kind (product or service). Put only what the buyer wants in the query, with no names or contact details, because normalized searches are recorded as demand for sellers. A service is bought by booking a slot, not through create_checkout.",
+        "Search published products and repair services across all AgentShelf shops, in English, Latvian or Russian. Every meaningful word must match. Filter by location, maximum price in minor units, currency and kind (product or service). Put only what the buyer wants in the query, with no names or contact details, because normalized searches are recorded as demand for sellers. A service is bought by booking a slot, not through create_checkout. Each result has paymentReady and paymentUnavailableReason: offer create_checkout or book_slot only when paymentReady is true, and otherwise explain that the shop cannot take payment yet. It is a snapshot and the write tools check again; for a service, a free slot still comes from get_slots.",
       inputSchema: searchProductsInput,
       outputSchema: searchProductsResult,
       annotations: {
@@ -89,7 +89,10 @@ export function createMcpServer(
     },
     (input) =>
       toolResult(() =>
-        searchProducts(db, input, { recordDemand: limits?.recordSearch() ?? true }),
+        searchProducts(db, input, {
+          recordDemand: limits?.recordSearch() ?? true,
+          ...(checkoutDeps ? { paypalFor: checkoutDeps.paypalFor } : {}),
+        }),
       ),
   );
 

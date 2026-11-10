@@ -9,8 +9,10 @@ import {
   type ProductSummary,
 } from "../contracts/commerce";
 import type { Db } from "../db/client";
+import { paypalFor as defaultPayPalFor, type PayPalProvider } from "../paypal/orders";
 import { inventoryStock, productSearchTerms, products, shops } from "../db/schema";
 import { ServiceError, parseInput } from "../errors";
+import { resolvePaymentReadiness, type PaymentReadiness } from "./payment-readiness";
 import { recordSearch, type SearchFilters } from "./search-events";
 import { effectiveProductAvailability } from "./product-availability";
 import {
@@ -41,9 +43,17 @@ const summaryColumns = {
   inventoryReserved: inventoryStock.reserved,
   serviceDurationMinutes: products.serviceDurationMinutes,
   depositMinor: products.depositMinor,
+  // Internal: read only to resolve payment readiness, then dropped from the summary.
+  paypalCredentialRef: shops.paypalCredentialRef,
+  paypalMerchantId: shops.paypalMerchantId,
 };
 
-type SummaryRow = Omit<ProductSummary, "priceMinor" | "availability"> & {
+type SummaryRow = Omit<
+  ProductSummary,
+  "priceMinor" | "availability" | "paymentReady" | "paymentUnavailableReason"
+> & {
+  paypalCredentialRef: string;
+  paypalMerchantId: string | null;
   priceMinor: number | null;
   availability: ProductSummary["availability"];
   inventoryMode: string | null;
@@ -51,14 +61,40 @@ type SummaryRow = Omit<ProductSummary, "priceMinor" | "availability"> & {
   inventoryReserved: number | null;
 };
 
-function toSummary(row: SummaryRow): ProductSummary {
+async function summarize(
+  db: Db,
+  rows: SummaryRow[],
+  paypalFor: PayPalProvider,
+): Promise<ProductSummary[]> {
+  const readiness = await resolvePaymentReadiness(
+    db,
+    rows.map((row) => ({
+      shopId: row.shopId,
+      credentialRef: row.paypalCredentialRef,
+      legacyMerchantId: row.paypalMerchantId,
+    })),
+    paypalFor,
+  );
+  return rows.map((row) => toSummary(row, readiness.get(row.shopId)!));
+}
+
+function toSummary(row: SummaryRow, payment: PaymentReadiness): ProductSummary {
   if (row.priceMinor === null) {
     // Unreachable while the products_published_requires_price constraint holds.
     throw new Error(`Published product ${row.productId} has no price`);
   }
-  const { inventoryMode, inventoryOnHand, inventoryReserved, ...summary } = row;
+  const {
+    inventoryMode,
+    inventoryOnHand,
+    inventoryReserved,
+    ...summary
+  } = row;
+  // Payment routing columns were read only to resolve readiness and never reach the summary.
+  delete (summary as Partial<SummaryRow>).paypalCredentialRef;
+  delete (summary as Partial<SummaryRow>).paypalMerchantId;
   return {
     ...summary,
+    ...payment,
     availability: effectiveProductAvailability(row.kind, row.availability, {
       mode: inventoryMode,
       onHand: inventoryOnHand,
@@ -88,6 +124,7 @@ async function assertShopExists(db: Db, shopId: string): Promise<void> {
 export async function listPublishedProducts(
   db: Db,
   rawInput: unknown,
+  paypalFor: PayPalProvider = defaultPayPalFor,
 ): Promise<ProductSummary[]> {
   const { shopId } = parseInput(listPublishedProductsInput, rawInput);
   await assertShopExists(db, shopId);
@@ -98,12 +135,13 @@ export async function listPublishedProducts(
     .leftJoin(inventoryStock, joinInventoryStock())
     .where(and(eq(products.shopId, shopId), eq(products.status, "published")))
     .orderBy(asc(products.title));
-  return rows.map(toSummary);
+  return summarize(db, rows, paypalFor);
 }
 
 export async function getPublishedProduct(
   db: Db,
   rawInput: unknown,
+  paypalFor: PayPalProvider = defaultPayPalFor,
 ): Promise<ProductSummary> {
   const { shopId, productId } = parseInput(getPublishedProductInput, rawInput);
   await assertShopExists(db, shopId);
@@ -125,7 +163,7 @@ export async function getPublishedProduct(
       "This shop has no published product with that identifier.",
     );
   }
-  return toSummary(row);
+  return (await summarize(db, [row], paypalFor))[0];
 }
 
 const DEGRADED_NOTICE =
@@ -149,6 +187,7 @@ async function findProducts(
   filters: SearchFilters,
   limit: number,
   near: boolean,
+  paypalFor: PayPalProvider,
 ): Promise<ProductSummary[]> {
   const rows = await db
     .select(summaryColumns)
@@ -169,7 +208,7 @@ async function findProducts(
       asc(products.id),
     )
     .limit(limit);
-  return rows.map(toSummary);
+  return summarize(db, rows, paypalFor);
 }
 
 // Whether a listing these filters could reach is matching on its own words alone.
@@ -196,7 +235,10 @@ async function isDegraded(
 export async function searchProducts(
   db: Db,
   rawInput: unknown,
-  { recordDemand = true }: { recordDemand?: boolean } = {},
+  {
+    recordDemand = true,
+    paypalFor = defaultPayPalFor,
+  }: { recordDemand?: boolean; paypalFor?: PayPalProvider } = {},
 ): Promise<{
   products: ProductSummary[];
   matching: { mode: "full" | "degraded"; notice: string | null };
@@ -212,10 +254,10 @@ export async function searchProducts(
   let found: ProductSummary[] = [];
   let near = false;
   if (query.words.length > 0 && !query.locationUnreadable) {
-    found = await findProducts(db, query, filters, input.limit, false);
+    found = await findProducts(db, query, filters, input.limit, false, paypalFor);
     if (found.length === 0 && nearSpellingCouldHelp(query)) {
       near = true;
-      found = await findProducts(db, query, filters, input.limit, true);
+      found = await findProducts(db, query, filters, input.limit, true, paypalFor);
     }
   }
 
