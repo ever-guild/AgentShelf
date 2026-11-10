@@ -48,6 +48,7 @@ For a separate seeded-demo rehearsal, run `npm run db:seed`, then the existing `
 
 - Register a synthetic owner and shop through `/seller/register`, select the shop, open existing catalog and price-list screens
 - At 390px and desktop width, confirm forms and catalog remain usable and the session cookie is HttpOnly
+- After owner sign-in and selecting the shop, expect to land on `/seller/assistant` with the shop's `/mcp/seller/shop/<shop-id>` address; the menu reads Assistant, Price lists, Catalog, Schedule, Dashboard
 - Click Sign out in the existing seller header, revisit a protected page and require sign-in
 - Sign in through the seeded-shop access-code form, require the owner API and owner pages to remain inaccessible
 - Create a second owned shop, acknowledge `connect_paypal` sharing for shop A, switch to shop B and require a new acknowledgement before issuing a grant
@@ -69,6 +70,8 @@ Use synthetic data only, API-based fixture creation must be identified separatel
 | Platform payment webhook | Signature-first verification, identifier agreement, deduplication and revoked-completed order | Suite `implemented`. Real delivery: one event chain verified on 8 November 2026 for one EUR 1 order ([sandbox proof](paypal-sandbox-proof.md)). Webhook receipts for the 9 November rehearsal captures are not proven; the buyer return captured first and stored receipts were not read |
 | Sandbox seller/payment flow | Two consents, approval, recipient, capture and both webhook subscriptions | Two owner shops ready with different merchants ([#35](https://github.com/ever-guild/AgentShelf/issues/35)); one human-approved EUR 1 checkout captured for the right seller with both platform webhooks verified for that order ([#2](https://github.com/ever-guild/AgentShelf/issues/2)), 8 November 2026. A 20 EUR booking deposit was approved and captured in the 9 November hosted rehearsals on `d908114` ([#18](https://github.com/ever-guild/AgentShelf/issues/18#issuecomment-6751024359)) |
 | External seller assistant | Real configured-client session performing seller tools | `external client verified`: PASS with Claude Code 2.1.319 on the deployed demo at `0c8e262`, 8 November 2026, see [below](#external-claude-code-session). Claude Code only; no PayPal connection, order or capture in that run |
+| Owner walkthrough on the hosted demo | Register or sign in, select shop, `/seller/assistant`, issue a credential in `/seller/agent-access`, connect an agent, give PayPal consent on `/seller/paypal-connection`, revoke | `not recorded` as one run. Parts: registration, catalog access and the per-shop consent reset have Chrome PASS at the revisions above. The 8 November Claude Code run obtained its grants from the `/api/seller/identity/*` endpoints that the page calls, not by clicking the page, and it had no PayPal connection. Using the page or the PayPal consent from an agent session is open, see [owner-run checklist](#owner-run-checklist) |
+| Seller agent and buyer agent in one scenario | The seller agent sets or adjusts stock on a PayPal-connected shop, a buyer assistant buys it, stock drops by one | `not recorded` as one chain. Separately: seller-agent stock 3 to 2 on a shop without PayPal (8 November, below); a buyer Claude Code purchase on the connected rehearsal shop with stock 2 to 1 ([mcp.md](mcp.md#status), 9 November). The seller agent did not set that stock. Open, see [owner-run checklist](#owner-run-checklist) |
 | Public deployment | Exact Render live SHA plus health and functional checks | Runtime integrated in main. Deployed demo at `0c8e262` for the 8 November Claude Code run; `d908114` for the 9 November rehearsals; `198bc1f` for the read-only check of 10 November ([mcp.md](mcp.md#status)). Record the live SHA from `/api/health` for each later run in [#18](https://github.com/ever-guild/AgentShelf/issues/18) |
 
 For an actual Sandbox rehearsal, follow [Sandbox setup](paypal-sandbox-setup.md), [merchant connection](paypal-merchant-connection.md) and [inventory behavior](inventory-contract.md), use separate subscription IDs for consent revocation and platform payment events
@@ -99,6 +102,20 @@ On 8 November 2026 Claude Code 2.1.319 ran the seller scenario against the deplo
 | Buyer route | Claude Code connected to `/mcp`, no tool called | Connected, the five buyer tools listed |
 
 No PayPal connection, order, capture or refund was attempted. Before this run, failed stock and scope calls returned only a generic message; seller MCP errors now carry fixed recovery guidance per code. That change is verified by contract tests and is not part of the deployed `0c8e262` run.
+
+## Owner-run checklist
+
+For the two `not recorded` rows. Each step needs the owner or a Sandbox buyer; none needs a server credential, and no agent approves a payment. Use a shop you own and PayPal Sandbox accounts only.
+
+1. As the owner, register or sign in, select the shop and confirm `/seller/assistant` shows its address.
+2. On `/seller/agent-access` tick the permissions the task needs (including **Manage inventory**), press **Review and issue credential** and give the credential only to your agent, as in [seller MCP setup](seller-agent-mcp.md#connect-claude-code).
+3. For PayPal consent either press **Start sandbox connection** on `/seller/paypal-connection` or let the agent call `seller_connect_paypal` under a `connect_paypal` grant, then finish the PayPal Sandbox steps yourself. Pass only if the page reports the connection `ready`.
+4. Ask the agent to set stock for one product (`seller_manage_stock` `set_mode` tracked with a count), and note the count and `version`.
+5. In a separate buyer assistant ([buyer quickstart](buyer-quickstart.md)) search that product, create one checkout, approve it in PayPal Sandbox as the buyer, and wait until `get_order_status` reports `paid`.
+6. Read the stock again through the agent or `/seller/catalog`. Pass only if it dropped by exactly one and the order is `paid`.
+7. Revoke each credential with **Revoke credential** and confirm the agent's next call fails with HTTP 401.
+
+Record the live commit from `/api/health`, UTC times, the clients and the result of each step, and keep payer data, approval links and credentials out of the record. A link returned by `create_checkout` or `seller_connect_paypal` is not proof of payment or consent.
 
 ## Evidence record
 

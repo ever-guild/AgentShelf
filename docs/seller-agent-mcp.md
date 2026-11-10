@@ -47,7 +47,7 @@ Errors return a stable `code` with fixed recovery guidance. Service messages, ro
 
 `external client verified` with Claude Code 2.1.319 only, against the deployed demo at commit `0c8e262` on 8 November 2026, see [rehearsal evidence](seller-agent-rehearsal.md#external-claude-code-session). Claude Code connects through its `http` (Streamable HTTP) transport with a static `Authorization` header.
 
-1. Sign in as the owner and open `/seller/agent-access`. Issue an owner-level grant with `create_shop`, copy the token, it is shown once and expires after 15 minutes.
+1. Register or sign in as the owner ([`/seller/register`](https://agentshelf-e5bk.onrender.com/seller/register) or [`/seller/owner-sign-in`](https://agentshelf-e5bk.onrender.com/seller/owner-sign-in)) and open `/seller/agent-access`. With no shop yet, tick **Let the agent create one shop**, press **Review and issue credential**, then **Copy credential**. It is shown once and expires after 15 minutes. With a shop already selected, `/seller/assistant` shows the address to connect to and links to the same page.
 2. Keep the token in an environment variable and reference it from a private config file outside the repository, so it never appears in a shared config or command line:
 
 ```json
@@ -68,9 +68,17 @@ claude --mcp-config ./agentshelf-seller.json --strict-mcp-config
 ```
 
 3. Ask the assistant to create the shop with `seller_create_shop`. The result returns the shop ID and `paymentStatus: "not_configured"`.
-4. Back in `/seller/agent-access`, select the new shop and issue a shop grant with only the scopes the task needs, for example `read_shop`, `manage_catalog` and `manage_inventory`. Point the config at `/mcp/seller/shop/<shop-id>`, set the new token and start a new session.
+4. Back in `/seller/agent-access`, select the new shop and tick only the permissions the task needs, for example **Read shop details**, **Manage the catalog** and **Manage inventory**. Point the config at `/mcp/seller/shop/<shop-id>`, set the new token and start a new session.
 5. Import a CSV or photo once, review and publish the rows, then choose a stock policy for every published product.
-6. Revoke the grants in `/seller/agent-access` when finished, `unset SELLER_MCP_TOKEN` and delete the config file.
+6. Revoke the grants in `/seller/agent-access` when finished: paste each credential into **Revoke a credential** and press **Revoke credential** (credentials are not listed, so keep them until then). Then `unset SELLER_MCP_TOKEN` and delete the config file.
+
+### PayPal consent
+
+PayPal consent is separate from the agent credential, and the owner gives it. There are two paths. The owner can open `/seller/paypal-connection`, tick the data-sharing agreement and press **Start sandbox connection** (**Resume sandbox connection** when pending), then continue to PayPal Sandbox. Or the owner issues a shop grant that also ticks **Connect a sandbox seller account** and the agreement to share the shop's data with PayPal; the agent can then call `seller_connect_paypal`, which returns a PayPal Sandbox link that the owner opens and completes. In both paths the owner finishes the PayPal steps and no PayPal password or server credential goes to the agent. The connection is `ready` only after PayPal reports it, check it on `/seller/paypal-connection` (**Refresh status**).
+
+### Not the dashboard assistant
+
+The seller MCP described here is an external agent that the owner connects with a credential. The **Demand assistant** panel on `/seller/dashboard` ("Ask about demand") is a different, built-in AG Studio assistant that reads the demand data on the page (missed searches grouped, with charts) and holds no grant or seller tool.
 
 A signed-in shop sees its own `/mcp/seller/shop/<shop-id>` address on the `/seller/assistant` screen, and the issued-credential panel in `/seller/agent-access` shows the address that grant is for.
 
