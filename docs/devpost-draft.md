@@ -2,7 +2,7 @@
 
 Copy-ready text for the [PayPal AI Hackathon](https://paypalaihackathon.devpost.com/) entry, for [#22](https://github.com/ever-guild/AgentShelf/issues/22). Each section below can be pasted into the matching Devpost field. The Devpost form needs a login and its exact fields were not seen, so the representative maps these sections to the form.
 
-Last checked against `main` 198bc1f and the live service on 2026-11-10. Rules read on 2026-11-10: [rules](https://paypalaihackathon.devpost.com/rules). Deadline: Nov 12, 2026 12:00 pm PST (20:00 UTC). The internal team target may be earlier.
+Last checked against `main` `11f634e` on 2026-11-10. The hosted checks below remain dated to their actual revisions; the final `11f634e` Channel3 validation was an SSR replay, not a live browser interaction. Rules read on 2026-11-10: [rules](https://paypalaihackathon.devpost.com/rules). Deadline: Nov 12, 2026 12:00 pm PST (20:00 UTC). The internal team target may be earlier.
 
 ## Name
 
@@ -71,13 +71,14 @@ TypeScript, Next.js 16, React, PostgreSQL (Drizzle migrations), MCP TypeScript S
 
 - **Render:** hosts the web service and PostgreSQL; CI deploys the exact commit. Render Workflows code exists, see the table for its limit.
 - **Bryntum Scheduler** (8.0 Community): repair bookings.
-- **AG Grid's AG Studio:** the seller dashboard and assistant. It runs in trial mode without a licence key on the live service.
+- **AG Grid's AG Studio:** the seller dashboard and assistant. The team accepted an AG Studio Pro with AI licence through 24 December 2026; see [integration evidence](integrations.md#ag-studio).
+- **Channel3:** real provider API and browser price lookup were verified at `5348463` for [#24](https://github.com/ever-guild/AgentShelf/issues/24); final `11f634e` validation replayed server-rendered markup only.
 - **APIMatic Context Plugin:** used while writing PayPal Server SDK client code ([docs/integrations.md](integrations.md)).
-- **Postman:** a smoke collection exists in [docs/postman](postman/README.md); it has not been run, so select Postman only if the team runs it first.
+- **Postman:** the smoke collection in [docs/postman](postman/README.md) was verified with Newman: 10 requests and 20 assertions passed ([#20](https://github.com/ever-guild/AgentShelf/issues/20)).
 
 ### Not used or not claimed
 
-PayPal Agent Toolkit, Elastic, Zapier, KERNEL, Astropods, Channel3.
+PayPal Agent Toolkit, Elastic, Zapier, KERNEL, Astropods.
 
 ## Links
 
@@ -98,7 +99,7 @@ PayPal Agent Toolkit, Elastic, Zapier, KERNEL, Astropods, Channel3.
 
 | Claim | Evidence | Status / limit |
 | --- | --- | --- |
-| Hosted service live on 198bc1f | `/api/health` and `/api/health/ready` returned HTTP 200 and the same commit, 2026-11-10 | PASS 2026-11-10, 198bc1f. Re-check before submitting |
+| Hosted service read-only check | `/api/health` and `/api/health/ready` returned HTTP 200 and the same commit, 2026-11-10 | PASS 2026-11-10, `198bc1f` at 03:51-03:52 UTC; historical check, not a check of `11f634e`. Re-check before submitting |
 | Buyer MCP read tools | `tools/list` returned 5 tools; `search_products` found 2 products in `full` mode; `get_slots` returned 68 slots, 2026-11-10 ([docs/mcp.md](mcp.md)) | PASS 2026-11-10, 198bc1f. No order created |
 | Real external client buyer run | [Closing checks](https://github.com/ever-guild/AgentShelf/issues/18#issuecomment-6751202970): Claude Code 2.1.282 with claude-opus-5-5 searched and created a checkout, 9 Nov | PASS 2026-11-09. Claude Code only (a CLI) |
 | Human-approved Sandbox payment and capture | Same comment: 9.90 EUR approved by a person, order `paid`; also [rehearsals](https://github.com/ever-guild/AgentShelf/issues/18#issuecomment-6751024359) | PASS 2026-11-09 on d908114 |
@@ -108,7 +109,8 @@ PayPal Agent Toolkit, Elastic, Zapier, KERNEL, Astropods, Channel3.
 | Photo import by a real model on Render | [Issue 48 acceptance](https://github.com/ever-guild/AgentShelf/issues/48#issuecomment-6749978975): provider `openai`, model `gpt-6-astra`, two synthetic price-list photos read correctly, 9 Nov, 6bdf36b | PASS 2026-11-09. Read in the web process |
 | Demand insights | Rehearsals and issue 48 comment: unmet-demand notes written by `gpt-6-astra` | PASS 2026-11-09 |
 | Seller MCP | [Claude Code session](seller-agent-rehearsal.md#external-claude-code-session): Claude Code 2.1.319 created a shop, imported, reviewed and published a price list and set stock, deployed demo `0c8e262`, 8 Nov | PASS 2026-11-08. Claude Code only; no PayPal step in that run |
-| Render Workflows | Code and CI delivery on main ([render-workflows.md](render-workflows.md)) | LIMIT: no hosted workflow and no hosted photo run verified |
+| Render Workflows | Code and CI delivery on main ([render-workflows.md](render-workflows.md)); hosted activation remains gated by [#55](https://github.com/ever-guild/AgentShelf/issues/55) and hosting continuity by [#56](https://github.com/ever-guild/AgentShelf/issues/56) | LIMIT: hosted service is not enabled for Workflows; no hosted workflow or photo run verified |
+| Channel3 catalog enrichment | Real provider API and browser price lookup verified at `5348463`; issue [#24](https://github.com/ever-guild/AgentShelf/issues/24#issuecomment-6759013324) closed. Final `11f634e` replay checked server-rendered markup only | PASS for the cited provider/browser run; the final revision has no live browser interaction proof |
 | claude.ai connector | Steps in [docs/mcp.md](mcp.md) | NOT_RUN |
 | ChatGPT connector | Steps in [docs/mcp.md](mcp.md) | NOT_RUN |
 | Storefront JS SDK v6 buttons | Implemented in `src/app/shops/buy-flow.ts` | NOT_RUN with a human Sandbox buyer |
@@ -119,7 +121,7 @@ PayPal Agent Toolkit, Elastic, Zapier, KERNEL, Astropods, Channel3.
 ## Not ready or not confirmed
 
 - Video link (#21), claude.ai and ChatGPT connectors, storefront buttons with a human buyer, Catalog sync, Render Workflows hosted run, hosting after 2026-12-05 (#56).
-- Webhook deliveries for the 9 Nov captures; a second connected seller.
+- Webhook delivery receipts for the 9 Nov captures remain unread; two distinct connected Sandbox merchants were verified in [#35](https://github.com/ever-guild/AgentShelf/issues/35).
 - Devpost form fields and any sponsor-specific form questions.
 
 ## Representative checklist
