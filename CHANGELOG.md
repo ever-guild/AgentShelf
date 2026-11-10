@@ -4,6 +4,8 @@ This project has no tagged releases yet, entries describe code present in the cu
 
 ## Unreleased
 
+- Add interactive Claude and ChatGPT connection actions on the homepage, with copyable MCP connector address, fallback clipboard support, tested search and sandbox checkout prompts, 4-step assistant purchase explanation with human payment approval, and comprehensive buyer quickstart documentation ([docs/buyer-quickstart.md](docs/buyer-quickstart.md)). Refs: #19
+
 - Restore the six-column capability-matrix structure for Channel3 evidence and limits. Refs: #19
 
 - Clarify the evidence-level definitions and update ChatGPT plugin installation steps from current documentation. Refs: #19

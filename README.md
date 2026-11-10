@@ -2,7 +2,7 @@
 
 AgentShelf lets small shops and local workshops publish an AI-accessible catalog, take repair bookings, and accept payments directly into the seller's PayPal account in the PayPal Sandbox. Buyers discover offerings and initiate checkout through their autonomous AI assistants or the public storefront, with every purchase confirmed by a human in PayPal.
 
-**Live demo:** [agentshelf-e5bk.onrender.com](https://agentshelf-e5bk.onrender.com) · [Capabilities & proof matrix](docs/capabilities.md) · [Buyer MCP setup](docs/mcp.md) · [Deployment guide](docs/deployment.md)
+**Live demo:** [agentshelf-e5bk.onrender.com](https://agentshelf-e5bk.onrender.com) · [Capabilities & proof matrix](docs/capabilities.md) · [Buyer quickstart](docs/buyer-quickstart.md) · [Buyer MCP setup](docs/mcp.md) · [Deployment guide](docs/deployment.md)
 
 [Privacy policy](https://agentshelf-e5bk.onrender.com/privacy) · [User agreement](https://agentshelf-e5bk.onrender.com/terms)
 
@@ -49,7 +49,7 @@ A public endpoint for customer-facing assistants (e.g., Claude, ChatGPT) to disc
 - `create_checkout`: Reserve required stock and return a PayPal Orders v2 approval URL.
 - `get_order_status`: Check reconciliation and payment capture status using the capabilities token.
 
-See [Buyer MCP connector setup](docs/mcp.md) for Claude and ChatGPT connection instructions.
+See [Buyer quickstart](docs/buyer-quickstart.md) and [Buyer MCP connector setup](docs/mcp.md) for Claude and ChatGPT connection instructions.
 
 ### 2. Seller Agent MCP (`POST /mcp/seller/`)
 A protected management surface for the shop owner's autonomous agent (such as Claude Code):
