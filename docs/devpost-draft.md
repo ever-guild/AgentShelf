@@ -45,11 +45,11 @@ A Next.js and TypeScript app with PostgreSQL, deployed on Render. The MCP endpoi
 
 ### Challenges
 
-Routing money to the right seller needs platform credentials, seller consent and care that nothing is captured before a person approves. Stock, a 15-minute slot hold and the PayPal order must stay consistent. One of two test sellers could not finish consent (PayPal UserInfo HTTP 401).
+Routing money to the right seller needs platform credentials, seller consent and care that nothing is captured before a person approves. Stock, a 15-minute slot hold and the PayPal order must stay consistent.
 
 ### Accomplishments
 
-A person approved Sandbox payments that were captured for a connected seller, through a Claude Code buyer on the public MCP endpoint (9 Nov), with stock decremented and a repair deposit confirmed in rehearsals. Photo import ran with a real model on Render.
+A person approved Sandbox payments that were captured for a connected seller, through a Claude Code buyer on the public MCP endpoint (9 Nov), with stock decremented and a repair deposit confirmed in rehearsals. A real model read price-list photos in the hosted web service on Render.
 
 ### What we learned
 
@@ -61,7 +61,7 @@ Test the claude.ai and ChatGPT connectors, confirm the storefront buttons with a
 
 ## Significant update during the submission period
 
-The repository's first commit is dated 2026-11-05, so the work was started within the submission period, which began Oct 1, 2026. Everything described here, including the PayPal integration, MCP endpoints, seller onboarding, dashboard and hosted deployment, was built and verified during that period; see the commit history and the [CHANGELOG](../CHANGELOG.md).
+The repository's first commit is dated 2026-11-05, so the work was started within the submission period, which began Oct 1, 2026. Everything described here, including the PayPal integration, MCP endpoints, seller onboarding, dashboard and hosted deployment, was built during that period; see the commit history and the [CHANGELOG](../CHANGELOG.md).
 
 ## Built with
 
@@ -72,7 +72,7 @@ TypeScript, Next.js 16, React, PostgreSQL (Drizzle migrations), MCP TypeScript S
 - **Render:** hosts the web service and PostgreSQL; CI deploys the exact commit. Render Workflows code exists, see the table for its limit.
 - **Bryntum Scheduler** (8.0 Community): repair bookings.
 - **AG Grid's AG Studio:** the seller dashboard and assistant. It runs in trial mode without a licence key on the live service.
-- **APIMatic Context Plugin:** used while writing PayPal Server SDK client code ([docs/integrations.md](integrations.md)). A claim form has not been filed.
+- **APIMatic Context Plugin:** used while writing PayPal Server SDK client code ([docs/integrations.md](integrations.md)).
 - **Postman:** a smoke collection exists in [docs/postman](postman/README.md); it has not been run, so select Postman only if the team runs it first.
 
 ### Not used or not claimed
@@ -107,12 +107,12 @@ PayPal Agent Toolkit, Elastic, Zapier, KERNEL, Astropods, Channel3.
 | Webhook receipt | [docs/paypal-sandbox-proof.md](paypal-sandbox-proof.md): approved and capture-completed events received and verified for one EUR 1 order, 8 Nov | PASS 2026-11-08, one event chain. LIMIT: not proven for the 9 Nov captures |
 | Photo import by a real model on Render | [Issue 48 acceptance](https://github.com/ever-guild/AgentShelf/issues/48#issuecomment-6749978975): provider `openai`, model `gpt-6-astra`, two synthetic price-list photos read correctly, 9 Nov, 6bdf36b | PASS 2026-11-09. Read in the web process |
 | Demand insights | Rehearsals and issue 48 comment: unmet-demand notes written by `gpt-6-astra` | PASS 2026-11-09 |
-| Seller MCP | [README](../README.md) states Claude Code CLI 2.1.319 verified the seller MCP; see [seller-agent-rehearsal.md](seller-agent-rehearsal.md) | PASS with Claude Code only. Date and commit not restated here; check the doc |
+| Seller MCP | [Claude Code session](seller-agent-rehearsal.md#external-claude-code-session): Claude Code 2.1.319 created a shop, imported, reviewed and published a price list and set stock, deployed demo `0c8e262`, 8 Nov | PASS 2026-11-08. Claude Code only; no PayPal step in that run |
 | Render Workflows | Code and CI delivery on main ([render-workflows.md](render-workflows.md)) | LIMIT: no hosted workflow and no hosted photo run verified |
 | claude.ai connector | Steps in [docs/mcp.md](mcp.md) | NOT_RUN |
 | ChatGPT connector | Steps in [docs/mcp.md](mcp.md) | NOT_RUN |
 | Storefront JS SDK v6 buttons | Implemented in `src/app/shops/buy-flow.ts` | NOT_RUN with a human Sandbox buyer |
-| PayPal Catalog for platform shops | Products in the rehearsal shop show `not_configured` | OPEN. Cause unconfirmed; PayPal permission not verified |
+| PayPal Catalog for platform shops | [Release handoff](https://github.com/ever-guild/AgentShelf/issues/19#issuecomment-6751195724): products published in the PayPal-connected rehearsal shop show sync `not_configured`, 9 Nov | OPEN. Cause unconfirmed; PayPal permission for Catalog calls not verified. Listings stay on sale |
 | Hosting through judging | [#56](https://github.com/ever-guild/AgentShelf/issues/56): free database expires 2026-12-05 19:08 UTC, judging runs 1 to 15 Dec | OPEN. Owner decision pending |
 | Demo video | [#21](https://github.com/ever-guild/AgentShelf/issues/21), final cut 02:18.410 | OPEN. No public link known. Animated scenes are not evidence of a real client run |
 
