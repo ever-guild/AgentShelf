@@ -12,6 +12,7 @@ import type {
 } from "@/server/contracts/seller-catalog";
 
 import { AMOUNT_HINT } from "../amount-hint";
+import { AssistantHint } from "../assistant-hint";
 import { RequestFailed, request } from "../imports/[id]/request";
 import { ProductEnrichment } from "./product-enrichment";
 import { ProductStockControl } from "./product-stock-control";
@@ -433,6 +434,7 @@ export function CatalogManager({
     <div className="mx-auto flex w-full max-w-7xl flex-col gap-8 px-4 py-8 sm:px-6">
       <header className="flex flex-col gap-2">
         <h1 className="text-3xl font-medium text-balance">Your catalog</h1>
+        <AssistantHint ask="Set the USB-C wall charger to 14.90 EUR and count four in stock" />
         <p aria-live="polite" className={`tabular-nums ${SECONDARY_TEXT}`}>
           {plural(published, "product")} on sale
           {unpublished > 0 ? `, ${unpublished} unpublished` : ""}

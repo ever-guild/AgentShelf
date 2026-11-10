@@ -7,6 +7,7 @@ import type { ImportStatus, ImportSummaryView } from "@/server/contracts/imports
 import { getDb } from "@/server/db";
 import { listImports } from "@/server/services/imports";
 
+import { AssistantHint } from "../assistant-hint";
 import { HowItWorks } from "../import-steps";
 import { SellerHeader } from "../seller-header";
 import { UploadForm } from "./upload-form";
@@ -65,6 +66,7 @@ async function ImportList() {
               Upload a photo of your price list, or a CSV file. You check every row before anything
               goes into your catalog.
             </p>
+            <AssistantHint ask="Import this price list and show me the rows to check" />
           </div>
           <UploadForm />
         </section>

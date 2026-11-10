@@ -4,6 +4,7 @@ import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 
 const LINKS = [
+  { href: "/seller/assistant", label: "Assistant" },
   { href: "/seller/imports", label: "Price lists" },
   { href: "/seller/catalog", label: "Catalog" },
   { href: "/seller/schedule", label: "Schedule" },
@@ -11,7 +12,7 @@ const LINKS = [
 ];
 
 const ITEM =
-  "inline-flex h-9 items-center rounded-lg px-2 transition-colors hover:bg-zinc-100 hover:text-foreground dark:hover:bg-zinc-800";
+  "inline-flex h-9 items-center rounded-lg px-1 whitespace-nowrap transition-colors hover:bg-zinc-100 hover:text-foreground sm:px-2 dark:hover:bg-zinc-800";
 const SECONDARY_TEXT = "text-zinc-600 dark:text-zinc-400";
 
 export function SellerHeader({ shopName }: { shopName: string }) {
@@ -25,9 +26,10 @@ export function SellerHeader({ shopName }: { shopName: string }) {
   }
 
   return (
-    // On a phone the links fill their own row, with the shop name and sign out above them.
-    <header className="grid min-h-14 grid-cols-[minmax(0,1fr)_auto] items-center gap-x-4 border-b border-zinc-200 px-4 py-2 text-sm sm:flex sm:px-6 dark:border-zinc-800">
-      <p className="flex min-w-0 items-baseline gap-2 sm:mr-auto">
+    // Until the screen is wide enough for one line, the links fill their own row, with the shop name
+    // and sign out above them, so nothing in the header wraps inside itself.
+    <header className="grid min-h-14 grid-cols-[minmax(0,1fr)_auto] items-center gap-x-4 border-b border-zinc-200 px-4 py-2 text-sm sm:grid-cols-[minmax(0,1fr)_auto_auto] sm:px-6 lg:flex dark:border-zinc-800">
+      <p className="flex min-w-0 items-baseline gap-2 lg:mr-auto">
         <Link
           href="/"
           className={`flex-none transition-colors hover:text-foreground ${SECONDARY_TEXT}`}
@@ -37,11 +39,11 @@ export function SellerHeader({ shopName }: { shopName: string }) {
         <span aria-hidden="true" className="text-zinc-400 dark:text-zinc-600">
           /
         </span>
-        <Link href="/seller/imports" className="min-w-0 font-medium break-words">
+        <Link href="/seller/assistant" className="min-w-0 truncate font-medium">
           {shopName}
         </Link>
       </p>
-      <nav aria-label="Seller" className="col-span-2 row-start-2 -mx-2 flex flex-wrap sm:mx-0">
+      <nav aria-label="Seller" className="col-span-2 row-start-2 -mx-1 flex flex-wrap sm:col-span-3 sm:-mx-2 lg:mx-0 lg:flex-none">
         {LINKS.map(({ href, label }) => {
           const current = pathname === href || pathname.startsWith(`${href}/`);
           return (
@@ -62,11 +64,13 @@ export function SellerHeader({ shopName }: { shopName: string }) {
         })}
       </nav>
       {/* Every payment here is a PayPal Sandbox one, and the header says so on every screen. */}
-      <span className={`hidden text-xs sm:inline ${SECONDARY_TEXT}`}>PayPal Sandbox</span>
+      <span className={`hidden text-xs whitespace-nowrap sm:col-start-2 sm:row-start-1 sm:inline ${SECONDARY_TEXT}`}>
+        PayPal Sandbox
+      </span>
       <button
         type="button"
         onClick={signOut}
-        className={`${ITEM} ${SECONDARY_TEXT} col-start-2 row-start-1 -mr-2 sm:mr-0`}
+        className={`${ITEM} ${SECONDARY_TEXT} col-start-2 row-start-1 -mr-1 sm:col-start-3 sm:-mr-2 lg:mr-0`}
       >
         Sign out
       </button>

@@ -35,7 +35,7 @@ export function SignInForm() {
         }),
       });
       if (response.ok) {
-        router.replace("/seller/imports");
+        router.replace("/seller/assistant");
         router.refresh();
         return;
       }

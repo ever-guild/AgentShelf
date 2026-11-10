@@ -72,6 +72,8 @@ claude --mcp-config ./agentshelf-seller.json --strict-mcp-config
 5. Import a CSV or photo once, review and publish the rows, then choose a stock policy for every published product.
 6. Revoke the grants in `/seller/agent-access` when finished, `unset SELLER_MCP_TOKEN` and delete the config file.
 
+A signed-in shop sees its own `/mcp/seller/shop/<shop-id>` address on the `/seller/assistant` screen, and the issued-credential panel in `/seller/agent-access` shows the address that grant is for.
+
 A rejected grant shows as a failed `agentshelf-seller` server in `/mcp` with `AUTH_HEADER_REJECTED`; issue a new grant rather than retrying the old one.
 
 ## Supported clients

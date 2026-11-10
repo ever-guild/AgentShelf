@@ -282,6 +282,10 @@ export function ScheduleBoard({
             {longDate(requestedDate)}
           </h1>
           <p className={SECONDARY_TEXT}>Times are shop time, {view.timezone}</p>
+          <p className={`text-sm ${SECONDARY_TEXT}`}>
+            Buyers’ assistants hold and book these slots, and a booking is confirmed once its PayPal
+            deposit is captured
+          </p>
         </div>
 
         <div className="flex flex-wrap items-center justify-between gap-x-6 gap-y-3">

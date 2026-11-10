@@ -158,13 +158,13 @@ export function AgentStage() {
             className="stage-passing flex items-center justify-between gap-4 rounded-3xl bg-ink px-4 py-3 text-white"
             style={at(T.approve, T.approved)}
           >
-            Approve in PayPal <span className="tabular-nums">{price}</span>
+            Approve in PayPal <span className="shrink-0 whitespace-nowrap tabular-nums">{price}</span>
           </span>
           <span
             className="stage-step flex items-center justify-between gap-4 rounded-3xl bg-accepted/10 px-4 py-3 text-accepted"
             style={at(T.approved)}
           >
-            Approved in PayPal <span className="tabular-nums">{price}</span>
+            Approved in PayPal <span className="shrink-0 whitespace-nowrap tabular-nums">{price}</span>
           </span>
         </p>
         <p

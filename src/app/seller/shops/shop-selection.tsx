@@ -36,7 +36,7 @@ export function ShopSelection() {
         body: JSON.stringify({ shopId }),
       });
       if (response.ok) {
-        router.replace("/seller/imports");
+        router.replace("/seller/assistant");
         router.refresh();
         return;
       }

@@ -180,6 +180,11 @@ export function AgentAccessManager() {
                 <input readOnly value={grant.grantToken} autoComplete="off" spellCheck={false} className="h-11 w-full rounded-lg border border-zinc-300 bg-background px-3 font-mono text-sm dark:border-zinc-700" />
               </label>
               <button type="button" onClick={() => navigator.clipboard.writeText(grant.grantToken)} className="h-10 w-fit rounded-lg border border-zinc-300 px-4 text-sm font-medium transition-colors hover:bg-zinc-100 dark:border-zinc-700 dark:hover:bg-zinc-800">Copy credential</button>
+              <div className="flex flex-col gap-1 text-sm">
+                <p className="font-medium">Connect the assistant to this address</p>
+                <code className="rounded-lg bg-zinc-100 px-3 py-2 font-mono break-all select-all dark:bg-zinc-800">{window.location.origin}{grant.shopId ? `/mcp/seller/shop/${grant.shopId}` : "/mcp/seller/onboarding"}</code>
+                <p className="text-zinc-600 dark:text-zinc-400">Send the credential as a Bearer header. <a href="https://github.com/ever-guild/AgentShelf/blob/main/docs/seller-agent-mcp.md#connect-claude-code" className="underline underline-offset-4 transition-colors hover:text-ink">Read the connection guide</a></p>
+              </div>
             </section>
           ) : null}
 

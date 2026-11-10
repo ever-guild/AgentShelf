@@ -4,6 +4,8 @@ This project has no tagged releases yet, entries describe code present in the cu
 
 ## Unreleased
 
+- Put the owner's own assistant first in the seller screens: a new `/seller/assistant` screen, first in the menu and where a shop sign-in lands, shows the three steps to work through an assistant (issue access, connect to the shop's seller MCP address, ask in plain words) and what stays with the owner. The issued-credential panel in `/seller/agent-access` now shows the address to connect to, the price list and catalog screens carry a one-line example request, and the schedule says that buyers' assistants hold and book its slots. No seller tool, grant rule or screen is removed.
+
 - Rebuild the homepage around both sides working through an assistant: a dark opening band with a scene that plays one sale in three panels (the owner's assistant, the record AgentShelf keeps, the buyer's assistant) on the demo seed's data, a list of what an assistant could get wrong and the rule that prevents it, the four Sandbox payments of 10 November, the price list becoming a catalog, an example day's schedule and missed searches, who can pay, and the connector. Motion plays once and rests in its final state; the design direction records the dark band and the motion rule.
 
 - Make two statements in the submission draft exact: the import leaves a price that is not a single amount for the seller to fill in, instead of "nothing is guessed", and the price list was imported once, in the first of the three rehearsals. Refs: #22
