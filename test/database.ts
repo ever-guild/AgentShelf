@@ -59,10 +59,12 @@ export function setupMigratedDatabase(): () => Db {
     );
   });
 
+  // DROP DATABASE waits for a checkpoint; with many parallel workers on a local disk with fsync
+  // its sync can take longer than the default 10 s hook timeout. Only this cleanup gets longer.
   afterAll(async () => {
     await connection?.close();
     await temporary?.drop();
-  });
+  }, 60_000);
 
   return () => {
     if (!connection) {
