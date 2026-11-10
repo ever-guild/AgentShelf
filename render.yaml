@@ -28,11 +28,13 @@ services:
   # it is. See "Render Workflows for photo import" in docs/deployment.md.
   - type: workflow
     name: agentshelf-import
+    repo: https://github.com/ever-guild/AgentShelf
     runtime: node
     region: frankfurt
     branch: main
-    # Deploys only what CI passed. CI's own deploy job requests the web service alone.
-    autoDeployTrigger: checksPass
+    # Never auto-deploys. CI releases the exact CI-checked commit after the web deploy is verified
+    # (POST /v1/workflowversions); a freeze disables the CI deploy job, so no release happens either.
+    autoDeployTrigger: off
     buildCommand: npm ci --include=dev
     startCommand: npx tsx workflows/main.ts
     envVars:
@@ -42,8 +44,6 @@ services:
         fromDatabase:
           name: agentshelf-db
           property: connectionString
-      - key: ANTHROPIC_API_KEY
-        sync: false
       - key: AGENT_SHELF_AI_PROVIDER
         sync: false
       - key: AGENT_SHELF_AI_PROVIDER_BASE_URL
