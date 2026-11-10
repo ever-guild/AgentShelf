@@ -197,7 +197,7 @@ PayPal Agent Toolkit, Elastic, Zapier, KERNEL, Astropods.
 - Fix the first gallery caption on the live entry: "eview imported CSV products" should read "Review imported CSV products".
 - Add the pictures from [Gallery images](#gallery-images) to the gallery.
 - Remove the "Current limits" section from the live entry; "Verified scope" above replaces it.
-- The Inspiration paragraph about four conversations rests on the team captain's account of them. TipTop telefons is named with its owner's consent, as the captain reports it. SKWildCat is named from its public site; confirm with its owner before submitting, or drop the name. No person is named, and the family relationship stays stated.
+- The Inspiration paragraph about four conversations rests on the team captain's account of them. TipTop telefons and SKWildCat are named with their owners' consent, as the captain reports it. No person is named, and the family relationship stays stated.
 
 ## Not ready or not confirmed
 
