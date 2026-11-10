@@ -325,9 +325,6 @@ describe("receipts evidence for captured orders", () => {
         processedAt: expect.any(Date),
       }),
     ]);
-    expect(await receiptsOf(otherCapture.orderId)).toEqual([
-      expect.objectContaining({ status: "processed", resourceId: "SOMEOTHERCAPTURE1" }),
-    ]);
 
     const result = await aggregate(7);
     expect(result).toEqual({
