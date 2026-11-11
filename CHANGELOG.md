@@ -4,6 +4,8 @@ This project has no tagged releases yet, entries describe code present in the cu
 
 ## Unreleased
 
+- Record the owner and agent run of 11 November 2026 on the hosted demo at `49d1c5a`: the owner issued and revoked a seller credential through `/seller/agent-access`, Claude Code published an EUR 1 test product with tracked stock on a shop with an existing PayPal Sandbox consent, a separate Python MCP buyer client bought it after a person approved the payment, and stock went from 1 to 0. The two owner rows of the seller-agent rehearsal matrix and the seller MCP capability note now point to that run. Refs: #19
+
 - Name the PayPal connection page's actual label in the seller guides: a `ready` connection is shown as **Connected**, so the owner-run checklist now passes on that text. Refs: #19
 
 - Bring the setup guides up to date with the current home page and seller screens: the connection dialog buttons, the shop access-code sign-in with its owner links, the `/seller/assistant` landing, the credential and revoke labels in `/seller/agent-access`, and the owner's PayPal consent as a separate step. Keep the owner's external seller agent apart from the dashboard's built-in Demand assistant, add an owner-run checklist for the walkthrough and the seller-agent plus buyer-agent chain that are not recorded as one run, and list the production evidence still open with its decision rules. Refs: #19
