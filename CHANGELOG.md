@@ -4,6 +4,8 @@ This project has no tagged releases yet, entries describe code present in the cu
 
 ## Unreleased
 
+- Record the hosted Render Workflow import of 11 November 2026: workflow `agentshelf-import` created in Frankfurt, versions released by CI with registered revision markers, and one synthetic photo read by a hosted task run that completed with 7 draft rows. Dispatch was turned off again afterwards because Render has no spending cap for workflow runs, so photos are read in the web process. CI scripts now use the workflow env-var endpoint `/v1/services/{workflowId}/env-vars`, accept a JSON `null` for empty lists and the 201 answer for a new version, wait for late task registration, and the deploy job timeout is 40 minutes. Refs: #55
+
 - Stop Channel3 enrichment from reporting a multi-pack listing as the exact match for a single item (and the reverse). A real `/v1/search` response of 11 November 2026 parsed correctly, but its first result was a 3-pack offered for a single tempered-glass product. The tests now use the recorded live response shape. Refs: #57
 
 - Add a repository-variable gate to freeze CI delivery of the demo while keeping validation enabled, with explicit resume and operator limits. Refs: #19

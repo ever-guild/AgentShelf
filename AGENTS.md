@@ -35,7 +35,7 @@ Open source service that makes any small shop buyable by AI agents in 5 minutes,
 - SQL full-text search with `unaccent` for product listings and demand tracking
 - AG Grid / AG Studio for seller dashboard metrics and unmet demand
 - Bryntum Scheduler (8.0 Community, MIT) for technician appointment management
-- Render: Web Service and PostgreSQL database. A background Workflows task is implemented in the codebase, but a hosted workflow service has not been enabled or verified.
+- Render: Web Service and PostgreSQL database. A background Workflows task is implemented in the codebase; a hosted workflow `agentshelf-import` ran one import on 11 November 2026 and dispatch is disabled again, so photos are read in the web process.
 
 ## How the flows use PayPal and AI
 
@@ -82,7 +82,7 @@ Use these for real, because partner judges will notice superficial use.
 - **AG Grid:** AG Studio with a custom theme, custom widgets and an agent in Studio Agent Framework. Plain tables are not enough.
 - **Bryntum:** the buyer's agent books a slot and pays a deposit, and the booking appears in the scheduler. This is the center of the workshop demo.
 - **APIMatic:** use the PayPal Context Plugin in the editor while writing PayPal code, and note this in the README.
-- **Render:** Web Service and PostgreSQL host the app. Workflow task code exists, but hosted Workflows are not enabled or verified.
+- **Render:** Web Service and PostgreSQL host the app. Workflow task code exists; one hosted import ran on 11 November 2026 and dispatch is disabled again.
 
 ## Working in this repo
 
