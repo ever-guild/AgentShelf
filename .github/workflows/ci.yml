@@ -54,7 +54,8 @@ jobs:
     needs: validate
     if: vars.AGENTSHELF_DEPLOY_FROZEN != 'true' && github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    # Web deploy and workflow release each wait up to 15 minutes
+    timeout-minutes: 40
     concurrency:
       group: deploy-render-agentshelf-e5bk
       cancel-in-progress: false

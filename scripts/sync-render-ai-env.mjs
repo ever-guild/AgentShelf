@@ -13,8 +13,9 @@ const KEYS = MAPPINGS.map(({ target }) => target);
 const WORKFLOW_KEYS = KEYS.filter((key) => key.startsWith("AGENT_SHELF_AI_PROVIDER"));
 const WORKFLOW_ID_PATTERN = /^[A-Za-z0-9-]{3,64}$/;
 const WEB_TARGET = { label: "web service", base: `/v1/services/${SERVICE_ID}/env-vars` };
-// Render's env-var endpoint for workflows is keyed by "build source" ID (unverified against a live workflow).
-const workflowTarget = (workflowId) => ({ label: "workflow", base: `/v1/build-sources/${workflowId}/env-vars` });
+// A workflow's env vars use the service env-var endpoint with the workflow ID; checked against the live
+// workflow on 11 November 2026 (the build-source endpoint returns 404 for a workflow ID).
+const workflowTarget = (workflowId) => ({ label: "workflow", base: `/v1/services/${workflowId}/env-vars` });
 
 function readAndValidateConfig(env) {
   const config = Object.fromEntries(MAPPINGS.map(({ source, target }) => [target, env[source]]));

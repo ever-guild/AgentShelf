@@ -129,7 +129,7 @@ describe("deployAndVerify workflow release", () => {
   const task = { id: "tsk-1", name: "extractPriceList", workflowVersionId: "wfv-new" };
   const revisionTask = { id: "tsk-revision", name: `revision_${commit}`, workflowVersionId: "wfv-new" };
 
-  function wfHarness({ statuses = ["building", "ready"], tasks = [{ task }, { task: revisionTask }], postStatus = 202, webOk = true, wrapped = true, concurrentVersion = false } = {}) {
+  function wfHarness({ statuses = ["building", "ready"], tasks = [{ task }, { task: revisionTask }], postStatus = 202, webOk = true, wrapped = true, concurrentVersion = false, emptyBaseline = false } = {}) {
     const base = harness({ afterHook: [[previous, current(webOk ? "live" : "build_failed")]] });
     const wfCalls = [];
     let polls = 0;
@@ -150,7 +150,9 @@ describe("deployAndVerify workflow release", () => {
         const old = version("ready", { id: "wfv-old", createdAt: "2020-01-01T00:00:00Z" });
         const mine = version(statuses[0]);
         const concurrent = version("ready", { id: "wfv-concurrent", name: "dashboard" });
-        const found = releaseRequested ? [mine, ...(concurrentVersion ? [concurrent] : []), old] : [old];
+        if (!releaseRequested && emptyBaseline) return new Response("null", { status: 200, headers: { "Content-Type": "application/json" } });
+        const previous = emptyBaseline ? [] : [old];
+        const found = releaseRequested ? [mine, ...(concurrentVersion ? [concurrent] : []), ...previous] : previous;
         return response(200, found.map((v) => (wrapped ? { workflowVersion: v } : v)));
       }
       if (url.pathname === "/v1/workflowversions/wfv-new") {
@@ -193,6 +195,11 @@ describe("deployAndVerify workflow release", () => {
     expect(fake.logs.at(-1)).toContain(`revision marker revision_${commit} are registered`);
     const output = fake.logs.join(" ");
     for (const value of ["render-secret", "hook-secret"]) expect(output).not.toContain(value);
+  });
+
+  it("treats a null version list as no versions for a new workflow's first release", async () => {
+    const fake = wfHarness({ emptyBaseline: true });
+    await expect(deployAndVerify({ ...fake, env: wfEnv })).resolves.toMatchObject({ workflow: { versionId: "wfv-new", status: "ready" } });
   });
 
   it("accepts unwrapped version and task objects", async () => {

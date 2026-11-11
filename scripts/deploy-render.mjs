@@ -167,7 +167,8 @@ async function listWorkflowVersions(fetchImpl, apiKey, workflowId) {
   do {
     const query = new URLSearchParams({ workflowID: workflowId, limit: "100" });
     if (cursor) query.set("cursor", cursor);
-    const payload = await workflowRequest(fetchImpl, apiKey, `/v1/workflowversions?${query}`);
+    // Render answers an empty version list with a JSON null body.
+    const payload = (await workflowRequest(fetchImpl, apiKey, `/v1/workflowversions?${query}`)) ?? [];
     if (!Array.isArray(payload)) throw new Error("Render returned an invalid workflow version list.");
     for (const entry of payload) {
       const version = parseVersion(entry);

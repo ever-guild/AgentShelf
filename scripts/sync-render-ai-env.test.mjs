@@ -113,7 +113,7 @@ describe("syncRenderAiEnv", () => {
       "Render Workflow not configured; workflow settings not synced.",
       "Channel3 API key not supplied; web-service setting skipped.",
     ]);
-    expect(fake.calls.some((call) => call.url.includes("build-sources"))).toBe(false);
+    expect(fake.calls.some((call) => call.url.includes("/v1/services/wfl-"))).toBe(false);
   });
 
   it("skips an absent optional Channel3 key without touching an existing Render key", async () => {
@@ -139,7 +139,7 @@ describe("syncRenderAiEnv", () => {
     expect(channel3Calls.map((call) => call.method)).toEqual(["GET", "PUT", "GET"]);
     expect(channel3Calls.every((call) => call.url.startsWith("https://api.render.com/v1/services/srv-dbm8a6e1egvs73bl8d90/env-vars/"))).toBe(true);
     expect(fake.values.get("CHANNEL3_API_KEY")).toBe(channel3Secret);
-    const workflowCalls = fake.calls.filter((call) => call.url.includes("build-sources"));
+    const workflowCalls = fake.calls.filter((call) => call.url.includes("/v1/services/wfl-"));
     expect(workflowCalls.map((call) => call.key)).toEqual([
       "AGENT_SHELF_AI_PROVIDER",
       "AGENT_SHELF_AI_PROVIDER_BASE_URL",
@@ -234,7 +234,7 @@ describe("syncRenderAiEnv", () => {
 
   describe("with RENDER_WORKFLOW_ID", () => {
     const workflowEnv = { ...desired, RENDER_WORKFLOW_ID: "wfl-test123" };
-    const wfPath = "/v1/build-sources/wfl-test123/env-vars/";
+    const wfPath = "/v1/services/wfl-test123/env-vars/";
     const isWf = (call) => call.url.includes(wfPath);
     const wfSeed = (extra = {}) => Object.fromEntries(
       Object.entries(extra).map(([key, value]) => [key, value]));
@@ -249,7 +249,7 @@ describe("syncRenderAiEnv", () => {
       const fetchImpl = async (input, options) => {
         const url = new URL(input);
         const key = decodeURIComponent(url.pathname.split("/").at(-1));
-        const store = url.pathname.includes("build-sources") ? stores.wf : stores.web;
+        const store = url.pathname.includes("/v1/services/wfl-") ? stores.wf : stores.web;
         calls.push({ method: options.method, key, url: url.href, options, wf: store === stores.wf });
         if (options.method === "GET") {
           if (store === stores.wf && failWfGet) return new Response("echo " + secret, { status: 503 });
