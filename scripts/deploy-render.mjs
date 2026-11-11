@@ -198,7 +198,8 @@ async function listTasksForVersion(fetchImpl, apiKey, versionId) {
   do {
     const query = new URLSearchParams({ workflowVersionId: versionId, limit: "100" });
     if (cursor) query.set("cursor", cursor);
-    const payload = await workflowRequest(fetchImpl, apiKey, `/v1/tasks?${query}`);
+    // Render answers an empty task list with a JSON null body, as it can just after a version turns ready.
+    const payload = (await workflowRequest(fetchImpl, apiKey, `/v1/tasks?${query}`)) ?? [];
     if (!Array.isArray(payload)) throw new Error("Render returned an invalid task list.");
     tasks.push(...payload.map((entry) => unwrap(entry, "task")).filter(Boolean));
     const nextCursor = payload.at(-1)?.cursor;
@@ -226,6 +227,7 @@ async function releaseWorkflow({ fetchImpl, apiKey, workflowId, commit, sleepImp
   const deadline = requestedAt + WORKFLOW_TIMEOUT_MS;
   let versionId;
   let lastStatus;
+  let missingTasks;
   while (now() < deadline) {
     let version;
     if (versionId === undefined) {
@@ -260,7 +262,10 @@ async function releaseWorkflow({ fetchImpl, apiKey, workflowId, commit, sleepImp
           candidate.name === revisionTaskName && candidate.workflowVersionId === version.id,
         );
         if (!task || !revisionTask) {
-          throw new Error(`Render Workflow version ${version.id} is ready but does not register both ${WORKFLOW_TASK_NAME} and ${revisionTaskName}.`);
+          // Task registrations can appear shortly after the version reports ready; keep polling until the deadline.
+          missingTasks = `Render Workflow version ${version.id} is ready but does not register both ${WORKFLOW_TASK_NAME} and ${revisionTaskName}.`;
+          await sleepImpl(10_000);
+          continue;
         }
         const meta = await workflowRequest(fetchImpl, apiKey, `/v1/workflows/${encodeURIComponent(workflowId)}`);
         const slug = typeof meta?.slug === "string" ? meta.slug : "unknown";
@@ -274,7 +279,7 @@ async function releaseWorkflow({ fetchImpl, apiKey, workflowId, commit, sleepImp
     }
     await sleepImpl(10_000);
   }
-  throw new Error(`Render Workflow did not become ready for commit ${commit} within 15 minutes.`);
+  throw new Error(missingTasks ?? `Render Workflow did not become ready for commit ${commit} within 15 minutes.`);
 }
 
 export async function deployAndVerify({ env, fetchImpl = fetch, sleepImpl = wait, now = Date.now, logger = console }) {

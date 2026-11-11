@@ -229,6 +229,20 @@ describe("deployAndVerify workflow release", () => {
     await expect(deployAndVerify({ ...fake, env: wfEnv })).rejects.toThrow("Multiple Render Workflow versions appeared during release");
   });
 
+  it("waits for task registrations that appear after the version is ready", async () => {
+    let lookups = 0;
+    const fake = wfHarness();
+    const inner = fake.fetchImpl;
+    const fetchImpl = async (input, options = {}) => {
+      if (new URL(input).pathname === "/v1/tasks" && ++lookups === 1) {
+        return new Response("null", { status: 200, headers: { "Content-Type": "application/json" } });
+      }
+      return inner(input, options);
+    };
+    await expect(deployAndVerify({ ...fake, fetchImpl, env: wfEnv })).resolves.toMatchObject({ workflow: { taskId: "tsk-1", revisionTaskId: "tsk-revision" } });
+    expect(lookups).toBe(2);
+  });
+
   it("fails when the task is missing from the ready version", async () => {
     const other = { ...task, name: "other" };
     const fake = wfHarness({ statuses: ["ready"], tasks: [{ task: other }, { task: revisionTask }] });
