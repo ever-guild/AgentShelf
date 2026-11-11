@@ -281,7 +281,7 @@ export default function Home() {
               <p className={LEAD}>
                 Photograph it or upload a CSV, yourself or through your assistant. Correct the table
                 once, then publish.{" "}
-                <Link href="/shops/demo-phone-workshop" className={`text-foreground ${TEXT_LINK}`}>
+                <Link href="/shops/liepaja-phone-workshop" className={`text-foreground ${TEXT_LINK}`}>
                   See the demo workshop
                 </Link>
               </p>

@@ -4,6 +4,8 @@ This project has no tagged releases yet, entries describe code present in the cu
 
 ## Unreleased
 
+- Point the home page link "See the demo workshop" at the payment-ready `liepaja-phone-workshop` storefront instead of `demo-phone-workshop`, which shows that payment is not set up. The buyer quickstart now names that shop, its storefront and the MCP endpoint, uses "Silicone case, iPhone 13" (14.00 EUR) as the example, separates search from checkout and tells the reader to pick the available, payment-ready result from "Liepāja, Latvia". Refs: #59
+
 - Record the hosted Render Workflow import of 11 November 2026: workflow `agentshelf-import` created in Frankfurt, versions released by CI with registered revision markers, and one synthetic photo read by a hosted task run that completed with 7 draft rows. Dispatch was turned off again afterwards because Render has no spending cap for workflow runs, so photos are read in the web process. CI scripts now use the workflow env-var endpoint `/v1/services/{workflowId}/env-vars`, accept a JSON `null` for empty lists and the 201 answer for a new version, wait for late task registration, and the deploy job timeout is 40 minutes. Refs: #55
 
 - Stop Channel3 enrichment from reporting a multi-pack listing as the exact match for a single item (and the reverse). A real `/v1/search` response of 11 November 2026 parsed correctly, but its first result was a 3-pack offered for a single tempered-glass product. The tests now use the recorded live response shape. Refs: #57

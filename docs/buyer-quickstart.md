@@ -43,20 +43,31 @@ Any agent that can use a remote MCP server connects the same way: add a server o
 
 The server lists `search_products`, `get_slots`, `book_slot`, `create_checkout` and `get_order_status`. Only the clients in [MCP status](mcp.md#status) have been tested; the key names in the settings entry vary between agents.
 
+## Demo shop for buyers
+
+The payment-ready demo shop is **Liepāja Phone Workshop** (location "Liepāja, Latvia"):
+
+- Storefront: `https://agentshelf-e5bk.onrender.com/shops/liepaja-phone-workshop`
+- Buyer MCP endpoint: `https://agentshelf-e5bk.onrender.com/mcp`
+
+A similarly named shop that is not connected to PayPal may also appear in search results. Choose the result from "Liepāja, Latvia" that is available and shows `paymentReady` true. The example below uses **Silicone case, iPhone 13** at 14.00 EUR.
+
 ## Try the read-only search
 
+Search only first: it reads the catalog and creates no order.
+
 ```text
-Use only AgentShelf Buyer and call search_products to find an iPhone 13 screen protector in Liepaja. Do not use web search or tools outside AgentShelf Buyer, and do not book, order, or pay.
+Use only AgentShelf Buyer and call search_products to find a silicone case for iPhone 13 at Liepāja Phone Workshop in Liepāja, Latvia. Show the shop, location, price, currency, availability and whether payment is ready. Do not use web search or tools outside AgentShelf Buyer, and do not book, order, or pay.
 ```
 
-The assistant should show matching catalog results and stop. This prompt is a test instruction, not evidence that a particular external client has connected; client-specific results are tracked in [MCP status](mcp.md#status).
+The assistant should show "Silicone case, iPhone 13" at 14.00 EUR, available and payment-ready, and stop. This prompt is a test instruction, not evidence that a particular external client has connected; client-specific results are tracked in [MCP status](mcp.md#status).
 
 ## Optional Sandbox checkout
 
-Use this only when you intend to test a checkout and can approve it yourself in PayPal Sandbox:
+Checkout is a separate step from search. Use it only when you intend to test a purchase and can approve it yourself as a human in PayPal Sandbox, signed in with a PayPal Sandbox buyer account (a personal sandbox account):
 
 ```text
-Use only AgentShelf Buyer. First call search_products for an iPhone 13 tempered glass at Liepāja Phone Workshop and show me the current available item, availability, price, and currency. If the result is ambiguous or the current price differs from a price I previously approved, ask me to confirm before checkout. Once I choose a current result, call create_checkout exactly once for that product and quantity 1, then give me its PayPal Sandbox approval link. Do not use web search or tools outside AgentShelf Buyer, do not automatically repeat or create another checkout while payment is pending, and do not claim payment is complete until get_order_status reports paid. After I return from PayPal, check order status.
+Use only AgentShelf Buyer. First call search_products for a silicone case for iPhone 13 at Liepāja Phone Workshop in Liepāja, Latvia and show me the current available payment-ready item, availability, price, and currency (expected 14.00 EUR). If the result is ambiguous, is from another shop, or the current price differs from a price I previously approved, ask me to confirm before checkout. Once I choose a current result, call create_checkout exactly once for that product and quantity 1, then give me its PayPal Sandbox approval link. Do not use web search or tools outside AgentShelf Buyer, do not automatically repeat or create another checkout while payment is pending, and do not claim payment is complete until get_order_status reports paid. After I return from PayPal, check order status.
 ```
 
 `create_checkout` reserves available stock and returns an approval link; it does not complete payment. Review the merchant and current total in PayPal Sandbox and approve it as a human buyer. A checkout is complete only when `get_order_status` reports `paid`. If its state is pending or unclear, do not create another checkout; wait for reconciliation or ask the operator to check it.
