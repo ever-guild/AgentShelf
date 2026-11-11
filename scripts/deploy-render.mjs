@@ -147,8 +147,15 @@ async function workflowRequest(fetchImpl, apiKey, path, init = {}, okStatuses = 
   }
   if (!okStatuses.includes(response.status)) throw new Error(`Render API request failed (HTTP ${response.status}).`);
   if (response.status === 202 || response.status === 204) return undefined;
+  let text;
   try {
-    return await response.json();
+    text = await response.text();
+  } catch {
+    throw new Error("Render API returned invalid JSON.");
+  }
+  if (text.trim() === "") return undefined;
+  try {
+    return JSON.parse(text);
   } catch {
     throw new Error("Render API returned invalid JSON.");
   }
@@ -212,7 +219,8 @@ async function releaseWorkflow({ fetchImpl, apiKey, workflowId, commit, sleepImp
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ workflowId, commit }),
-  }, [202]);
+  // The API reference lists 202; the live API answered 201 on 11 November 2026.
+  }, [201, 202]);
   logger.log(`Render Workflow release requested for commit ${commit}.`);
 
   const deadline = requestedAt + WORKFLOW_TIMEOUT_MS;

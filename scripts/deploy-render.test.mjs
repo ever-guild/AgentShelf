@@ -197,6 +197,11 @@ describe("deployAndVerify workflow release", () => {
     for (const value of ["render-secret", "hook-secret"]) expect(output).not.toContain(value);
   });
 
+  it("accepts a 201 release response", async () => {
+    const fake = wfHarness({ postStatus: 201 });
+    await expect(deployAndVerify({ ...fake, env: wfEnv })).resolves.toMatchObject({ workflow: { versionId: "wfv-new", status: "ready" } });
+  });
+
   it("treats a null version list as no versions for a new workflow's first release", async () => {
     const fake = wfHarness({ emptyBaseline: true });
     await expect(deployAndVerify({ ...fake, env: wfEnv })).resolves.toMatchObject({ workflow: { versionId: "wfv-new", status: "ready" } });
