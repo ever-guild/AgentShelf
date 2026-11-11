@@ -4,6 +4,8 @@ This project has no tagged releases yet, entries describe code present in the cu
 
 ## Unreleased
 
+- Stop Channel3 enrichment from reporting a multi-pack listing as the exact match for a single item (and the reverse). A real `/v1/search` response of 11 November 2026 parsed correctly, but its first result was a 3-pack offered for a single tempered-glass product. The tests now use the recorded live response shape. Refs: #57
+
 - Add a repository-variable gate to freeze CI delivery of the demo while keeping validation enabled, with explicit resume and operator limits. Refs: #19
 
 - Record the owner and agent run of 11 November 2026 on the hosted demo at `49d1c5a`: the owner issued and revoked a seller credential through `/seller/agent-access`, Claude Code published an EUR 1 test product with tracked stock on a shop with an existing PayPal Sandbox consent, a separate Python MCP buyer client bought it after a person approved the payment, and stock went from 1 to 0. The two owner rows of the seller-agent rehearsal matrix and the seller MCP capability note now point to that run. Refs: #19

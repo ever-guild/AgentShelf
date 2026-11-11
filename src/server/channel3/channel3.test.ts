@@ -603,3 +603,75 @@ describe("Channel3 Catalog Enrichment", () => {
     });
   });
 });
+
+describe("Channel3 live /v1/search contract (shape recorded 2026-11-11)", () => {
+  // Field set taken from a real 200 response; values are synthetic.
+  const liveProduct = (id: string, title: string, price: number) => ({
+    id,
+    title,
+    description: "Reference description",
+    brands: [{ id: `b-${id}`, name: "Brand" }],
+    images: [{ url: "https://img.example/a.jpg", cleaned_url: null, is_main_image: true, shot_type: "product", alt_text: "alt" }],
+    category: { slug: "screen-protectors", title: "Screen Protectors", path: [{ slug: "x", title: "X" }], has_children: false },
+    gender: null,
+    age: null,
+    materials: ["Glass"],
+    key_features: ["9H"],
+    colors: [{ hex: "#ffffff", percentage: 0.5 }],
+    offers: [{
+      url: "https://buy.trychannel3.com/abc",
+      domain: "bestbuy.com",
+      price: { price, currency: "USD" },
+      availability: "InStock",
+      condition: "new",
+      max_commission_rate: 0.02,
+      dimensions: null,
+    }],
+    variants: null,
+    structured_attributes: { material: ["Tempered glass"], "compatible-device": ["Smartphone"] },
+    ratings: null,
+  });
+  const run = (title: string, products: unknown[]) =>
+    enrichCatalogProduct({
+      productId: TEST_PRODUCT_ID,
+      productTitle: title,
+      shopCurrency: "EUR",
+      apiKey: "test-api-key",
+      fetch: vi.fn().mockResolvedValue(
+        new Response(JSON.stringify({ products, next_page_token: "tok" }), { status: 200, headers: { "content-type": "application/json" } }),
+      ),
+    });
+
+  it("parses the full live response shape without an invalid-response error", async () => {
+    const result = await run("Tempered glass, iPhone 14", [liveProduct("p1", "Tempered Glass for Apple iPhone 14", 9.99)]);
+    expect(result.status).toBe("exact_match");
+    expect(result.suggestion?.referencePrices[0]).toMatchObject({ currency: "USD", isComparableCurrency: false });
+  });
+
+  it("does not report a 3-pack as the exact match for a single item", async () => {
+    const result = await run("Tempered glass, iPhone 14", [
+      liveProduct("p1", "RomeTech Tempered Glass for Apple iPhone 14 - 3 Pack", 14.99),
+      liveProduct("p2", "3-Pack Screen Protector Tempered Glass for iPhone 14", 18.99),
+    ]);
+    expect(result.status).toBe("ambiguous");
+    expect(result.suggestion).toBeUndefined();
+  });
+
+  it("still matches a single item when a multi-pack neighbor is also returned", async () => {
+    const result = await run("Tempered glass, iPhone 14", [
+      liveProduct("p1", "Tempered Glass for Apple iPhone 14 - 3 Pack", 14.99),
+      liveProduct("p2", "Tempered Glass for iPhone 14", 7.99),
+    ]);
+    expect(result.status).toBe("exact_match");
+    expect(result.suggestion?.canonicalTitle).toBe("Tempered Glass for iPhone 14");
+  });
+
+  it("matches a 3-pack query only against a 3-pack candidate", async () => {
+    const result = await run("Tempered glass iPhone 14, 3 pack", [
+      liveProduct("p1", "Tempered Glass for iPhone 14", 7.99),
+      liveProduct("p2", "Tempered Glass for iPhone 14 - 3 Pack", 14.99),
+    ]);
+    expect(result.status).toBe("exact_match");
+    expect(result.suggestion?.canonicalTitle).toContain("3 Pack");
+  });
+});

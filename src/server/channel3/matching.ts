@@ -17,6 +17,7 @@ export interface ProductSpecs {
   variant?: string;
   compatibility?: string;
   modelCode?: string;
+  packSize?: number;
   colors?: string[];
   materials?: string[];
   sizes?: string[];
@@ -86,9 +87,17 @@ export function formatAmount(amount: unknown): string {
   return "";
 }
 
+function extractPackSize(text: string): number | undefined {
+  const match = text.match(/\b(\d{1,3})[\s-]?(?:pack|pcs|pc|pieces?|шт)(?![\p{L}\p{N}])/iu) ?? text.match(/\bpack of (\d{1,3})\b/i);
+  const size = match ? Number(match[1]) : undefined;
+  return size && size > 0 ? size : undefined;
+}
+
 export function extractSpecs(rawTitle: string): ProductSpecs {
   const t = rawTitle.toLowerCase();
-  const modelCode = t.match(/\b(?=[a-z0-9-]*[a-z])(?=[a-z0-9-]*\d)[a-z0-9]+(?:-[a-z0-9]+)*\b/i)?.[0]?.toUpperCase();
+  const packSize = extractPackSize(t);
+  const codeText = t.replace(/\b\d{1,3}[\s-]?(?:pack|pcs|pc|pieces?)\b/g, " ");
+  const modelCode = codeText.match(/\b(?=[a-z0-9-]*[a-z])(?=[a-z0-9-]*\d)[a-z0-9]+(?:-[a-z0-9]+)*\b/i)?.[0]?.toUpperCase();
   const sizes = t.match(/\b\d+(?:\.\d+)?[\s-]?(?:inch(?:es)?|in|mm|cm|gb|tb|mah|oz|ml|l)\b/gi)?.map((size) => size.replace(/[\s-]+/g, "").toLowerCase());
 
   // 1. Brand detection
@@ -168,6 +177,7 @@ export function extractSpecs(rawTitle: string): ProductSpecs {
     variant,
     compatibility,
     modelCode,
+    ...(packSize ? { packSize } : {}),
     colors: findTerms(t, TITLE_COLORS),
     materials: findTerms(t, TITLE_MATERIALS),
     sizes: sizes ?? [],
@@ -278,6 +288,11 @@ export function matchChannel3Results(options: MatchChannel3Options): CatalogEnri
       continue;
     }
 
+    // A multi-pack is a different sellable unit from a single item and vice versa.
+    if (querySpecs.packSize && specs.packSize && querySpecs.packSize !== specs.packSize) {
+      continue;
+    }
+
     if (
       hasNoSharedTerm(querySpecs.colors, specs.colors) ||
       hasNoSharedTerm(querySpecs.materials, specs.materials) ||
@@ -308,6 +323,8 @@ export function matchChannel3Results(options: MatchChannel3Options): CatalogEnri
     (querySpecs.tier && !specs.tier) ||
     (querySpecs.category && !specs.category) ||
     (querySpecs.modelCode && !specs.modelCode) ||
+    (specs.packSize && specs.packSize !== 1 && specs.packSize !== querySpecs.packSize) ||
+    (querySpecs.packSize && querySpecs.packSize !== 1 && !specs.packSize) ||
     (specs.generation && !querySpecs.generation) ||
     (specs.tier && !querySpecs.tier) ||
     (querySpecs.colors?.length && !specs.colors?.length) ||
