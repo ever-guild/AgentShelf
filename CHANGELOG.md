@@ -4,6 +4,8 @@ This project has no tagged releases yet, entries describe code present in the cu
 
 ## Unreleased
 
+- Add a repository-variable gate to freeze CI delivery of the demo while keeping validation enabled, with explicit resume and operator limits. Refs: #19
+
 - Record the owner and agent run of 11 November 2026 on the hosted demo at `49d1c5a`: the owner issued and revoked a seller credential through `/seller/agent-access`, Claude Code published an EUR 1 test product with tracked stock on a shop with an existing PayPal Sandbox consent, a separate Python MCP buyer client bought it after a person approved the payment, and stock went from 1 to 0. The two owner rows of the seller-agent rehearsal matrix and the seller MCP capability note now point to that run. Refs: #19
 
 - Name the PayPal connection page's actual label in the seller guides: a `ready` connection is shown as **Connected**, so the owner-run checklist now passes on that text. Refs: #19

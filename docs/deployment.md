@@ -28,7 +28,8 @@ This is a verified snapshot, later commits have their own checks and deployment 
 - Render's native auto-deploy is configured as `autoDeployTrigger: off`, automated delivery is controlled by the GitHub Actions deploy job
 - A Git tag records a demo version, it neither deploys nor freezes this service
 - Record the live commit from `/api/health` and compare it with the successful GitHub Actions commit and Render deploy, do not treat a successful build as proof that a version is live
-- Before freezing the judging version, disable or gate the GitHub Actions deploy job and record the chosen commit, Render's native auto-deploy is already off and a tag alone does not stop Deploy Hook requests
+- After the chosen commit is live, set the repository Actions variable `AGENTSHELF_DEPLOY_FROZEN=true` to freeze delivery, then record its full SHA in the release issue. Validation still runs; the deploy job, including environment synchronization, is skipped for pushes and manual dispatches. Keep this variable at repository scope, not Environment scope, so the job-level condition can read it
+- To resume approved delivery, set `AGENTSHELF_DEPLOY_FROZEN=false`, dispatch CI on the approved revision and verify the resulting live SHA before freezing again. This gate does not cancel a running deploy or block a direct Dashboard/API/Deploy Hook request; finish pending deliveries first and coordinate operator changes. Render native auto-deploy remains off
 
 The validation job needs no Render credentials and uses only an isolated test database, never the demo database; only the post-validation job receives Render credentials and AI provider settings
 

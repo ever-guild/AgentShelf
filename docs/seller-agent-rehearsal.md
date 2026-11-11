@@ -116,7 +116,7 @@ Live [`49d1c5a`](https://github.com/ever-guild/AgentShelf/commit/49d1c5a68081396
 | Payment | Person, as a PayPal Sandbox buyer | Approved EUR 1.00; no agent pressed Pay or Approve |
 | Order | Buyer client | `get_order_status` reported `paid` |
 | Stock after | Seller agent | onHand 0, reserved 0, available 0, version 4 (2 before checkout, 3 with the hold, 4 after the sale); product then unpublished |
-| Revoke | Owner presses **Revoke credential**, then the same credential calls the seller MCP address | "Permission revoked.", then HTTP 401, 24 seconds before the credential would have expired |
+| Revoke | Owner presses **Revoke credential**, then the same credential calls the seller MCP address | "Permission revoked.", then HTTP 401 at 11:31:43 UTC, 12 seconds before its 11:31:55 expiry (the UI revocation was at 11:31:31) |
 
 An earlier checkout of the same product that night was not paid within the 15-minute hold: it became `cancelled` and the hold returned the unit (available 1 again), which a second credential confirmed before it was revoked with the same 401 result.
 

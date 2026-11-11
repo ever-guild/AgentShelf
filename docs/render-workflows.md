@@ -71,7 +71,7 @@ Known limit of the release check: Render's documented workflow-version API accep
 
 ### Freeze
 
-The workflow's own auto-deploy is off. Disabling the CI deploy job freezes both the web service and the workflow. Record the commit of both, which should be the same.
+The workflow's own auto-deploy is off. Setting the repository Actions variable `AGENTSHELF_DEPLOY_FROZEN=true` skips the CI deploy job for both the web service and the workflow, while validation continues. It does not cancel a running deploy or block direct operator requests. Record the commit of both, which should be the same.
 
 ## Cost
 
