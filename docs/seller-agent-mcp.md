@@ -74,7 +74,7 @@ claude --mcp-config ./agentshelf-seller.json --strict-mcp-config
 
 ### PayPal consent
 
-PayPal consent is separate from the agent credential, and the owner gives it. There are two paths. The owner can open `/seller/paypal-connection`, tick the data-sharing agreement and press **Start sandbox connection** (**Resume sandbox connection** when pending), then continue to PayPal Sandbox. Or the owner issues a shop grant that also ticks **Connect a sandbox seller account** and the agreement to share the shop's data with PayPal; the agent can then call `seller_connect_paypal`, which returns a PayPal Sandbox link that the owner opens and completes. In both paths the owner finishes the PayPal steps and no PayPal password or server credential goes to the agent. The connection is `ready` only after PayPal reports it, check it on `/seller/paypal-connection` (**Refresh status**).
+PayPal consent is separate from the agent credential, and the owner gives it. There are two paths. The owner can open `/seller/paypal-connection`, tick the data-sharing agreement and press **Start sandbox connection** (**Resume sandbox connection** when pending), then continue to PayPal Sandbox. Or the owner issues a shop grant that also ticks **Connect a sandbox seller account** and the agreement to share the shop's data with PayPal; the agent can then call `seller_connect_paypal`, which returns a PayPal Sandbox link that the owner opens and completes. In both paths the owner finishes the PayPal steps and no PayPal password or server credential goes to the agent. The connection is `ready` only after PayPal reports it; `/seller/paypal-connection` then shows **Connected** (**Refresh status** reloads it).
 
 ### Not the dashboard assistant
 

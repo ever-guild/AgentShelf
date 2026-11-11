@@ -4,6 +4,8 @@ This project has no tagged releases yet, entries describe code present in the cu
 
 ## Unreleased
 
+- Name the PayPal connection page's actual label in the seller guides: a `ready` connection is shown as **Connected**, so the owner-run checklist now passes on that text. Refs: #19
+
 - Bring the setup guides up to date with the current home page and seller screens: the connection dialog buttons, the shop access-code sign-in with its owner links, the `/seller/assistant` landing, the credential and revoke labels in `/seller/agent-access`, and the owner's PayPal consent as a separate step. Keep the owner's external seller agent apart from the dashboard's built-in Demand assistant, add an owner-run checklist for the walkthrough and the seller-agent plus buyer-agent chain that are not recorded as one run, and list the production evidence still open with its decision rules. Refs: #19
 
 - Add a short way in to the buyer connection dialog for Claude and ChatGPT: one button copies the connector address and opens the assistant's own page for adding a connector, with the three steps kept below it as the other choice. Neither assistant offers a link that fills its form in, so the address is still pasted by hand.
