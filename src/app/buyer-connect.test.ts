@@ -260,7 +260,9 @@ describe("BuyerConnectGuide Component Rendering", () => {
     );
 
     expect(html).toContain("Copy address and open Claude");
-    expect(html).toContain('href="https://claude.ai/customize/connectors"');
+    expect(html).toContain("https://claude.ai/customize/connectors?modal=add-custom-connector");
+    expect(html).toContain(`connectorUrl=${encodeURIComponent(testAddress)}`);
+    expect(html).toContain("connectorName=AgentShelf");
     expect(html).toContain("Or step by step");
     expect(html).toContain("Using Claude Code");
     expect(html).toContain(getClaudeCodeCommand(testAddress));

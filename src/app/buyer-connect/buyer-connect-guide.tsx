@@ -112,7 +112,10 @@ export function BuyerConnectGuide({
   const copy = { copied, onCopied: setCopied };
 
   const steps = STEPS_BY_ASSISTANT[assistant];
-  const quick = QUICK_OPEN[assistant];
+  const entry = QUICK_OPEN[assistant];
+  const quick = entry && assistant === "claude"
+    ? { ...entry, url: `${entry.url}?${new URLSearchParams({ modal: "add-custom-connector", connectorName: "AgentShelf", connectorUrl: address })}` }
+    : entry;
   const name = ASSISTANTS.find(({ id }) => id === assistant)?.label ?? "";
 
   return (

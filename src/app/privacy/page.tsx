@@ -17,7 +17,7 @@ export default function PrivacyPage() {
       <main className="mx-auto flex w-full max-w-3xl flex-1 flex-col gap-8 px-4 py-10 sm:px-8">
         <div className="flex flex-col gap-2">
           <h1 className="text-3xl font-medium tracking-tight">Privacy policy</h1>
-          <p className={quiet}>AgentShelf PayPal Sandbox demo · Updated November 10, 2026</p>
+          <p className={quiet}>AgentShelf PayPal Sandbox demo · Updated November 11, 2026</p>
         </div>
 
         <section className="flex flex-col gap-3">
@@ -34,6 +34,16 @@ export default function PrivacyPage() {
           </p>
           <p className={quiet}>
             If a seller chooses <em>Check market specs &amp; price</em> for a catalog product, AgentShelf sends that product’s title to Channel3 to request matching product and offer data. This lookup is optional and runs only after the seller selects it.
+          </p>
+        </section>
+
+        <section className="flex flex-col gap-3">
+          <h2 className="text-lg font-medium">Retention and deletion</h2>
+          <p className={quiet}>
+            Observed search activity older than 90 days is deleted from the application database by the background search-index sweep. This cleanup depends on the service and database being available; it is not an exact deletion deadline. Labeled synthetic search fixtures are excluded from this cleanup.
+          </p>
+          <p className={quiet}>
+            Other demo records, including shop, import, catalog, order and booking records, do not currently have automatic age-based deletion. They remain until maintainers remove them or the demo database is retired. Removing application records does not immediately remove copies from hosting backups or from external providers such as PayPal and your AI assistant; those services have their own retention policies.
           </p>
         </section>
 

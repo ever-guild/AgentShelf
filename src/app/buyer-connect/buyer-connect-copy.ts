@@ -88,13 +88,12 @@ export const STEPS_BY_ASSISTANT: Record<Assistant, ConnectStep[]> = {
   agent: AGENT_STEPS,
 };
 
-// The short way in. Neither assistant has a link that fills its form in, so the nearest thing is to
-// put the address on the clipboard and open the page where it is pasted.
+// Claude supports a prefilled custom connector dialog; user confirmation is still required.
 export const QUICK_OPEN: Partial<Record<Assistant, { url: string; label: string; next: string }>> = {
   claude: {
     url: "https://claude.ai/customize/connectors",
     label: "Copy address and open Claude",
-    next: "Claude opens on Connectors. Choose Add, then Add custom connector, and paste the address.",
+    next: "Review the prefilled name and address in Claude, then confirm Add custom connector. If the form is not prefilled, paste the copied address.",
   },
   chatgpt: {
     url: "https://chatgpt.com/plugins",
