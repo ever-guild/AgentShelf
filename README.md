@@ -80,7 +80,7 @@ Open <http://localhost:3000>. Keep secrets in `.env.local` or your deployment se
 
 ## Deployment and Verification Boundaries
 
-- **Hosting:** Deployed on Render web services with managed PostgreSQL. Pushes to `main` trigger CI, which validates linting, tests, and build before invoking the Render Deploy Hook for the exact commit SHA.
+- **Hosting:** Deployed on Render web services with managed PostgreSQL. Pushes to `main` trigger CI, which validates linting, tests, and build before invoking the Render Deploy Hook for the exact commit SHA. Delivery is frozen for judging: `/api/health` reports the live commit, and later commits on `main` are not deployed. The database is on a paid plan through judging. A Render Workflow task read one price-list photo on the hosted service on 11 November 2026; its dispatch is off, so the live service reads photos in the web process ([Render Workflows](docs/render-workflows.md)).
 - **Environment:** Operates strictly within **PayPal Sandbox**. Real credit cards, live banking, and production merchant accounts are out of scope.
 - **Payments:** Payment amounts route directly to seller accounts via Orders v2 `payee`. A human buyer must log in to PayPal to approve payments; agents never charge stored payment methods directly.
 - **Client verification:** The buyer MCP has recorded sessions in Claude Code, the Claude desktop app, claude.ai and ChatGPT, with dates, commits and caveats in [MCP status](docs/mcp.md#status); one ChatGPT purchase ended unpaid and a repair booking from ChatGPT is not tested. The seller MCP is verified with Claude Code CLI (2.1.319) only; claude.ai and ChatGPT cannot send its Bearer credential.

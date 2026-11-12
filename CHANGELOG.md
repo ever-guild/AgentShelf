@@ -4,6 +4,8 @@ This project has no tagged releases yet, entries describe code present in the cu
 
 ## Unreleased
 
+- Bring the public evidence up to date with 11 November: the capability matrix records the hosted Render Workflow import and its disabled dispatch, the paid database plan through judging, the confirmed claude.ai booking in Bryntum Scheduler and the AG Studio Demand assistant answer, with a short "Added on 11 November 2026" section and the live commit check of 12 November. `docs/deployment.md`, `render.yaml` and the README now show the `0.1c-256mb` database instead of the expiring free one. The Devpost draft points to the submitted entry, uses the current video `GQk2hibqPEY` and the submitted elevator pitch, and drops resolved open items. The Bryntum and AG Studio gallery frames are added under `docs/images/submission/`. Refs: #22
+
 - Prefill Claude custom-connector setup while retaining manual instructions, document current data retention and add a private security reporting policy (Refs: #64)
 
 - Point the home page link "See the demo workshop" at the payment-ready `liepaja-phone-workshop` storefront instead of `demo-phone-workshop`, which shows that payment is not set up. The buyer quickstart now names that shop, its storefront and the MCP endpoint, uses "Silicone case, iPhone 13" (14.00 EUR) as the example, separates search from checkout and tells the reader to pick the available, payment-ready result from "Liepāja, Latvia". Refs: #59

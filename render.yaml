@@ -24,8 +24,8 @@ services:
       - key: APP_SIGNING_SECRET
         generateValue: true
 
-  # Reads price list photos. Not created on Render yet, and the web service reads them itself until
-  # it is. See "Render Workflows for photo import" in docs/deployment.md.
+  # Reads price list photos. Created on Render on 11 November 2026 and run once; dispatch is off, so
+  # the web service reads photos itself. See "Render Workflows for photo import" in docs/deployment.md.
   - type: workflow
     name: agentshelf-import
     repo: https://github.com/ever-guild/AgentShelf
@@ -52,9 +52,10 @@ services:
         sync: false
 
 databases:
-  # A free database expires 30 days after creation. See docs/deployment.md before judging.
+  # Matches the existing database, moved from free on 11 November 2026. See docs/deployment.md.
   - name: agentshelf-db
     databaseName: agentshelf
-    plan: free
+    plan: 0.1c-256mb
+    diskSizeGB: 1
     region: frankfurt
     postgresMajorVersion: "17"

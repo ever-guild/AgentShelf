@@ -33,16 +33,16 @@ This is a verified snapshot, later commits have their own checks and deployment 
 
 The validation job needs no Render credentials and uses only an isolated test database, never the demo database; only the post-validation job receives Render credentials and AI provider settings
 
-## Plan decision needed before judging
+## Hosting through judging
 
-The web service already uses `0.5c-512mb`, this setup preserves its existing plan, the new database uses `free`
+The rules ask for the demo to stay available until 21 December 2026. Both resources are on paid plans with no expiry date
 
 | Resource | Current state | Follow-up |
 | --- | --- | --- |
-| Postgres | Free instance expires on 5 December 2026 | Obtain the owner's decision on a paid plan before expiry and confirm coverage through judging |
+| Postgres | `0.1c-256mb` with 1 GB since 11 November 2026, 15:42 UTC, moved from `free`; the plan readback shows no expiry date ([#56](https://github.com/ever-guild/AgentShelf/issues/56#issuecomment-6800387740)) | Keep it through 21 December 2026, then the owner exports and deletes it or keeps it |
 | Web service | Existing `0.5c-512mb` instance | Keep this plan unless the owner requests a change |
 
-Confirm the current [free database limits](https://render.com/docs/free#free-render-postgres) and [pricing](https://render.com/pricing) before upgrading, claimed hackathon credits and their remaining balance must be verified in the workspace, [integrations.md](integrations.md) explains how to claim them
+During the database change readiness returned 503 for about three minutes, then 200. Check current [pricing](https://render.com/pricing) before changing either plan; claimed hackathon credits and their remaining balance must be verified in the workspace, [integrations.md](integrations.md) explains how to claim them
 
 A Hobby workspace allows one team member, so one person holds the Render account unless the workspace moves to Pro.
 
